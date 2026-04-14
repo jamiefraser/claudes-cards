@@ -1,0 +1,97 @@
+name: E2E Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and start test stack
+        run: |
+          docker compose -f docker-compose.test.yml build --parallel
+          docker compose -f docker-compose.test.yml up -d \
+            postgres redis api-service socket-service worker-service frontend
+        env:
+          COMPOSE_DOCKER_CLI_BUILD: 1
+          DOCKER_BUILDKIT: 1
+
+      - name: Wait for services to be healthy
+        run: |
+          echo "Waiting for frontend to be healthy..."
+          timeout 120 bash -c '
+            until docker compose -f docker-compose.test.yml ps frontend | grep -q "healthy"; do
+              echo "  Still waiting..."
+              sleep 5
+            done
+          '
+          echo "All services healthy."
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        run: npx playwright test apps/frontend/e2e
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:80
+          API_URL: http://localhost:3001
+          SOCKET_URL: http://localhost:3002
+          TEST_MODE: "true"
+          AUTH_MODE: dev
+          CI: "true"
+
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload Playwright screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-screenshots
+          path: |
+            apps/frontend/e2e/screenshots/
+            test-results/
+          retention-days: 7
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: |
+          echo "=== api-service logs ==="
+          docker compose -f docker-compose.test.yml logs api-service --tail=100
+          echo "=== socket-service logs ==="
+          docker compose -f docker-compose.test.yml logs socket-service --tail=100
+          echo "=== worker-service logs ==="
+          docker compose -f docker-compose.test.yml logs worker-service --tail=100
+          echo "=== frontend logs ==="
+          docker compose -f docker-compose.test.yml logs frontend --tail=50
+
+      - name: Tear down test stack
+        if: always()
+        run: docker compose -f docker-compose.test.yml down -v

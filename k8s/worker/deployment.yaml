@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-deployment
+  namespace: card-platform
+  labels:
+    app: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      containers:
+        - name: worker
+          image: card-platform/worker:latest
+          imagePullPolicy: Always
+          # Worker has no HTTP port — no readiness HTTP probe
+          # Use exec probe to verify process is running
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "kill -0 1"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "kill -0 1"
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: card-platform-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: card-platform-secrets
+                  key: REDIS_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: card-platform-secrets
+                  key: JWT_SECRET
+            - name: VAPID_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: card-platform-secrets
+                  key: VAPID_PUBLIC_KEY
+            - name: VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: card-platform-secrets
+                  key: VAPID_PRIVATE_KEY
+            - name: VAPID_SUBJECT
+              valueFrom:
+                secretKeyRef:
+                  name: card-platform-secrets
+                  key: VAPID_SUBJECT
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

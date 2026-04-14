@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 350" width="250" height="350">
+  <!-- Card background -->
+  <rect width="250" height="350" rx="15" ry="15" fill="#E8453C" stroke="#B71C1C" stroke-width="3"/>
+  <!-- White inset border -->
+  <rect x="8" y="8" width="234" height="334" rx="10" ry="10" fill="none" stroke="white" stroke-width="2" opacity="0.6"/>
+
+  <!-- Top-left corner number -->
+  <text x="18" y="42" font-family="Arial Black, sans-serif" font-size="28" font-weight="900" fill="white" text-anchor="start">1</text>
+  <!-- Top-left corner symbol -->
+  <text x="18" y="68" font-family="Arial, sans-serif" font-size="18" fill="white" text-anchor="start" opacity="0.9">◆</text>
+
+  <!-- Large centered number -->
+  <text x="125" y="205" font-family="Arial Black, sans-serif" font-size="110" font-weight="900" fill="white" text-anchor="middle">1</text>
+
+  <!-- Bottom-right corner number -->
+  <text x="232" y="302" font-family="Arial Black, sans-serif" font-size="28" font-weight="900" fill="white" text-anchor="end">1</text>
+  <!-- Bottom-right corner symbol -->
+  <text x="232" y="328" font-family="Arial, sans-serif" font-size="18" fill="white" text-anchor="end" opacity="0.9">◆</text>
+</svg>

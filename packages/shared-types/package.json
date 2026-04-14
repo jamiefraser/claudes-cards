@@ -1,0 +1,32 @@
+{
+  "name": "@card-platform/shared-types",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "jest --passWithNoTests",
+    "lint": "echo \"No linter configured yet\" && exit 0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.4",
+    "typescript": "^5.4.0"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": ["**/__tests__/**/*.test.ts"],
+    "transform": {
+      "^.+\\.ts$": ["ts-jest", {
+        "tsconfig": {
+          "module": "CommonJS",
+          "moduleResolution": "Node"
+        }
+      }]
+    }
+  }
+}

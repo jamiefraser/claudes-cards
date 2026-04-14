@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude --version)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm test:*)",
+      "Bash(npm run:*)",
+      "Bash(docker --version)",
+      "Bash(docker run:*)",
+      "Bash(ls G:/git/claudes-cards/node_modules/.bin/ts-node*)",
+      "Bash(ls G:/git/claudes-cards/apps/api-service/node_modules/.bin/ts-node*)",
+      "Bash(npx prisma:*)",
+      "Bash(ls G:/git/claudes-cards/.env*)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:postgres@localhost:5432/card_platform?schema=public\" npx prisma migrate dev --name init)"
+    ]
+  }
+}

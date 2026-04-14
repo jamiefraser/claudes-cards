@@ -1,0 +1,90 @@
+/**
+ * CSS custom properties (design tokens).
+ * Used throughout the app via var(--token-name).
+ */
+
+:root {
+  /* Brand colours */
+  --color-primary: #4f46e5;       /* Indigo-600 */
+  --color-primary-hover: #4338ca; /* Indigo-700 */
+  --color-secondary: #0ea5e9;     /* Sky-500 */
+
+  /* Surface colours */
+  --color-bg: #0f172a;            /* Slate-900 */
+  --color-surface: #1e293b;       /* Slate-800 */
+  --color-surface-raised: #334155;/* Slate-700 */
+  --color-border: #475569;        /* Slate-600 */
+
+  /* Text colours */
+  --color-text: #f1f5f9;          /* Slate-100 */
+  --color-text-muted: #94a3b8;    /* Slate-400 */
+  --color-text-disabled: #64748b; /* Slate-500 */
+
+  /* Status / presence colours */
+  --color-online: #22c55e;        /* Green-500 */
+  --color-in-game: #f59e0b;       /* Amber-500 */
+  --color-away: #94a3b8;          /* Slate-400 */
+  --color-offline: #64748b;       /* Slate-500 */
+
+  /* Bot badge colour */
+  --color-bot: #a855f7;           /* Purple-500 */
+
+  /* Card colours (Phase 10) */
+  --color-card-red: #ef4444;
+  --color-card-blue: #3b82f6;
+  --color-card-green: #22c55e;
+  --color-card-yellow: #eab308;
+  --color-card-wild: #1e293b;
+  --color-card-skip: #475569;
+  --color-card-back: #4f46e5;
+
+  /* Cribbage board colours */
+  --color-peg-red: #ef4444;
+  --color-peg-blue: #3b82f6;
+  --color-peg-green: #22c55e;
+  --color-board-wood: #8b6914;
+  --color-hole-empty: #d4c5a9;
+  --color-skunk-line: #ef4444;
+  --color-doubleskunk-line: #f97316;
+
+  /* Spacing scale */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  /* Typography */
+  --font-sans: 'Inter', 'system-ui', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+
+  /* Border radius */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5);
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow: 400ms ease;
+
+  /* Z-index layers */
+  --z-base: 0;
+  --z-raised: 10;
+  --z-modal: 100;
+  --z-toast: 200;
+  --z-tooltip: 300;
+}

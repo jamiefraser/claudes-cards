@@ -1,0 +1,290 @@
+// Prisma schema for Card Platform
+// Provider: PostgreSQL 16
+// All IDs are UUIDs.
+//
+// APPEND-ONLY TABLES:
+//   - game_actions       (§11.2 / Story 8.6) — NO DELETE operations permitted
+//   - moderation_audit_log (§22 Story 11.6) — NO DELETE operations permitted
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum RoomStatus {
+  waiting
+  playing
+  finished
+}
+
+enum FriendStatus {
+  pending
+  accepted
+  blocked
+}
+
+enum MessageType {
+  chat
+  dm
+  system
+}
+
+enum PlayerRole {
+  player
+  moderator
+  admin
+}
+
+enum LeaderboardPeriod {
+  monthly
+  allTime
+}
+
+enum ReportStatus {
+  PENDING
+  ACTIONED
+  DISMISSED
+}
+
+// ---------------------------------------------------------------------------
+// Player
+// ---------------------------------------------------------------------------
+
+model Player {
+  id          String     @id @default(uuid())
+  username    String     @unique
+  displayName String
+  role        PlayerRole @default(player)
+  avatarUrl   String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // Relations
+  hostedRooms          Room[]             @relation("RoomHost")
+  gameResultsWon       GameResult[]       @relation("GameWinner")
+  leaderboardEntries   LeaderboardEntry[]
+  friendRequestsSent   FriendRelation[]   @relation("FriendRequester")
+  friendRequestsRecvd  FriendRelation[]   @relation("FriendAddressee")
+  messagesSent         Message[]          @relation("MessageSender")
+  muteRecords          MuteRecord[]       @relation("MutedPlayer")
+
+  @@map("players")
+}
+
+// ---------------------------------------------------------------------------
+// Room
+// ---------------------------------------------------------------------------
+
+model Room {
+  id                String     @id @default(uuid())
+  gameId            String
+  hostId            String
+  name              String
+  settings          Json       @default("{}")
+  status            RoomStatus @default(waiting)
+  asyncMode         Boolean    @default(false)
+  turnTimerSeconds  Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  host        Player       @relation("RoomHost", fields: [hostId], references: [id])
+  gameResults GameResult[]
+
+  @@map("rooms")
+}
+
+// ---------------------------------------------------------------------------
+// GameResult
+// ---------------------------------------------------------------------------
+
+model GameResult {
+  id        String   @id @default(uuid())
+  roomId    String
+  gameId    String
+  winnerId  String?
+  // JSON array of PlayerRanking: { playerId, rank, score, isBot }
+  rankings  Json     @default("[]")
+  startedAt DateTime
+  endedAt   DateTime @default(now())
+
+  // Relations
+  room   Room    @relation(fields: [roomId], references: [id])
+  winner Player? @relation("GameWinner", fields: [winnerId], references: [id])
+
+  @@map("game_results")
+}
+
+// ---------------------------------------------------------------------------
+// LeaderboardEntry
+// ---------------------------------------------------------------------------
+
+model LeaderboardEntry {
+  id        String            @id @default(uuid())
+  playerId  String
+  gameId    String
+  wins      Int               @default(0)
+  losses    Int               @default(0)
+  draws     Int               @default(0)
+  points    Int               @default(0)
+  period    LeaderboardPeriod
+  // month is set for period=monthly (format: "YYYY-MM"), null for allTime
+  month     String?
+  updatedAt DateTime          @updatedAt
+
+  // Relations
+  player Player @relation(fields: [playerId], references: [id])
+
+  @@unique([playerId, gameId, period, month])
+  @@index([gameId, period, month])
+  @@map("leaderboard_entries")
+}
+
+// ---------------------------------------------------------------------------
+// FriendRelation
+// ---------------------------------------------------------------------------
+
+model FriendRelation {
+  id          String       @id @default(uuid())
+  requesterId String
+  addresseeId String
+  status      FriendStatus @default(pending)
+  createdAt   DateTime     @default(now())
+
+  // Relations
+  requester Player @relation("FriendRequester", fields: [requesterId], references: [id])
+  addressee Player @relation("FriendAddressee", fields: [addresseeId], references: [id])
+
+  @@unique([requesterId, addresseeId])
+  @@map("friend_relations")
+}
+
+// ---------------------------------------------------------------------------
+// Message
+// ---------------------------------------------------------------------------
+
+model Message {
+  id          String      @id @default(uuid())
+  senderId    String
+  // recipientId is set for DMs, null for table/room messages
+  recipientId String?
+  // roomId is set for table chat, null for DMs
+  roomId      String?
+  content     String
+  type        MessageType @default(chat)
+  createdAt   DateTime    @default(now())
+
+  // Relations
+  sender Player @relation("MessageSender", fields: [senderId], references: [id])
+
+  @@index([roomId, createdAt])
+  @@index([senderId, recipientId])
+  @@map("messages")
+}
+
+// ---------------------------------------------------------------------------
+// GameAction — APPEND-ONLY (§11.2 / Story 8.6)
+// No DELETE operations are permitted on this table.
+// Used for game replay and debugging.
+// ---------------------------------------------------------------------------
+
+model GameAction {
+  id            String   @id @default(uuid())
+  roomId        String
+  gameId        String
+  playerId      String
+  // JSON representation of PlayerAction
+  actionJson    Json
+  isBot         Boolean  @default(false)
+  appliedAt     DateTime @default(now())
+  resultVersion Int
+
+  @@index([roomId, appliedAt])
+  @@map("game_actions")
+}
+
+// ---------------------------------------------------------------------------
+// MuteRecord (§22 Story 11.6)
+// ---------------------------------------------------------------------------
+
+model MuteRecord {
+  id           String    @id @default(uuid())
+  playerId     String
+  mutedByModId String
+  reason       String
+  // null means permanent mute
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  // Relations
+  player Player @relation("MutedPlayer", fields: [playerId], references: [id])
+
+  @@index([playerId])
+  @@map("mute_records")
+}
+
+// ---------------------------------------------------------------------------
+// ModerationReport (§22 Story 11.6)
+// ---------------------------------------------------------------------------
+
+model ModerationReport {
+  id                 String       @id @default(uuid())
+  reportedByPlayerId String
+  reportedPlayerId   String
+  // messageId is optional — some reports have no specific message
+  messageId          String?
+  reason             String
+  status             ReportStatus @default(PENDING)
+  createdAt          DateTime     @default(now())
+  actionedAt         DateTime?
+  actionedByModId    String?
+
+  @@index([reportedPlayerId, createdAt])
+  @@index([status, createdAt])
+  @@map("moderation_reports")
+}
+
+// ---------------------------------------------------------------------------
+// ModerationAuditLog — APPEND-ONLY (§22 Story 11.6)
+// No DELETE operations are permitted on this table.
+// ---------------------------------------------------------------------------
+
+model ModerationAuditLog {
+  id             String   @id @default(uuid())
+  // 'mute' | 'unmute' | 'dismiss' | 'warn'
+  actionType     String
+  moderatorId    String
+  targetPlayerId String
+  reason         String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  @@index([targetPlayerId, createdAt])
+  @@map("moderation_audit_log")
+}
+
+// ---------------------------------------------------------------------------
+// GameCatalog (§22 Story 11.4)
+// ---------------------------------------------------------------------------
+
+model GameCatalog {
+  id            String  @id
+  name          String
+  category      String
+  minPlayers    Int
+  maxPlayers    Int
+  supportsAsync Boolean @default(false)
+  enabled       Boolean @default(true)
+
+  @@map("game_catalog")
+}

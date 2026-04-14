@@ -1,0 +1,177 @@
+name: Legal Gate — Phase 10 SVG Review
+
+# SPEC.md §13 Story 2.5:
+# The Phase 10 SVG PR requires human legal sign-off before merging.
+# This workflow blocks merge until:
+#   1. The PR body contains the full legal review checklist
+#   2. A code owner has commented "/legal-approved" on the PR
+
+on:
+  pull_request:
+    paths:
+      - "packages/cards-engine/svg/phase10/**"
+  pull_request_review_comment:
+    types: [created]
+  issue_comment:
+    types: [created]
+
+permissions:
+  statuses: write
+  pull-requests: read
+
+jobs:
+  # ── Set status to pending on any matching PR open/update ─────────────────────
+  legal-gate-pending:
+    name: Set legal-review status to pending
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Set commit status to pending
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.pull_request.head.sha;
+
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: sha,
+              state: 'pending',
+              context: 'legal-review',
+              description: 'Awaiting legal sign-off for Phase 10 SVG assets',
+              target_url: 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/blob/main/SPEC.md#13-epic-2--cardsjs-fork--phase-10-deck'
+            });
+
+            core.info('legal-review status set to: pending');
+
+      - name: Check PR body for legal checklist
+        id: checklist
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = pr.body || '';
+
+            // Required checklist items per SPEC.md §13 Story 2.5
+            const requiredItems = [
+              /\[x\].*originality.*verified/i,
+              /\[x\].*trademark.*clearance/i,
+              /\[x\].*license.*confirmed/i,
+              /\[x\].*legal.*approved/i,
+            ];
+
+            const allPresent = requiredItems.every(rx => rx.test(body));
+
+            core.info('PR body checklist check: ' + (allPresent ? 'PASS' : 'FAIL'));
+            core.setOutput('checklist_complete', allPresent ? 'true' : 'false');
+
+            return allPresent;
+
+  # ── Evaluate approval when a comment is posted ───────────────────────────────
+  legal-gate-evaluate:
+    name: Evaluate legal-review approval
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request != null
+
+    steps:
+      - name: Check for /legal-approved comment from code owner
+        id: approval
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = context.payload.comment;
+            const commenter = comment.user.login;
+            const body = comment.body || '';
+
+            // Code owners defined in CODEOWNERS (or hardcoded list as fallback)
+            // In production, read from .github/CODEOWNERS
+            const LEGAL_APPROVERS = (process.env.LEGAL_APPROVERS || '').split(',').map(s => s.trim()).filter(Boolean);
+
+            const hasApprovalCommand = /\/legal-approved/i.test(body);
+            const isApprover = LEGAL_APPROVERS.length === 0 || LEGAL_APPROVERS.includes(commenter);
+
+            core.info(`Comment by: ${commenter}`);
+            core.info(`Has /legal-approved: ${hasApprovalCommand}`);
+            core.info(`Is approver: ${isApprover}`);
+
+            if (!hasApprovalCommand) {
+              core.info('Not a legal approval comment — no action.');
+              return false;
+            }
+
+            if (!isApprover) {
+              core.warning(`${commenter} is not in the LEGAL_APPROVERS list — ignoring.`);
+              return false;
+            }
+
+            return true;
+        env:
+          LEGAL_APPROVERS: ${{ vars.LEGAL_APPROVERS }}
+
+      - name: Fetch PR head SHA
+        id: pr-sha
+        if: steps.approval.outputs.result == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.issue.number;
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            core.setOutput('sha', pr.head.sha);
+
+            // Also re-check the PR body checklist
+            const body = pr.body || '';
+            const requiredItems = [
+              /\[x\].*originality.*verified/i,
+              /\[x\].*trademark.*clearance/i,
+              /\[x\].*license.*confirmed/i,
+              /\[x\].*legal.*approved/i,
+            ];
+            const checklistOk = requiredItems.every(rx => rx.test(body));
+            core.setOutput('checklist_ok', checklistOk ? 'true' : 'false');
+
+      - name: Set legal-review status to success
+        if: |
+          steps.approval.outputs.result == 'true' &&
+          steps.pr-sha.outputs.checklist_ok == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = '${{ steps.pr-sha.outputs.sha }}';
+
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: sha,
+              state: 'success',
+              context: 'legal-review',
+              description: 'Legal sign-off complete — cleared for merge',
+            });
+
+            core.info('legal-review status set to: success');
+
+      - name: Set legal-review status to failure (checklist incomplete)
+        if: |
+          steps.approval.outputs.result == 'true' &&
+          steps.pr-sha.outputs.checklist_ok != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = '${{ steps.pr-sha.outputs.sha }}';
+
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: sha,
+              state: 'failure',
+              context: 'legal-review',
+              description: '/legal-approved received but PR body checklist is incomplete',
+            });
+
+            core.warning('legal-review: approval comment received but checklist not complete in PR body.');

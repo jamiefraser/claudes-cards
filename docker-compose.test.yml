@@ -1,0 +1,160 @@
+version: "3.9"
+
+# Card Platform — CI / Test Docker Compose
+# Extends dev compose with isolated test DB and Playwright runner.
+# Usage: docker compose -f docker-compose.test.yml up --abort-on-container-exit
+
+services:
+  # ── Infrastructure (test-isolated) ─────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: card_platform_test
+      POSTGRES_HOST_AUTH_METHOD: trust
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d card_platform_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save ""
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # ── Application Services ────────────────────────────────────────────────────
+
+  api-service:
+    build:
+      context: .
+      dockerfile: apps/api-service/Dockerfile
+    environment:
+      NODE_ENV: production
+      AUTH_MODE: dev
+      TEST_MODE: "true"
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/card_platform_test?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: test-jwt-secret
+      API_PORT: 3001
+      LOG_LEVEL: info
+      VAPID_PUBLIC_KEY: ""
+      VAPID_PRIVATE_KEY: ""
+      VAPID_SUBJECT: "mailto:test@platform.example.com"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  socket-service:
+    build:
+      context: .
+      dockerfile: apps/socket-service/Dockerfile
+    environment:
+      NODE_ENV: production
+      AUTH_MODE: dev
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: test-jwt-secret
+      SOCKET_PORT: 3002
+      CORS_ORIGIN: "*"
+      LOG_LEVEL: info
+    depends_on:
+      redis:
+        condition: service_healthy
+      api-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  worker-service:
+    build:
+      context: .
+      dockerfile: apps/worker-service/Dockerfile
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/card_platform_test?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: test-jwt-secret
+      VAPID_PUBLIC_KEY: ""
+      VAPID_PRIVATE_KEY: ""
+      VAPID_SUBJECT: "mailto:test@platform.example.com"
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+    depends_on:
+      api-service:
+        condition: service_healthy
+      socket-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  # ── Playwright E2E Runner ───────────────────────────────────────────────────
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.44.0-jammy
+    working_dir: /work
+    volumes:
+      - .:/work
+      - /work/node_modules
+      - pw_node_modules:/work/node_modules
+      - pw_browsers:/ms-playwright
+    environment:
+      PLAYWRIGHT_BASE_URL: http://frontend:80
+      E2E_BASE_URL: http://frontend:80
+      API_URL: http://frontend:80/api/v1
+      SOCKET_URL: http://frontend:80
+      TEST_MODE: "true"
+      AUTH_MODE: dev
+      CI: "true"
+    command: >
+      sh -c "npm ci &&
+             cd apps/frontend &&
+             npx playwright install --with-deps &&
+             npx playwright test --reporter=html,line"
+    depends_on:
+      frontend:
+        condition: service_healthy
+      api-service:
+        condition: service_healthy
+      socket-service:
+        condition: service_healthy
+
+volumes:
+  pw_node_modules:
+  pw_browsers:

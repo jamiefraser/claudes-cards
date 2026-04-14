@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 350" width="250" height="350">
+  <defs>
+    <pattern id="tile" x="0" y="0" width="30" height="30" patternUnits="userSpaceOnUse">
+      <rect width="30" height="30" fill="#0D2B5E"/>
+      <polygon points="15,2 28,15 15,28 2,15" fill="none" stroke="#1A4A99" stroke-width="1" opacity="0.6"/>
+      <circle cx="15" cy="15" r="2" fill="#1A4A99" opacity="0.4"/>
+    </pattern>
+    <clipPath id="card-clip">
+      <rect width="250" height="350" rx="15" ry="15"/>
+    </clipPath>
+  </defs>
+  <!-- Dark navy base -->
+  <rect width="250" height="350" rx="15" ry="15" fill="#0D2B5E"/>
+  <!-- Tile pattern overlay -->
+  <rect width="250" height="350" fill="url(#tile)" clip-path="url(#card-clip)"/>
+  <!-- Border -->
+  <rect width="250" height="350" rx="15" ry="15" fill="none" stroke="#1A4A99" stroke-width="4"/>
+  <!-- Center emblem: stylized CP (Card Platform) -->
+  <circle cx="125" cy="175" r="52" fill="#0D2B5E" stroke="#4A7EC7" stroke-width="3"/>
+  <circle cx="125" cy="175" r="44" fill="none" stroke="#2A5A9A" stroke-width="1" opacity="0.5"/>
+  <!-- C letterform -->
+  <path d="M 98 165 A 27 27 0 1 1 98 185" fill="none" stroke="#7BB3F0" stroke-width="5" stroke-linecap="round"/>
+  <!-- P letterform -->
+  <line x1="132" y1="152" x2="132" y2="198" stroke="#7BB3F0" stroke-width="5" stroke-linecap="round"/>
+  <path d="M 132 152 Q 155 152 155 165 Q 155 175 132 175" fill="none" stroke="#7BB3F0" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

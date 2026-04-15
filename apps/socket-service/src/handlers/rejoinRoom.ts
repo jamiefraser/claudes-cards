@@ -43,6 +43,17 @@ export async function rejoinRoomHandler(
     // Socket joins the room
     await socket.join(roomId);
 
+    // Refresh the cached displayName so startGame on a later re-start
+    // resolves the up-to-date name.
+    if (displayName) {
+      await redis.set(
+        `player:displayName:${playerId}`,
+        displayName,
+        'EX',
+        7 * 24 * 3600,
+      );
+    }
+
     // Fetch current game state
     const stateJson = await redis.get(`game:state:${roomId}`);
     const syncPayload: GameStateSyncPayload = {

@@ -1,6 +1,6 @@
 /**
  * API client — fetch wrapper with Authorization header injection.
- * Uses the token from sessionStorage (set by DevAuthProvider / MsalAuthProvider).
+ * Uses the token from localStorage (set by DevAuthProvider / MsalAuthProvider; sticky across sessions).
  * SPEC.md §4 — lives at src/api/client.ts.
  */
 import { logger } from '@/utils/logger';
@@ -15,9 +15,9 @@ export interface ApiError {
   body: unknown;
 }
 
-/** Read the current auth token from sessionStorage. */
+/** Read the current auth token from localStorage (sticky across sessions). */
 function getToken(): string | null {
-  return sessionStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEY);
 }
 
 /**

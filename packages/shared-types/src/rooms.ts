@@ -13,6 +13,25 @@ export interface RoomSettings {
   isPrivate: boolean;
   /** Optional password for private rooms. */
   password: string | null;
+  /**
+   * Per-game house-rule overrides, keyed by engine gameId. Individual engines
+   * interpret their own sub-keys; unknown keys are ignored.
+   *
+   * Crazy Eights (`crazyeights`):
+   *   - multiSameRank: play multiple cards of the same rank in one turn
+   *   - playAfter8:    after playing an 8 and declaring a suit, keep the turn
+   *                    to play one additional card of the declared suit
+   *   - suitChain:     play a chain where each successive card shares rank
+   *                    or suit with the previous one in the chain
+   */
+  houseRules?: Record<string, Record<string, boolean>>;
+}
+
+/** Crazy Eights house-rule toggle keys. */
+export interface CrazyEightsHouseRules {
+  multiSameRank?: boolean;
+  playAfter8?: boolean;
+  suitChain?: boolean;
 }
 
 /** A room in the lobby. */

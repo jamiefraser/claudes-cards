@@ -44,7 +44,7 @@ function emitReauthRequired(): void {
 
 /** Perform a dev token refresh by re-posting the stored username to /dev/token. */
 async function refreshDevToken(): Promise<void> {
-  const storedPlayer = sessionStorage.getItem(PLAYER_KEY);
+  const storedPlayer = localStorage.getItem(PLAYER_KEY);
   if (!storedPlayer) {
     logger.warn('tokenRefresh: no stored player; cannot refresh');
     emitReauthRequired();
@@ -77,7 +77,7 @@ async function refreshDevToken(): Promise<void> {
     }
 
     const data = (await response.json()) as { token: string };
-    sessionStorage.setItem(TOKEN_KEY, data.token);
+    localStorage.setItem(TOKEN_KEY, data.token);
     logger.info('tokenRefresh: dev token refreshed successfully');
 
     // Schedule the next refresh
@@ -139,7 +139,7 @@ export function cancelRefresh(): void {
 
 /** Initialize the refresh scheduler from the current session token. */
 export function initTokenRefresh(): void {
-  const token = sessionStorage.getItem(TOKEN_KEY);
+  const token = localStorage.getItem(TOKEN_KEY);
   if (!token) return;
   scheduleRefresh(token);
 }

@@ -7,7 +7,7 @@
  */
 
 import type { IBotStrategy, GameState, PlayerAction, Card } from '@card-platform/shared-types';
-import { cardValue } from '../../games/cribbage/engine.js';
+import { cardValue } from '../../games/cribbage/engine';
 import { logger } from '../../utils/logger';
 
 interface CribbagePublicData {

@@ -68,16 +68,21 @@ export async function startGameHandler(
     let hostId: string | null = null;
     let gameId: string | null = null;
     let maxPlayers = 6;
+    let houseRules: Record<string, Record<string, boolean>> = {};
     if (roomMetaJson) {
       try {
         const meta = JSON.parse(roomMetaJson) as {
           hostId?: string;
           gameId?: string;
           maxPlayers?: number;
+          houseRules?: Record<string, Record<string, boolean>>;
         };
         hostId = meta.hostId ?? null;
         gameId = meta.gameId ?? null;
         if (typeof meta.maxPlayers === 'number') maxPlayers = meta.maxPlayers;
+        if (meta.houseRules && typeof meta.houseRules === 'object') {
+          houseRules = meta.houseRules;
+        }
       } catch {
         /* ignore */
       }
@@ -127,12 +132,14 @@ export async function startGameHandler(
 
     // Initialise the engine
     const engine = registry.getEngine(resolvedGameId);
+    const gameHouseRules = houseRules[resolvedGameId] ?? {};
     const config: GameConfig = {
       gameId: resolvedGameId,
       roomId,
       playerIds: allPlayerIds,
       asyncMode: false,
       turnTimerSeconds: null,
+      options: { houseRules: gameHouseRules },
     };
 
     let state: GameState;
@@ -145,6 +152,26 @@ export async function startGameHandler(
         message: `Cannot start ${resolvedGameId}: ${(err as Error).message}`,
       });
       return;
+    }
+
+    // Resolve real display names. Engines default `displayName` to the raw
+    // playerId UUID, which is unreadable at the table. For humans, look up
+    // the cached name written on joinRoom/rejoinRoom. For bots (playerId
+    // prefix 'bot:'), generate "Bot 1", "Bot 2", … by seat order among bots
+    // so each seat is distinct and self-describing.
+    {
+      let botSeatCounter = 0;
+      const resolvedPlayers = await Promise.all(
+        state.players.map(async (p) => {
+          if (p.playerId.startsWith('bot:')) {
+            botSeatCounter += 1;
+            return { ...p, displayName: `Bot ${botSeatCounter}`, isBot: true };
+          }
+          const cached = await redis.get(`player:displayName:${p.playerId}`);
+          return cached ? { ...p, displayName: cached } : p;
+        }),
+      );
+      state = { ...state, players: resolvedPlayers };
     }
 
     // Persist and broadcast
@@ -164,10 +191,10 @@ export async function startGameHandler(
       (state.publicData as { gamePhase?: string } | undefined)?.gamePhase === 'discarding';
     if (cribbageDiscarding) {
       for (const botId of botIds) {
-        await botController.scheduleAction(roomId, botId);
+        await botController.scheduleAction(roomId, botId, state.version);
       }
     } else if (state.currentTurn && botIds.includes(state.currentTurn)) {
-      await botController.scheduleAction(roomId, state.currentTurn);
+      await botController.scheduleAction(roomId, state.currentTurn, state.version);
     }
 
     socket.nsp.to(roomId).emit('game_state_sync', { state });

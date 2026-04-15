@@ -1186,7 +1186,7 @@ The `CribbageBoard.tsx` component renders an SVG cribbage board within the game 
 **Detailed specification:**
 
 - **Dimensions:** 720×160px viewBox (horizontal board, landscape orientation)
-- **Track layout:** One lane per player (up to 3 lanes for 4-player: red, blue, green). For 2-player: red and blue lanes only.
+- **Track layout:** The board always renders three lanes (red, blue, green), matching a standard modern 3-track physical cribbage board. Used lanes are assigned to players in turn order; unused lanes render as empty tracks (holes visible, lane label muted grey, no pegs).
 - **Holes:** 121 holes per lane. Holes are grouped in sets of 5 with a visible gap between each group. Each hole is a circle, radius 5px, fill `#D4C5A9` (empty), fill player-colour (occupied by front peg), fill lighter-player-colour (occupied by back peg).
 - **Hole positions:** Holes run left-to-right starting at position 1 (hole 0 is the "home" start position, off the left edge). A single "goal" hole sits at position 121, slightly separated from hole 120.
 - **Skunk line:** A vertical red line and small "S" label at hole 91
@@ -1202,8 +1202,9 @@ The `CribbageBoard.tsx` component renders an SVG cribbage board within the game 
 ```gherkin
 Given a 2-player Cribbage game is in progress
 When the CribbageBoard renders
-Then it shows two lanes (red = Player 1, blue = Player 2)
+Then it shows three lanes (red = Player 1, blue = Player 2, green = empty)
   And each lane has exactly 121 holes grouped in sets of 5
+  And the empty third lane has a muted grey label and no pegs
   And a vertical skunk line is visible at hole 91 with label "S"
   And a vertical double-skunk line is visible at hole 61 with label "SS"
   And the goal hole at 121 is visually distinct (slightly larger, gold border)

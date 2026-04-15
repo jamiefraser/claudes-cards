@@ -8,7 +8,8 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.d.ts"],
+  "files": ["src/types/express.d.ts"],
   "references": [
     { "path": "../../packages/shared-types" }
   ]

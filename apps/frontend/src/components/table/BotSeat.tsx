@@ -10,18 +10,12 @@ import en from '@/i18n/en.json';
 
 export interface BotSeatProps {
   playerState: PlayerState;
-  /** The original human player's display name */
   originalDisplayName: string;
   isCurrentTurn: boolean;
   deckType?: DeckType;
-  /** Show the dealer badge (cribbage etc.). */
   isDealer?: boolean;
 }
 
-/**
- * Robot icon SVG — circuit-board face motif.
- * Original design, inline SVG per SPEC.md §9.6.
- */
 function RobotIcon() {
   return (
     <svg
@@ -31,26 +25,19 @@ function RobotIcon() {
       viewBox="0 0 40 40"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
-      className="text-purple-400"
+      className="text-bot drop-shadow-[0_2px_6px_rgba(168,85,247,0.35)]"
     >
-      {/* Head */}
       <rect x="8" y="10" width="24" height="20" rx="3" fill="currentColor" />
-      {/* Eyes */}
       <circle cx="15" cy="18" r="3" fill="#1e1b4b" />
       <circle cx="25" cy="18" r="3" fill="#1e1b4b" />
-      {/* Eye lights */}
       <circle cx="16" cy="17" r="1" fill="#a5b4fc" />
       <circle cx="26" cy="17" r="1" fill="#a5b4fc" />
-      {/* Mouth */}
       <rect x="13" y="24" width="14" height="2" rx="1" fill="#1e1b4b" />
-      {/* Mouth segments */}
       <rect x="15" y="24" width="2" height="2" rx="0.5" fill="#a5b4fc" />
       <rect x="19" y="24" width="2" height="2" rx="0.5" fill="#a5b4fc" />
       <rect x="23" y="24" width="2" height="2" rx="0.5" fill="#a5b4fc" />
-      {/* Antenna */}
       <line x1="20" y1="10" x2="20" y2="5" stroke="currentColor" strokeWidth="2" />
       <circle cx="20" cy="4" r="2" fill="currentColor" />
-      {/* Circuit traces */}
       <line x1="8" y1="18" x2="4" y2="18" stroke="currentColor" strokeWidth="1.5" />
       <circle cx="3" cy="18" r="1.5" fill="currentColor" />
       <line x1="32" y1="18" x2="36" y2="18" stroke="currentColor" strokeWidth="1.5" />
@@ -74,18 +61,25 @@ export function BotSeat({
   return (
     <div
       className={[
-        'relative flex flex-col items-center gap-1 p-2 rounded-lg border-2 min-w-[80px]',
+        'relative flex flex-col items-center gap-1 px-3 py-2.5 min-w-[110px]',
+        'rounded-2xl backdrop-blur',
+        'bg-night-raised/85',
+        'border transition-colors',
         isCurrentTurn
-          ? 'border-purple-400 shadow-lg shadow-purple-500/30'
-          : 'border-purple-700',
-        'bg-slate-800',
+          ? 'border-bot/70 shadow-[0_0_0_1px_rgba(168,85,247,0.5),0_0_28px_2px_rgba(168,85,247,0.35)]'
+          : 'border-bot/30',
       ].join(' ')}
       aria-label={`${originalDisplayName} (Bot) seat${isDealer ? ' (dealer)' : ''}`}
     >
-      {/* Dealer badge — top-left */}
       {isDealer && (
         <span
-          className="absolute -top-2 -left-2 bg-amber-500 text-slate-900 text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center border-2 border-slate-800 z-10"
+          className={[
+            'absolute -top-2.5 -left-2.5 z-10 w-7 h-7 rounded-full',
+            'flex items-center justify-center',
+            'font-display font-bold text-[0.72rem]',
+            'bg-gradient-to-b from-brass-bright to-brass-dim text-night',
+            'border border-brass-dim shadow-[0_2px_6px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.4)]',
+          ].join(' ')}
           title={en.table.dealerBadgeTooltip}
           aria-label={en.table.dealerBadgeTooltip}
         >
@@ -93,28 +87,32 @@ export function BotSeat({
         </span>
       )}
 
-      {/* BOT badge — top-right */}
       <span
-        className="absolute -top-2 -right-2 bg-purple-600 text-white text-xs font-bold px-1.5 py-0.5 rounded-full cursor-help z-10"
+        className={[
+          'absolute -top-2 -right-2 z-10 px-2 py-0.5 rounded-full',
+          'font-display text-[0.6rem] tracking-[0.18em] uppercase font-bold',
+          'bg-bot/95 text-white',
+          'border border-bot/60 shadow-[0_2px_6px_rgba(168,85,247,0.4)]',
+          'cursor-help',
+        ].join(' ')}
         title={tooltipText}
       >
         {en.table.botBadge}
       </span>
 
-      {/* Robot avatar */}
       <RobotIcon />
 
-      {/* Name with (Bot) suffix */}
-      <span className="text-white text-xs font-medium truncate max-w-[72px]">
-        {originalDisplayName} {en.table.botNameSuffix}
+      <span className="font-display text-sm text-parchment truncate max-w-[100px] leading-tight">
+        {originalDisplayName}
+        <span className="ml-1 text-bot/80 text-[0.65rem] tracking-wider uppercase">
+          {en.table.botNameSuffix}
+        </span>
       </span>
 
-      {/* Card count */}
-      <span className="text-slate-400 text-xs">
+      <span className="text-parchment/55 text-[0.7rem] tracking-wide">
         {en.table.cardCount.replace('{count}', String(playerState.hand.length))}
       </span>
 
-      {/* Face-down card fan */}
       {visibleCards > 0 && (
         <div
           className="flex items-center justify-center mt-1"
@@ -124,7 +122,7 @@ export function BotSeat({
           {Array.from({ length: visibleCards }).map((_, i) => (
             <div
               key={i}
-              className="w-5 h-7 rounded-sm border border-slate-500 bg-slate-900 overflow-hidden"
+              className="w-5 h-7 rounded-sm border border-brass/30 bg-night overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.5)]"
               style={{ marginLeft: i === 0 ? 0 : '-10px', zIndex: i }}
             >
               {backUrl && (
@@ -150,14 +148,13 @@ export function BotSeat({
         </div>
       )}
 
-      {/* Score */}
-      <span className="text-slate-300 text-xs">
-        {playerState.score} pts
+      <span className="flex items-baseline gap-1.5 font-display text-sm">
+        <span className="text-brass-bright tabular-nums">{playerState.score}</span>
+        <span className="text-parchment/40 text-[0.65rem] uppercase tracking-widest">pts</span>
       </span>
 
-      {/* Thinking indicator during turn */}
       {isCurrentTurn && (
-        <span className="text-purple-300 text-xs animate-pulse">
+        <span className="font-display italic text-[0.72rem] text-bot animate-pulse">
           {en.table.thinking}
         </span>
       )}

@@ -89,9 +89,11 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       players: updatedPlayers,
       currentTurn: delta.currentTurn !== undefined ? delta.currentTurn : current.currentTurn,
       phase: delta.phase ?? current.phase,
-      publicData: delta.publicData
-        ? { ...current.publicData, ...delta.publicData }
-        : current.publicData,
+      // Replace, don't merge: the engine always sends the full publicData on
+      // every delta, and merging makes stale fields from the previous hand
+      // (e.g. cribbage countingStep, scoringHands) linger across phase
+      // transitions. Replacement matches what applySync does.
+      publicData: delta.publicData ?? current.publicData,
       updatedAt: delta.updatedAt,
       cribbageBoardState: delta.cribbageBoardState ?? current.cribbageBoardState,
     };

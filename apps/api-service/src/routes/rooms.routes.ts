@@ -42,6 +42,9 @@ async function writeRoomMeta(room: Room): Promise<void> {
         hostId: room.hostId,
         gameId: room.gameId,
         maxPlayers: room.settings.maxPlayers,
+        // Per-game house-rule overrides flow through room:meta so the
+        // socket-service can hand them to the engine at startGame.
+        houseRules: room.settings.houseRules ?? {},
       }),
     );
   } catch (e) {

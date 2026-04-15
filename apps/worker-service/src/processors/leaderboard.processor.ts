@@ -14,8 +14,8 @@
 
 import type { Job } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
-import { redis } from '../redis/client.js';
-import { logger } from '../utils/logger.js';
+import { redis } from '../redis/client';
+import { logger } from '../utils/logger';
 import type { PlayerRanking } from '@shared/gameEngine.js';
 
 export interface LeaderboardJobPayload {

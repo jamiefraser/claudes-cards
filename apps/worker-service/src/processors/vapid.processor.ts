@@ -14,7 +14,7 @@
 
 import type { Job } from 'bullmq';
 import webpush from 'web-push';
-import { logger } from '../utils/logger.js';
+import { logger } from '../utils/logger';
 
 /** Web Push subscription object (W3C Push API format). */
 export interface PushSubscription {

@@ -17,6 +17,7 @@ import { logger } from '../utils/logger';
 import type { GameActionPayload, GameState, GameAction, GameStateDelta } from '@card-platform/shared-types';
 import type { GameRegistry } from '../games/registry';
 import type { BotController } from '../bots/BotController';
+import { scheduleBotsAfterAction } from '../bots/schedulingHelpers';
 
 const LOCK_TTL_SECONDS = 5;
 const SERVER_ID = randomUUID();
@@ -58,8 +59,19 @@ export async function gameActionHandler(
 
     const state: GameState = JSON.parse(stateJson);
 
-    // Validate turn
-    if (state.currentTurn !== playerId) {
+    // Validate turn — but skip for actions that are logically parallel and
+    // therefore have no single "current" player. The engine still validates
+    // turn ownership inside its own handlers for the strictly turn-based
+    // actions (e.g. cribbage 'play' and 'go' check state.currentTurn).
+    const PARALLEL_ACTIONS = new Set([
+      // Cribbage: discarding to the crib is parallel; ack-count is turn-based
+      // INSIDE the engine but the "current counter" is tracked separately
+      // from state.currentTurn (which stays pinned to the pegging lead), so
+      // it must not be gated by the global currentTurn check either.
+      'discard-crib',
+      'ack-count',
+    ]);
+    if (!PARALLEL_ACTIONS.has(action.type) && state.currentTurn !== playerId) {
       socket.emit('game_error', { code: 'NOT_YOUR_TURN', message: 'It is not your turn' });
       return;
     }
@@ -120,8 +132,8 @@ export async function gameActionHandler(
     // Post-action routing
     if (engine.isGameOver(nextState)) {
       await botController.deactivateAll(roomId);
-    } else if (nextState.currentTurn && botController.isBotActive(roomId, nextState.currentTurn)) {
-      await botController.scheduleAction(roomId, nextState.currentTurn);
+    } else {
+      await scheduleBotsAfterAction(nextState, botController);
     }
   } finally {
     await redis.del(`game:lock:${roomId}`);

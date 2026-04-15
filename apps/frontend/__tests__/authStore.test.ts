@@ -61,22 +61,22 @@ describe('authStore', () => {
     expect(typeof state.refreshToken).toBe('function');
   });
 
-  it('refreshToken does nothing when no token in sessionStorage', async () => {
+  it('refreshToken does nothing when no token in localStorage', async () => {
     // Ensure no token stored
-    sessionStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_token');
     await useAuthStore.getState().refreshToken();
     // State unchanged
     expect(useAuthStore.getState().token).toBeNull();
   });
 
-  it('refreshToken syncs token from sessionStorage when different from store', async () => {
+  it('refreshToken syncs token from localStorage when different from store', async () => {
     // Set player with old token
     useAuthStore.getState().setPlayer(mockPlayer, 'old-tok');
-    // Store a different token in sessionStorage
-    sessionStorage.setItem('auth_token', 'new-tok');
+    // Store a different token in localStorage
+    localStorage.setItem('auth_token', 'new-tok');
     await useAuthStore.getState().refreshToken();
     expect(useAuthStore.getState().token).toBe('new-tok');
     // Cleanup
-    sessionStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_token');
   });
 });

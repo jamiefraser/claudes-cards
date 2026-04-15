@@ -17,7 +17,7 @@ const SOCKET_URL = (import.meta.env?.VITE_SOCKET_URL as string | undefined) ?? '
 const TOKEN_KEY = 'auth_token';
 
 function getToken(): string | null {
-  return sessionStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEY);
 }
 
 let lobbySocket: Socket | null = null;

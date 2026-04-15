@@ -5,7 +5,7 @@
  */
 
 import { Queue } from 'bullmq';
-import { redis } from '../redis/client.js';
+import { redis } from '../redis/client';
 
 export const leaderboardQueue = new Queue('leaderboard', {
   connection: redis,

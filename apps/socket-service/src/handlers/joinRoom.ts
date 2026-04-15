@@ -26,6 +26,18 @@ export async function joinRoomHandler(socket: Socket, payload: JoinRoomPayload):
     // Add player to room:players SET
     await redis.sadd(`room:players:${roomId}`, playerId);
 
+    // Cache displayName so startGame can swap in real names instead of the
+    // raw playerId UUIDs the engines use as a fallback. Week-long TTL covers
+    // the whole async play window; refreshed on every join/rejoin.
+    if (displayName) {
+      await redis.set(
+        `player:displayName:${playerId}`,
+        displayName,
+        'EX',
+        7 * 24 * 3600,
+      );
+    }
+
     // Socket joins the Socket.io room
     await socket.join(roomId);
 

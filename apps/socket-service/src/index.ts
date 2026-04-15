@@ -17,32 +17,33 @@ import { logger } from './utils/logger';
 import { GameRegistry } from './games/registry';
 import { BotController } from './bots/BotController';
 import { BotPlayer } from './bots/BotPlayer';
+import { BotSweeper } from './bots/BotSweeper';
 import { GenericBotStrategy } from './bots/strategies/generic.strategy';
 
 // Game engines
-import { Phase10Engine } from './games/phase10/engine.js';
-import { RummyEngine } from './games/rummy/engine.js';
-import { GinRummyEngine } from './games/ginrummy/engine.js';
-import { CanastaEngine } from './games/canasta/engine.js';
-import { CribbageEngine } from './games/cribbage/engine.js';
-import { SpadesEngine } from './games/spades/engine.js';
-import { HeartsEngine } from './games/hearts/engine.js';
-import { EuchreEngine } from './games/euchre/engine.js';
-import { WhistEngine } from './games/whist/engine.js';
-import { OhHellEngine } from './games/ohhell/engine.js';
-import { GoFishEngine } from './games/gofish/engine.js';
-import { CrazyEightsEngine } from './games/crazyeights/engine.js';
-import { WarEngine } from './games/war/engine.js';
-import { SpitEngine } from './games/spit/engine.js';
-import { IdiotEngine } from './games/idiot/engine.js';
+import { Phase10Engine } from './games/phase10/engine';
+import { RummyEngine } from './games/rummy/engine';
+import { GinRummyEngine } from './games/ginrummy/engine';
+import { CanastaEngine } from './games/canasta/engine';
+import { CribbageEngine } from './games/cribbage/engine';
+import { SpadesEngine } from './games/spades/engine';
+import { HeartsEngine } from './games/hearts/engine';
+import { EuchreEngine } from './games/euchre/engine';
+import { WhistEngine } from './games/whist/engine';
+import { OhHellEngine } from './games/ohhell/engine';
+import { GoFishEngine } from './games/gofish/engine';
+import { CrazyEightsEngine } from './games/crazyeights/engine';
+import { WarEngine } from './games/war/engine';
+import { SpitEngine } from './games/spit/engine';
+import { IdiotEngine } from './games/idiot/engine';
 
 // Bot strategies
-import { Phase10BotStrategy } from './bots/strategies/phase10.strategy.js';
-import { RummyBotStrategy } from './bots/strategies/rummy.strategy.js';
-import { GinRummyBotStrategy } from './bots/strategies/ginrummy.strategy.js';
-import { CribbageBotStrategy } from './bots/strategies/cribbage.strategy.js';
-import { GoFishBotStrategy } from './bots/strategies/gofish.strategy.js';
-import { CrazyEightsBotStrategy } from './bots/strategies/crazyeights.strategy.js';
+import { Phase10BotStrategy } from './bots/strategies/phase10.strategy';
+import { RummyBotStrategy } from './bots/strategies/rummy.strategy';
+import { GinRummyBotStrategy } from './bots/strategies/ginrummy.strategy';
+import { CribbageBotStrategy } from './bots/strategies/cribbage.strategy';
+import { GoFishBotStrategy } from './bots/strategies/gofish.strategy';
+import { CrazyEightsBotStrategy } from './bots/strategies/crazyeights.strategy';
 
 import { setupGameNamespace } from './namespaces/game.namespace';
 import { setupLobbyNamespace } from './namespaces/lobby.namespace';
@@ -114,6 +115,13 @@ const botPlayer = new BotPlayer(registry, botController);
 // Expose botPlayer globally for scheduled actions in BotController
 (globalThis as Record<string, unknown>)['_botPlayer'] = botPlayer;
 
+// BotSweeper — at-least-once backstop for pub/sub misses (see BotSweeper.ts).
+// Skipped in the test harness since the interval would keep Jest alive.
+const botSweeper = new BotSweeper(botPlayer, botController);
+if (process.env.NODE_ENV !== 'test') {
+  botSweeper.start();
+}
+
 // ---------------------------------------------------------------------------
 // Namespaces
 // ---------------------------------------------------------------------------
@@ -125,7 +133,7 @@ setupLobbyNamespace(io);
 // Pub/Sub
 // ---------------------------------------------------------------------------
 
-setupPubSubSubscriber(io, botController);
+setupPubSubSubscriber(io, botController, botPlayer);
 
 // ---------------------------------------------------------------------------
 // Start server
@@ -143,7 +151,7 @@ if (process.env.NODE_ENV !== 'test') {
 // Exports (used by tests)
 // ---------------------------------------------------------------------------
 
-export { httpServer, io };
+export { httpServer, io, botSweeper };
 
 /**
  * Returns the Socket.io Server instance.

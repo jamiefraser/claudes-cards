@@ -20,12 +20,25 @@ import type {
 import { createStandardDeck } from '@card-platform/cards-engine';
 import { logger } from '../../utils/logger';
 
+interface CrazyEightsHouseRules {
+  multiSameRank?: boolean;
+  playAfter8?: boolean;
+  suitChain?: boolean;
+}
+
 interface CrazyEightsPublicData {
   drawPile: Card[];
   drawPileSize: number;
   discardPile: Card[];
   discardTop: Card | null;
   declaredSuit: string | null; // when 8 was played
+  /** Active house-rule toggles for this room. */
+  houseRules: CrazyEightsHouseRules;
+  /**
+   * When set, the same player must play one more card of `playAfter8Suit`
+   * before the turn passes. Only used with the playAfter8 house rule.
+   */
+  playAfter8Suit: string | null;
 }
 
 function shuffle<T>(arr: T[]): void {
@@ -98,12 +111,22 @@ export class CrazyEightsEngine implements IGameEngine {
     }
     const discardTop = { ...discardCard, faceUp: true };
 
+    const rawHouseRules =
+      (config.options?.['houseRules'] as CrazyEightsHouseRules | undefined) ?? {};
+    const houseRules: CrazyEightsHouseRules = {
+      multiSameRank: !!rawHouseRules.multiSameRank,
+      playAfter8: !!rawHouseRules.playAfter8,
+      suitChain: !!rawHouseRules.suitChain,
+    };
+
     const publicData: CrazyEightsPublicData = {
       drawPile: cards,
       drawPileSize: cards.length,
       discardPile: [discardTop],
       discardTop,
       declaredSuit: null,
+      houseRules,
+      playAfter8Suit: null,
     };
 
     logger.debug('CrazyEightsEngine.startGame', { roomId, playerCount: playerIds.length });
@@ -170,27 +193,82 @@ export class CrazyEightsEngine implements IGameEngine {
     action: PlayerAction,
     pd: CrazyEightsPublicData,
   ): GameState {
-    const cardId = action.cardIds?.[0];
-    if (!cardId) throw new Error('No card specified');
+    const cardIds = action.cardIds ?? [];
+    if (cardIds.length === 0) throw new Error('No card specified');
+
+    const houseRules = pd.houseRules ?? {};
+    const multiRankOn = !!houseRules.multiSameRank;
+    const suitChainOn = !!houseRules.suitChain;
+    const playAfter8On = !!houseRules.playAfter8;
+
+    // Multi-card plays are only permitted when an explicit rule allows them.
+    if (cardIds.length > 1 && !multiRankOn && !suitChainOn) {
+      throw new Error('Multi-card plays are not enabled for this room');
+    }
 
     const player = state.players.find(p => p.playerId === playerId)!;
-    const card = player.hand.find(c => c.id === cardId);
-    if (!card) throw new Error(`Card ${cardId} not in hand`);
+    const cards: Card[] = cardIds.map((id) => {
+      const card = player.hand.find(c => c.id === id);
+      if (!card) throw new Error(`Card ${id} not in hand`);
+      return card;
+    });
+    const firstCard = cards[0]!;
+    const lastCard = cards[cards.length - 1]!;
 
-    if (!canPlay(card, pd.discardTop, pd.declaredSuit)) {
+    // When the table is mid-"play after 8", the opening card of this play
+    // must match the suit declared by the previous 8 — the rule only grants
+    // one extra card, not a full chain.
+    if (pd.playAfter8Suit) {
+      if (firstCard.rank === '8') {
+        // allowed — playing another 8 restarts the wild chain
+      } else if (firstCard.suit !== pd.playAfter8Suit) {
+        throw new Error(
+          `Must play a ${pd.playAfter8Suit} card after the 8`,
+        );
+      }
+    } else if (!canPlay(firstCard, pd.discardTop, pd.declaredSuit)) {
       throw new Error('Card cannot be played');
     }
 
-    const newHand = player.hand.filter(c => c.id !== cardId);
-    const faceUp = { ...card, faceUp: true };
-    const newDiscardPile = [...pd.discardPile, faceUp];
+    // Validate any additional cards against the enabled rule(s).
+    for (let i = 1; i < cards.length; i++) {
+      const prev = cards[i - 1]!;
+      const cur = cards[i]!;
+      const sameRank = cur.rank === prev.rank;
+      const sameSuit = cur.suit === prev.suit;
+      if (multiRankOn && sameRank) continue;
+      if (suitChainOn && (sameRank || sameSuit)) continue;
+      throw new Error(
+        multiRankOn
+          ? 'All cards in a stack must share the same rank'
+          : 'Each card must match the previous by rank or suit',
+      );
+    }
 
-    // If 8 played, declare suit
-    const declaredSuit = card.rank === '8'
-      ? ((action.payload?.suit as string) ?? card.suit ?? 'hearts')
+    const cardIdSet = new Set(cardIds);
+    const newHand = player.hand.filter(c => !cardIdSet.has(c.id));
+    const facedUp = cards.map(c => ({ ...c, faceUp: true }));
+    const newDiscardPile = [...pd.discardPile, ...facedUp];
+    const newDiscardTop = facedUp[facedUp.length - 1]!;
+
+    // If the final card played is an 8, declare a suit. Otherwise any prior
+    // declared-suit lock from an earlier 8 clears because a real card landed
+    // on top.
+    const lastIsEight = lastCard.rank === '8';
+    const declaredSuit = lastIsEight
+      ? ((action.payload?.['suit'] as string) ?? lastCard.suit ?? 'hearts')
       : null;
 
+    // playAfter8 bookkeeping: an 8 at the end of this play entitles the same
+    // player to one extra card of the declared suit on a follow-up action.
+    // Playing the follow-up card clears the lock.
+    const playAfter8Suit =
+      playAfter8On && lastIsEight
+        ? declaredSuit
+        : null;
+
     const wentOut = newHand.length === 0;
+    const keepTurn = !wentOut && !!playAfter8Suit;
 
     let newPlayers = state.players.map(p =>
       p.playerId === playerId ? { ...p, hand: newHand, isOut: wentOut } : p
@@ -210,13 +288,18 @@ export class CrazyEightsEngine implements IGameEngine {
       version: state.version + 1,
       phase: wentOut ? 'ended' : 'playing',
       players: newPlayers,
-      currentTurn: wentOut ? null : nextPlayer(state.players, playerId),
+      currentTurn: wentOut
+        ? null
+        : keepTurn
+          ? playerId
+          : nextPlayer(state.players, playerId),
       turnNumber: state.turnNumber + 1,
       publicData: {
         ...pd,
         discardPile: newDiscardPile,
-        discardTop: faceUp,
+        discardTop: newDiscardTop,
         declaredSuit,
+        playAfter8Suit,
       } as unknown as Record<string, unknown>,
       updatedAt: new Date().toISOString(),
     };

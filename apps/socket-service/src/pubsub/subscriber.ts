@@ -14,12 +14,17 @@ import type { Server } from 'socket.io';
 import { redisSub } from '../redis/pubsub';
 import { logger } from '../utils/logger';
 import type { BotController } from '../bots/BotController';
+import type { BotPlayer } from '../bots/BotPlayer';
 
 /**
  * Wire up pub/sub subscriber.
  * Uses psubscribe for pattern matching.
  */
-export function setupPubSubSubscriber(io: Server, botController: BotController): void {
+export function setupPubSubSubscriber(
+  io: Server,
+  botController: BotController,
+  botPlayer: BotPlayer | null = null,
+): void {
   // Pattern subscribe covers all three channel patterns
   const patterns = ['bot:action:*', 'room:event:*', 'leaderboard:updated:*'];
 
@@ -37,7 +42,7 @@ export function setupPubSubSubscriber(io: Server, botController: BotController):
     'pmessage',
     (pattern: string, channel: string, message: string) => {
       try {
-        handlePubSubMessage(io, botController, pattern, channel, message);
+        handlePubSubMessage(io, botController, botPlayer, pattern, channel, message);
       } catch (err) {
         logger.error('PubSub message handler error', { pattern, channel, err: String(err) });
       }
@@ -48,6 +53,7 @@ export function setupPubSubSubscriber(io: Server, botController: BotController):
 function handlePubSubMessage(
   io: Server,
   botController: BotController,
+  botPlayer: BotPlayer | null,
   pattern: string,
   channel: string,
   message: string,
@@ -55,7 +61,12 @@ function handlePubSubMessage(
   if (pattern === 'bot:action:*') {
     // channel = "bot:action:{roomId}"
     const roomId = channel.replace('bot:action:', '');
-    let parsed: { type?: string; playerId?: string; seatIndex?: number };
+    let parsed: {
+      type?: string;
+      playerId?: string;
+      seatIndex?: number;
+      scheduledForVersion?: number;
+    };
     try {
       parsed = JSON.parse(message);
     } catch {
@@ -71,6 +82,28 @@ function handlePubSubMessage(
         .catch((err: Error) => {
           logger.error('BotController.activateBot failed from pubsub', { roomId, err: err.message });
         });
+    } else if (action === 'execute') {
+      // Durable bot-turn delivery (replaces in-process setTimeout).
+      // If botPlayer wasn't wired in (e.g. test harness), fall back to the
+      // globalThis._botPlayer shim for backwards compat.
+      const runner =
+        botPlayer ??
+        (((globalThis as Record<string, unknown>)['_botPlayer'] as BotPlayer | undefined) ??
+          null);
+      if (!runner) {
+        logger.warn('bot:action execute received but no BotPlayer is wired', {
+          roomId,
+          playerId: parsed.playerId,
+        });
+        return;
+      }
+      runner.executeAction(roomId, parsed.playerId, parsed.scheduledForVersion).catch((err: Error) => {
+        logger.error('BotPlayer.executeAction failed from pubsub', {
+          roomId,
+          playerId: parsed.playerId,
+          err: err.message,
+        });
+      });
     } else if (action === 'yield') {
       botController.yieldBot(roomId, parsed.playerId).catch((err: Error) => {
         logger.error('BotController.yieldBot failed from pubsub', { roomId, err: err.message });

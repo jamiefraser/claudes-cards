@@ -12,17 +12,10 @@ export interface PlayerSeatProps {
   playerState: PlayerState;
   isCurrentTurn: boolean;
   isSelf: boolean;
-  /** Deck type for opponent card-back rendering. Defaults to 'standard'. */
   deckType?: DeckType;
-  /** Show the dealer badge on this seat (games with a dealer concept). */
   isDealer?: boolean;
 }
 
-/**
- * A small fan of face-down cards shown next to an opponent's seat so the
- * player can see how many cards they hold and that they're hidden.
- * Caps at 7 visible cards; additional cards are indicated by the count badge.
- */
 function OpponentHandVisual({
   handSize,
   deckType,
@@ -44,11 +37,8 @@ function OpponentHandVisual({
       {Array.from({ length: visible }).map((_, i) => (
         <div
           key={i}
-          className="w-5 h-7 rounded-sm border border-slate-500 bg-slate-900 overflow-hidden"
-          style={{
-            marginLeft: i === 0 ? 0 : '-10px',
-            zIndex: i,
-          }}
+          className="w-5 h-7 rounded-sm border border-brass/30 bg-night overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.5)]"
+          style={{ marginLeft: i === 0 ? 0 : '-10px', zIndex: i }}
         >
           {backUrl && (
             <img
@@ -84,18 +74,25 @@ export function PlayerSeat({
   return (
     <div
       className={[
-        'relative flex flex-col items-center gap-1 p-2 rounded-lg border-2 min-w-[80px]',
+        'relative flex flex-col items-center gap-1 px-3 py-2.5 min-w-[110px]',
+        'rounded-2xl backdrop-blur',
+        'bg-night-raised/85',
+        'border transition-colors',
         isCurrentTurn
-          ? 'border-indigo-400 shadow-lg shadow-indigo-500/30'
-          : 'border-slate-600',
-        isSelf ? 'bg-slate-700' : 'bg-slate-800',
+          ? 'border-brand-secondary/70 animate-turn-pulse'
+          : 'border-brass/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_6px_18px_-10px_rgba(0,0,0,0.7)]',
       ].join(' ')}
       aria-label={`${playerState.displayName}'s seat${isDealer ? ' (dealer)' : ''}`}
     >
-      {/* Dealer badge — top-left */}
       {isDealer && (
         <span
-          className="absolute -top-2 -left-2 bg-amber-500 text-slate-900 text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center border-2 border-slate-800 z-10"
+          className={[
+            'absolute -top-2.5 -left-2.5 z-10 w-7 h-7 rounded-full',
+            'flex items-center justify-center',
+            'font-display font-bold text-[0.72rem]',
+            'bg-gradient-to-b from-brass-bright to-brass-dim text-night',
+            'border border-brass-dim shadow-[0_2px_6px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.4)]',
+          ].join(' ')}
           title={en.table.dealerBadgeTooltip}
           aria-label={en.table.dealerBadgeTooltip}
         >
@@ -103,23 +100,30 @@ export function PlayerSeat({
         </span>
       )}
 
-      {/* Avatar */}
-      <div className="w-10 h-10 rounded-full bg-slate-600 flex items-center justify-center text-white font-bold text-sm">
+      <div
+        className={[
+          'w-10 h-10 rounded-full flex items-center justify-center',
+          'font-display font-bold text-base',
+          'bg-gradient-to-br from-brand-primary/70 to-brand-secondary/60',
+          'text-parchment border border-brass/30',
+          'shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]',
+        ].join(' ')}
+      >
         {playerState.displayName.charAt(0).toUpperCase()}
       </div>
 
-      {/* Name */}
-      <span className="text-white text-xs font-medium truncate max-w-[72px]">
+      <span className="font-display text-sm text-parchment truncate max-w-[100px] leading-tight">
         {playerState.displayName}
         {isSelf && (
-          <span className="ml-1 text-indigo-400 text-xs">(You)</span>
+          <span className="ml-1 text-parchment/45 text-[0.65rem] tracking-wider uppercase">
+            (you)
+          </span>
         )}
       </span>
 
-      {/* Card count + face-down fan (for others) */}
       {!isSelf && (
         <>
-          <span className="text-slate-400 text-xs">
+          <span className="text-parchment/55 text-[0.7rem] tracking-wide">
             {en.table.cardCount.replace('{count}', String(playerState.hand.length))}
           </span>
           <OpponentHandVisual
@@ -129,15 +133,14 @@ export function PlayerSeat({
         </>
       )}
 
-      {/* Score */}
-      <span className="text-slate-300 text-xs">
-        {playerState.score} pts
+      <span className="flex items-baseline gap-1.5 font-display text-sm">
+        <span className="text-brass-bright tabular-nums">{playerState.score}</span>
+        <span className="text-parchment/40 text-[0.65rem] uppercase tracking-widest">pts</span>
       </span>
 
-      {/* Thinking indicator */}
-      <span aria-live="polite">
+      <span aria-live="polite" className="min-h-[1em]">
         {isCurrentTurn && (
-          <span className="text-yellow-400 text-xs animate-pulse">
+          <span className="font-display italic text-[0.72rem] text-brand-secondary">
             {isSelf ? en.table.yourTurn : en.table.thinking}
           </span>
         )}

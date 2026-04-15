@@ -34,20 +34,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   /**
-   * Refresh the token from sessionStorage.
+   * Refresh the token from localStorage.
    * In dev mode, tokens do not expire within a session; this is a no-op stub
    * that satisfies the store shape. Production MSAL refresh is handled by
    * MsalAuthProvider.
    */
   refreshToken: async (): Promise<void> => {
-    const storedToken = sessionStorage.getItem('auth_token');
+    const storedToken = localStorage.getItem('auth_token');
     if (!storedToken) {
       logger.warn('authStore: refreshToken called but no stored token found');
       return;
     }
     const current = get();
     if (current.player && storedToken !== current.token) {
-      logger.info('authStore: refreshToken — syncing token from sessionStorage');
+      logger.info('authStore: refreshToken — syncing token from localStorage');
       set({ token: storedToken });
     }
   },

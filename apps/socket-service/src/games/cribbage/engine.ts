@@ -36,6 +36,10 @@ interface CribbagePublicData {
   cutCard: Card | null;
   pegCount: number;       // running pegging total
   pegCards: Card[];       // cards played this pegging round
+  /** Player who played each card in pegCards, parallel array. Used to
+   * correctly attribute the "go" point and to determine the next leader
+   * after an all-pass reset. Always the same length as pegCards. */
+  pegCardPlayers: string[];
   pegPlayOrder: string[]; // playerIds in peg-play order
   pegPassedPlayers: string[]; // players who have said "go"
   dealerIndex: number;
@@ -328,6 +332,7 @@ export class CribbageEngine implements IGameEngine {
       cutCard: null,
       pegCount: 0,
       pegCards: [],
+      pegCardPlayers: [],
       pegPlayOrder: [...playerIds],
       pegPassedPlayers: [],
       dealerIndex,
@@ -533,6 +538,7 @@ export class CribbageEngine implements IGameEngine {
       scores: newScores,
       pegCount: 0,
       pegCards: [],
+      pegCardPlayers: [],
       pegPlayOrder: state.players.map(p => p.playerId),
       pegPassedPlayers: [],
       scoringHands,
@@ -573,6 +579,7 @@ export class CribbageEngine implements IGameEngine {
 
     const newHand = player.hand.filter(c => c.id !== cardId);
     const newPegCards = [...pd.pegCards, { ...card, faceUp: true }];
+    const newPegCardPlayers = [...pd.pegCardPlayers, playerId];
 
     // Score the peg play
     const pegPts = scorePegPlay(newPegCards, newCount);
@@ -603,6 +610,7 @@ export class CribbageEngine implements IGameEngine {
     let resetPeg = newCount === 31;
     let pegCount = resetPeg ? 0 : newCount;
     let pegCards = resetPeg ? [] : newPegCards;
+    let pegCardPlayers = resetPeg ? [] : newPegCardPlayers;
     let pegPassedPlayers = resetPeg ? [] : pd.pegPassedPlayers;
 
     if (gameEnded) {
@@ -618,6 +626,7 @@ export class CribbageEngine implements IGameEngine {
           gamePhase: 'ended',
           pegCount,
           pegCards,
+          pegCardPlayers,
           pegPassedPlayers,
           scores: newScores,
         } as unknown as Record<string, unknown>,
@@ -652,6 +661,7 @@ export class CribbageEngine implements IGameEngine {
               gamePhase: 'ended',
               pegCount: 0,
               pegCards: [],
+              pegCardPlayers: [],
               pegPassedPlayers: [],
               scores: newScores,
             } as unknown as Record<string, unknown>,
@@ -689,6 +699,7 @@ export class CribbageEngine implements IGameEngine {
         ...pd,
         pegCount,
         pegCards,
+        pegCardPlayers,
         pegPassedPlayers,
         scores: newScores,
       } as unknown as Record<string, unknown>,
@@ -716,16 +727,12 @@ export class CribbageEngine implements IGameEngine {
     let gameEnded = false;
 
     if (allPassed && pd.pegCards.length > 0) {
-      // Last player to play gets 1 pt for "go"
-      const lastPlayed = pd.pegCards[pd.pegCards.length - 1];
-      const lastPlayerId = lastPlayed ? state.players.find(p =>
-        newPlayers.find(np => np.playerId === p.playerId)!.hand.every(c => !pd.pegCards.some(pc => pc.id === c.id))
-      )?.playerId ?? playerId : playerId;
-
-      // Find who last played a card (anyone not in newPassed before this)
-      const prevPassed = pd.pegPassedPlayers;
-      const candidate = activePlayers.find(p => !prevPassed.includes(p.playerId) && p.playerId !== playerId);
-      const lastPlayedBy = candidate ? candidate.playerId : playerId;
+      // The last player to play a card in this pegging segment gets 1 pt
+      // for "go". We track this precisely via the pegCardPlayers parallel
+      // array rather than guessing from remaining hands — with 3+ players
+      // any heuristic based on "not in prevPassed" is ambiguous.
+      const pcp = pd.pegCardPlayers ?? [];
+      const lastPlayedBy = pcp[pcp.length - 1] ?? playerId;
 
       const result = addScore(
         { ...state, players: newPlayers, cribbageBoardState: board },
@@ -747,7 +754,7 @@ export class CribbageEngine implements IGameEngine {
           players: newPlayers,
           currentTurn: null,
           cribbageBoardState: board,
-          publicData: { ...pd, gamePhase: 'ended', pegCount: 0, pegCards: [], pegPassedPlayers: [], scores: newScores } as unknown as Record<string, unknown>,
+          publicData: { ...pd, gamePhase: 'ended', pegCount: 0, pegCards: [], pegCardPlayers: [], pegPassedPlayers: [], scores: newScores } as unknown as Record<string, unknown>,
           updatedAt: new Date().toISOString(),
         };
       }
@@ -756,11 +763,17 @@ export class CribbageEngine implements IGameEngine {
         return this.moveToCountingPhase({ ...state, players: newPlayers, cribbageBoardState: board }, { ...pd, scores: newScores });
       }
 
-      // Reset peg round, next player leads
-      const nonDealerIdx = (pd.dealerIndex + 1) % state.players.length;
-      const nextLead = newPlayers.find(p =>
-        p.hand.length > 0 && p.playerId === state.players[nonDealerIdx]?.playerId
-      )?.playerId ?? newPlayers.find(p => p.hand.length > 0)?.playerId ?? null;
+      // Reset peg round. Per Hoyle's, the next lead is the player to the
+      // LEFT (next in pegPlayOrder) of whoever played the last card, skipping
+      // any players whose hands are now empty.
+      const emptyHandIds = newPlayers
+        .filter(p => p.hand.length === 0)
+        .map(p => p.playerId);
+      const nextLead = nextPeggingPlayer(
+        pd.pegPlayOrder,
+        lastPlayedBy,
+        emptyHandIds,
+      );
 
       return {
         ...state,
@@ -772,6 +785,7 @@ export class CribbageEngine implements IGameEngine {
           ...pd,
           pegCount: 0,
           pegCards: [],
+          pegCardPlayers: [],
           pegPassedPlayers: [],
           scores: newScores,
         } as unknown as Record<string, unknown>,
@@ -1018,6 +1032,7 @@ export class CribbageEngine implements IGameEngine {
       cutCard: null,
       pegCount: 0,
       pegCards: [],
+      pegCardPlayers: [],
       pegPlayOrder: players.map(p => p.playerId),
       pegPassedPlayers: [],
       dealerIndex: newDealerIndex,

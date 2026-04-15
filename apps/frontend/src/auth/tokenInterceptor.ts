@@ -13,9 +13,9 @@
 
 const TOKEN_KEY = 'auth_token';
 
-/** Read the current token from sessionStorage. Returns null if not authenticated. */
+/** Read the current token from localStorage. Returns null if not authenticated. */
 export function getStoredToken(): string | null {
-  return sessionStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEY);
 }
 
 /**

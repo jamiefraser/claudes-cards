@@ -10,11 +10,47 @@
   "auth": {
     "signIn": "Sign In",
     "signOut": "Sign Out",
+    "signUp": "Sign Up",
     "selectUser": "Select a test user",
     "signingIn": "Signing in…",
     "welcome": "Welcome to Card Platform",
     "devModeNotice": "Development mode — select a test user to sign in",
     "authError": "Authentication failed. Please try again."
+  },
+  "landing": {
+    "hero": "Your favourite card games, anywhere.",
+    "subhero": "A modern lounge for classic card games — play live or async, solo or with friends, on any device.",
+    "ctaPrimary": "Sign in to play",
+    "ctaSecondary": "Already have an account? Sign in",
+    "gamesHeading": "Games on the table",
+    "benefitsHeading": "Why play here?",
+    "benefits": {
+      "realtime": {
+        "title": "Real-time & async",
+        "body": "Drop in for a live hand or let turns roll over 24 – 72 hours. Bots step in politely if someone's away."
+      },
+      "friends": {
+        "title": "Play with friends",
+        "body": "Private rooms, invites, and a friends list keep your circle close — no randoms unless you want them."
+      },
+      "cross": {
+        "title": "Any device, same seat",
+        "body": "Start on your laptop, finish on your phone. Your hand follows you — responsive down to the smallest screen."
+      },
+      "fair": {
+        "title": "Rule-accurate",
+        "body": "Server-authoritative engines, transparent scoring, and an in-game rules panel sourced from the classic references."
+      },
+      "leaders": {
+        "title": "Track your skill",
+        "body": "Monthly and all-time leaderboards per game. Humans only — bots never ladder."
+      },
+      "sound": {
+        "title": "Polished feel",
+        "body": "Card flips, pegging clicks, gentle chimes — all royalty-free, all mutable, all tuned to stay out of your way."
+      }
+    },
+    "loginNotice": "Sign in is quick — create an account or use an existing email. Your session stays signed in on this device."
   },
   "lobby": {
     "title": "Game Lobby",
@@ -220,6 +256,8 @@
     "discard": "Discard",
     "discardAria": "Discard selected card",
     "toCrib": "Send to Crib",
+    "toCribOwn": "Send to your crib",
+    "toCribOther": "Send to {name}'s crib",
     "toCribAria": "Send selected cards to the crib",
     "cribCountsRemaining": "Crib needs {n} more card(s)",
     "cutDeck": "Cut Deck",
@@ -249,6 +287,374 @@
       "8": "7 cards of one colour",
       "9": "1 set of 5 + 1 set of 2",
       "10": "1 set of 5 + 1 set of 3"
+    },
+    "roomInfo": "Room {code} · Hand {current}/{total}",
+    "settingsOpen": "Open settings",
+    "settingsClose": "Close settings",
+    "leaveRoom": "Leave room",
+    "rulesOpen": "Open rules",
+    "rulesClose": "Close rules"
+  },
+  "rules": {
+    "title": "Rules",
+    "subtitleFallback": "House reference",
+    "searchPlaceholder": "Search rules…",
+    "emptyState": "Rules for this game are not yet available.",
+    "attributionFallback": "Source to be confirmed.",
+    "attributionDefault": "Adapted from Official Game Rules (officialgamerules.org). Trademarked games remain property of their respective owners.",
+    "collapseAria": "Collapse section",
+    "expandAria": "Expand section",
+    "sectionTitles": {
+      "objective": "Objective",
+      "setup": "Setup",
+      "play": "The play",
+      "scoring": "Scoring",
+      "winning": "Winning",
+      "specialCards": "Special cards",
+      "bidding": "Bidding",
+      "tricks": "Tricks",
+      "melds": "Melds",
+      "pegging": "The play (pegging)",
+      "theShow": "The show",
+      "variants": "Variants & notes"
+    },
+    "games": {
+      "phase10": {
+        "title": "Phase 10",
+        "subtitle": "Rummy-style phase race",
+        "sections": {
+          "objective": [
+            "Be the first player to complete all ten phases in order. The player with the lowest score after someone finishes phase 10 wins the game."
+          ],
+          "setup": [
+            "Use the 108-card Phase 10 deck (numbers 1–12 in four colours, plus Skips and Wilds). Deal ten cards to each player. Place the rest face-down as the draw pile and turn the top card up to start the discard pile."
+          ],
+          "play": [
+            "On your turn, draw one card from either pile, then discard one. If you hold the cards needed for your current phase, you may lay it down face-up. Once laid down, you can \"hit\" on any player's existing phase groups on later turns.",
+            "Wild cards substitute for any number or colour. A Skip card, when discarded, forces the next player to lose a turn."
+          ],
+          "scoring": [
+            "When someone empties their hand, every other player scores the cards left in theirs: 1–9 = 5 points, 10–12 = 10, Skip = 15, Wild = 25. Lower is better."
+          ],
+          "winning": [
+            "The first player to complete phase 10 and go out wins. If several players complete phase 10 in the same hand, the one with the lowest cumulative score wins."
+          ]
+        }
+      },
+      "rummy": {
+        "title": "Rummy",
+        "subtitle": "Classic set-and-run shedding game",
+        "sections": {
+          "objective": [
+            "Be the first to empty your hand by melding all of your cards into sets and runs, then scoring as few remaining points as possible in your opponents' hands."
+          ],
+          "setup": [
+            "Use a standard 52-card deck. With two players deal ten cards each; with three or four players deal seven; with five or six deal six. Place the rest face-down as the stock and turn the top card up to start the discard."
+          ],
+          "play": [
+            "On your turn, draw one card from the stock or the top of the discard, meld any legal groups if you wish, optionally lay off cards onto existing melds, and end your turn by discarding one card.",
+            "A set is three or four cards of the same rank; a run is three or more consecutive cards of the same suit. Aces are low by default."
+          ],
+          "scoring": [
+            "When one player goes out the others count the pips left in their hands: face cards = 10, aces = 1, others = face value. The winner scores the total pips held against them."
+          ],
+          "winning": [
+            "Play to an agreed target (commonly 100 or 500 points). The first player to reach or exceed it wins the game."
+          ]
+        }
+      },
+      "ginrummy": {
+        "title": "Gin Rummy",
+        "subtitle": "Two-player rummy for sharp hands",
+        "sections": {
+          "objective": [
+            "Form your hand into sets and runs and minimise the deadwood (unmatched cards). First player to 100 points wins the game."
+          ],
+          "setup": [
+            "Standard 52-card deck. Deal ten cards to each player. Turn the next card face-up to start the discard; the rest forms the stock."
+          ],
+          "play": [
+            "On your turn, draw the top card of the stock or the discard, then discard one. After the draw, you may knock if your deadwood total is 10 or fewer.",
+            "Knocking ends the hand: both players lay down their melds and the non-knocker may lay off unmatched cards onto the knocker's melds."
+          ],
+          "scoring": [
+            "The knocker scores the difference in deadwood. Going gin (zero deadwood) earns a 25-point bonus. If the opponent's deadwood ties or beats the knocker's, the opponent undercuts and scores 25 plus the difference."
+          ],
+          "winning": [
+            "First player to reach 100 points wins the match, plus line and box bonuses where house rules apply."
+          ]
+        }
+      },
+      "canasta": {
+        "title": "Canasta",
+        "subtitle": "Partnership melding with wild cards",
+        "sections": {
+          "objective": [
+            "Build melds of matching ranks, aiming to complete seven-card canastas. First side to 5,000 points wins the match."
+          ],
+          "setup": [
+            "Two 52-card decks plus four jokers (108 cards total). Deal eleven cards to each of four players in two partnerships. The top stock card starts the discard pile."
+          ],
+          "play": [
+            "On your turn, draw from the stock (or take the entire discard pile if you can use its top card in a meld), then lay down any melds of three or more matching ranks, and discard one card.",
+            "Jokers and 2s are wild. Black 3s block the discard pile; red 3s are bonuses laid down immediately."
+          ],
+          "melds": [
+            "A natural canasta is seven cards of the same rank with no wild cards (500 bonus). A mixed canasta includes at least one wild (300 bonus). A side must complete at least one canasta before going out."
+          ],
+          "scoring": [
+            "Add meld values (A/2 = 20, 8–K = 10, 4–7 = 5, joker = 50, red 3 = 100) and subtract any cards left in hand. Going out scores a 100-point bonus; going out concealed scores 200."
+          ]
+        }
+      },
+      "cribbage": {
+        "title": "Cribbage",
+        "subtitle": "The classic peg-and-board game",
+        "sections": {
+          "objective": [
+            "Be the first player to peg 121 points around the board. Points come from combinations during play (pegging) and from your hand and crib at the show."
+          ],
+          "setup": [
+            "Standard 52-card deck. Deal six cards to each player (two-player game). Each player discards two cards face-down into the crib, which belongs to the dealer."
+          ],
+          "play": [
+            "The non-dealer cuts the deck; the dealer turns the top card of the lower half face-up as the starter. If it is a Jack, the dealer immediately pegs two (\"his heels\").",
+            "Players then alternate playing cards into a running count. Score points as you go and never let the count exceed 31."
+          ],
+          "pegging": [
+            "Score 2 for reaching a total of 15 or 31, 2 for a pair, 6 for three of a kind, 12 for four of a kind, and 1 per card for runs of three or more (regardless of the order played).",
+            "When a player cannot play without busting 31 they call \"Go\", giving the opponent 1 point; the last card of each sub-count scores 1 for \"last card\"."
+          ],
+          "theShow": [
+            "Starting with the non-dealer, each player reveals their hand and the starter card, scoring 15s, pairs, runs, flushes (four-card flush in hand only; five with the starter), and his nobs (Jack of the starter's suit = 1). The dealer counts their crib last under the same rules (except a four-card flush in the crib does not score unless the starter matches)."
+          ],
+          "winning": [
+            "The first player whose peg crosses hole 121 wins immediately, even mid-hand. Failing to reach 91 is a skunk; failing to reach 61 is a double skunk."
+          ]
+        }
+      },
+      "spades": {
+        "title": "Spades",
+        "subtitle": "Partnership trick-taking with a fixed trump",
+        "sections": {
+          "objective": [
+            "Bid the number of tricks your partnership will take and then take exactly that many. First team to 500 points wins."
+          ],
+          "setup": [
+            "Four players in two partnerships sit across from each other. Deal the full 52-card deck so each player has 13 cards."
+          ],
+          "bidding": [
+            "Starting left of the dealer and going clockwise, each player announces how many tricks they expect to take. Partners' bids combine into the team's contract. A bid of zero (nil) is a separate contract scored individually."
+          ],
+          "play": [
+            "The player left of the dealer leads. Everyone must follow suit if able. Spades are trump and may not be led until someone has trumped in on another suit (\"spades broken\") or holds only spades."
+          ],
+          "scoring": [
+            "Make the contract: 10 points per bid trick plus 1 point for each overtrick (\"bag\"). Miss it: subtract 10 per bid trick. Accumulating ten bags costs the team 100 points.",
+            "Successful nil: 100 points. Failed nil: -100 points. Blind nil (bid before looking at your hand) doubles the stakes."
+          ],
+          "winning": [
+            "The first partnership to reach 500 points (or drop to -200, which loses) ends the match."
+          ]
+        }
+      },
+      "hearts": {
+        "title": "Hearts",
+        "subtitle": "Trick-taking avoidance game",
+        "sections": {
+          "objective": [
+            "Avoid taking points. Each heart is worth 1 penalty point and the Queen of Spades is worth 13. The game ends when a player reaches 100; the lowest score wins."
+          ],
+          "setup": [
+            "Four players and a full 52-card deck. Deal 13 cards to each. Before each hand, players pass three cards — left, right, across, then hold — rotating each deal."
+          ],
+          "play": [
+            "The player holding the 2 of Clubs leads it. Players must follow suit if able; otherwise they may play anything (hearts and the Queen of Spades cannot be played on the first trick unless a player has nothing else).",
+            "Hearts may not be led until they have been \"broken\" by being played on another lead."
+          ],
+          "scoring": [
+            "At the end of each hand, count hearts (1 each) and the Queen of Spades (13) in each player's pile of tricks."
+          ],
+          "specialCards": [
+            "Shooting the moon: if a single player takes every heart and the Queen of Spades in one hand, they score zero and every other player scores 26."
+          ],
+          "winning": [
+            "Play continues until any player's total reaches 100. The player with the lowest score at that moment wins."
+          ]
+        }
+      },
+      "euchre": {
+        "title": "Euchre",
+        "subtitle": "Fast partnership trick-taking",
+        "sections": {
+          "objective": [
+            "Take at least three of five tricks as a partnership. First team to 10 points wins."
+          ],
+          "setup": [
+            "Four players in two partnerships. Use a 24-card deck (9, 10, J, Q, K, A in each suit). Deal five cards to each player; the dealer turns the next card face-up as the candidate trump."
+          ],
+          "bidding": [
+            "Starting left of the dealer, each player may pass or order up the turned card as trump. If all pass, the card is turned down and a second round lets each player name any other suit. Any player may also go alone, playing without their partner for bonus points."
+          ],
+          "play": [
+            "Trump ranks highest; the jack of trump is the right bower and outranks the ace. The other jack of the same colour is the left bower and counts as a trump card second only to the right bower.",
+            "Players must follow suit when able. Highest trump, or highest card of the led suit if no trump is played, wins the trick."
+          ],
+          "scoring": [
+            "Three or four tricks: 1 point. All five tricks (march): 2 points. All five alone: 4 points. Failing to take three tricks after naming trump (euchred): the other team scores 2 points."
+          ],
+          "winning": [
+            "The first team to reach 10 points wins."
+          ]
+        }
+      },
+      "whist": {
+        "title": "Whist",
+        "subtitle": "Classical English trick-taking",
+        "sections": {
+          "objective": [
+            "Win the majority of tricks with your partner. Any trick beyond six (an \"odd trick\") scores one point. Play to a target of 5 or 7 points."
+          ],
+          "setup": [
+            "Four players in two partnerships. Deal the full 52-card deck (13 each). The dealer's last card is turned face-up to determine the trump suit, then taken back into their hand before the first trick."
+          ],
+          "play": [
+            "The player left of the dealer leads. Follow suit if able; otherwise trump or discard freely. The highest trump, or the highest card of the led suit if no trump is played, wins the trick."
+          ],
+          "scoring": [
+            "Only the side with seven or more tricks scores, earning one point per odd trick. Some house rules add honours (A, K, Q, J of trump): holding three in a hand scores 2 points; all four scores 4."
+          ],
+          "winning": [
+            "First side to the agreed target (typically 5 for short whist or 7 for long whist) wins the rubber."
+          ]
+        }
+      },
+      "ohhell": {
+        "title": "Oh Hell",
+        "subtitle": "Predict your tricks exactly",
+        "sections": {
+          "objective": [
+            "Bid the exact number of tricks you will take each hand. Highest total score after the final deal wins."
+          ],
+          "setup": [
+            "Three to seven players using a 52-card deck. The number of cards dealt changes each hand, climbing up and then back down (e.g. 1, 2, 3 … and back). After the deal the next card is turned face-up to set trump for that hand."
+          ],
+          "bidding": [
+            "Starting left of the dealer, each player announces how many tricks they intend to take. The dealer bids last and may not make the total of bids equal the number of tricks available, guaranteeing at least one player fails."
+          ],
+          "play": [
+            "The player left of the dealer leads. Players must follow suit if able; otherwise they may trump or throw off. Highest trump (or highest card in the led suit) wins."
+          ],
+          "scoring": [
+            "Make your bid exactly: 10 points plus 1 per trick taken. Miss by any amount: 0 points (or minus the number of tricks missed, by house rule). Bidding zero and taking zero is a valid exact bid."
+          ],
+          "winning": [
+            "After the last hand, the highest cumulative score wins."
+          ]
+        }
+      },
+      "gofish": {
+        "title": "Go Fish",
+        "subtitle": "Asking-and-matching family game",
+        "sections": {
+          "objective": [
+            "Collect the most \"books\" — complete sets of four cards of the same rank."
+          ],
+          "setup": [
+            "Standard 52-card deck. With two or three players deal seven cards each; with four or more deal five. The remaining cards form the pond (stock) face-down."
+          ],
+          "play": [
+            "On your turn, ask any other player for a rank you already hold in your hand. If they have any cards of that rank, they must hand them all over and you take another turn. If they don't, they say \"Go fish\" and you draw the top card of the pond; your turn ends unless you drew the rank you asked for."
+          ],
+          "scoring": [
+            "Every time you collect four of a rank, lay the book face-up in front of you. When the pond runs out and every hand is empty, count books."
+          ],
+          "winning": [
+            "The player with the most books wins. Break ties by the highest-ranking book."
+          ]
+        }
+      },
+      "crazyeights": {
+        "title": "Crazy Eights",
+        "subtitle": "Shedding game with wild eights",
+        "sections": {
+          "objective": [
+            "Be the first to empty your hand. In a series, the winner of each hand scores the pips remaining in every opponent's hand; first to an agreed target (commonly 100) wins."
+          ],
+          "setup": [
+            "One or two standard 52-card decks. Deal five to seven cards to each player. Turn the top card face-up to start the discard pile."
+          ],
+          "play": [
+            "On your turn, play a card matching the rank or suit of the top card on the discard. If you can't, draw from the stock until you can play (house rules vary — draw one, or draw until playable)."
+          ],
+          "specialCards": [
+            "Eights are wild: you may play one on any card and declare the suit the next player must follow. Common house rules: 2 forces the next player to draw 2, Jack skips, Queen reverses direction."
+          ],
+          "scoring": [
+            "Eights score 50, face cards 10, aces 1, others face value. The round winner adds the total pips in every opponent's hand to their score."
+          ]
+        }
+      },
+      "war": {
+        "title": "War",
+        "subtitle": "Simple head-to-head comparison",
+        "sections": {
+          "objective": [
+            "Win every card in the deck."
+          ],
+          "setup": [
+            "Split the shuffled 52-card deck into two equal face-down piles, one for each player. Aces are high."
+          ],
+          "play": [
+            "Both players flip their top card face-up. The higher card wins both and goes to the bottom of the winner's pile.",
+            "If the cards tie, declare WAR: each player places three cards face-down and one card face-up; the higher face-up card wins all ten. If those also tie, the war repeats."
+          ],
+          "winning": [
+            "The player who ultimately holds every card wins. Many sessions play to a time limit — most cards held at the end wins."
+          ]
+        }
+      },
+      "spit": {
+        "title": "Spit",
+        "subtitle": "Real-time two-player speed game",
+        "sections": {
+          "objective": [
+            "Be the first to empty your stock pile and, eventually, your tableau."
+          ],
+          "setup": [
+            "Split a 52-card deck in half. Each player lays out five tableau piles (1, 2, 3, 4, 5 cards; only the top of each is face-up), then keeps the rest as a face-down stock. Each player puts the top card of their stock face-up in the centre as the starting \"spit\" pile."
+          ],
+          "play": [
+            "Both players play at once. Move any face-up tableau card onto either spit pile if its rank is one higher or one lower (aces wrap around K↔A↔2). Flip a new tableau card whenever a slot empties.",
+            "When neither player can move, both shout \"Spit!\" and flip a new card onto each spit pile to restart play."
+          ],
+          "winning": [
+            "When one player clears their stock, they slap the smaller centre pile. The loser takes the other pile plus any tableau cards remaining, and a new round begins. The match ends when a player has no tableau left to deal."
+          ]
+        }
+      },
+      "idiot": {
+        "title": "Idiot (Palace / Shithead)",
+        "subtitle": "Three-layer shedding game",
+        "sections": {
+          "objective": [
+            "Get rid of every card you hold. The last player still holding cards is the \"idiot\" and loses the hand."
+          ],
+          "setup": [
+            "Standard 52-card deck. Deal three cards face-down, then three cards face-up on top of them, then three cards into each player's hand. Before play, each player may swap hand cards for the face-up cards in front of them."
+          ],
+          "play": [
+            "On your turn, play one or more cards of the same rank equal to or higher than the top of the discard pile, then refill your hand to three from the stock while cards remain.",
+            "If you can't play, you must pick up the entire discard pile. After your hand and the stock are empty, play from your face-up cards; then blindly from your face-down cards."
+          ],
+          "specialCards": [
+            "2 resets the pile to any rank. 10 burns the entire pile (removed from the game) and you play again. Four cards of the same rank played in sequence also burn the pile."
+          ],
+          "winning": [
+            "The first player to empty their hand, face-up, and face-down cards wins. Play continues until only one player remains with cards — that player is the idiot."
+          ]
+        }
+      }
     }
   },
   "chat": {
@@ -264,5 +670,13 @@
   },
   "connection": {
     "lost": "Connection lost"
+  },
+  "gameOver": {
+    "title": "Hand over",
+    "winnerLabel": "Winner",
+    "outLabel": "Out",
+    "youLabel": "You",
+    "backToLobby": "Back to lobby",
+    "noWinner": "No clear winner"
   }
 }

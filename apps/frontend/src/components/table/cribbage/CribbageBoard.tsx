@@ -86,13 +86,16 @@ const LANE_COLORS: Record<string, string> = {
 };
 
 const LANE_EMPTY_FILL = '#D4C5A9';
+const EMPTY_LANE_LABEL = '#6b7280';
+const TOTAL_LANES = 3;
+const LANE_ORDER: Array<'red' | 'blue' | 'green'> = ['red', 'blue', 'green'];
 
 const SKUNK_HOLE = 91;
 const DOUBLE_SKUNK_HOLE = 61;
 
 export function CribbageBoard({ boardState, playerNames }: CribbageBoardProps) {
   const { pegs } = boardState;
-  const laneCount = pegs.length;
+  const laneCount = TOTAL_LANES;
 
   const skunkX = holeX(SKUNK_HOLE);
   const doubleSkunkX = holeX(DOUBLE_SKUNK_HOLE);
@@ -158,13 +161,18 @@ export function CribbageBoard({ boardState, playerNames }: CribbageBoardProps) {
           fill="#6B4F0E"
         />
 
-        {/* Lanes and holes */}
-        {pegs.map((pegSet, laneIdx) => {
+        {/* Lanes and holes — always render three tracks */}
+        {Array.from({ length: TOTAL_LANES }, (_, laneIdx) => {
           const cy = laneY(laneIdx);
-          const laneColor = LANE_COLORS[pegSet.color] ?? '#888';
+          const pegSet = pegs[laneIdx];
+          const laneColor = pegSet
+            ? (LANE_COLORS[pegSet.color] ?? '#888')
+            : EMPTY_LANE_LABEL;
+          const laneKey = pegSet?.playerId ?? `empty-${laneIdx}`;
+          const holeOwner = pegSet?.playerId ?? `empty-${laneIdx}`;
 
           return (
-            <g key={pegSet.playerId} data-lane={pegSet.playerId}>
+            <g key={laneKey} data-lane={laneKey} data-lane-empty={pegSet ? undefined : 'true'}>
               {/* Lane label */}
               <circle cx={BOARD_MARGIN_LEFT - 10} cy={cy} r={5} fill={laneColor} />
 
@@ -175,7 +183,7 @@ export function CribbageBoard({ boardState, playerNames }: CribbageBoardProps) {
                 return (
                   <circle
                     key={holeNum}
-                    data-hole={`${pegSet.playerId}-${holeNum}`}
+                    data-hole={`${holeOwner}-${holeNum}`}
                     cx={hx}
                     cy={cy}
                     r={HOLE_RADIUS}
@@ -188,7 +196,7 @@ export function CribbageBoard({ boardState, playerNames }: CribbageBoardProps) {
 
               {/* Goal hole at 121 */}
               <circle
-                data-hole={`${pegSet.playerId}-121`}
+                data-hole={`${holeOwner}-121`}
                 data-goal-hole="true"
                 cx={holeX(121)}
                 cy={cy}

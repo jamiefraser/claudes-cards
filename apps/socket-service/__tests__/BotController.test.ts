@@ -17,6 +17,8 @@ jest.mock('../src/redis/client', () => ({
     set: jest.fn().mockResolvedValue('OK'),
     get: jest.fn().mockResolvedValue(null),
     exists: jest.fn().mockResolvedValue(0),
+    expire: jest.fn().mockResolvedValue(1),
+    scan: jest.fn().mockResolvedValue(['0', []]),
   },
 }));
 
@@ -24,6 +26,14 @@ jest.mock('../src/redis/pubsub', () => ({
   redisSub: {
     subscribe: jest.fn().mockResolvedValue(undefined),
     on: jest.fn(),
+  },
+}));
+
+// Mock the BullMQ-backed turnTimer queue so scheduleAction can enqueue
+// without a real Redis/BullMQ wired up.
+jest.mock('../src/queues/turnTimer.queue', () => ({
+  turnTimerQueue: {
+    add: jest.fn().mockResolvedValue({ id: 'mock-job-id' }),
   },
 }));
 
@@ -144,9 +154,10 @@ describe('BotController', () => {
 
       await controller.scheduleAction('room-1', 'player-1');
 
-      // TTL should be ceil(thinkTime/1000) + 1 — between 2 and 4 seconds
-      expect(capturedTtl).toBeGreaterThanOrEqual(2);
-      expect(capturedTtl).toBeLessThanOrEqual(4);
+      // TTL covers think time plus a retry buffer; think time is 800–2500ms
+      // and the controller adds +30s for retries → between 31 and 33 seconds.
+      expect(capturedTtl).toBeGreaterThanOrEqual(31);
+      expect(capturedTtl).toBeLessThanOrEqual(33);
     });
   });
 

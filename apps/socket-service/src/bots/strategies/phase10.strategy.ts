@@ -17,7 +17,7 @@ import {
   canCompletePhase,
   findPhaseArrangement,
   canHitMeld,
-} from '../../games/phase10/engine.js';
+} from '../../games/phase10/engine';
 import { logger } from '../../utils/logger';
 
 // ---------------------------------------------------------------------------

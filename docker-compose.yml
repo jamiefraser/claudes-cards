@@ -47,8 +47,12 @@ services:
       context: .
       dockerfile: apps/api-service/Dockerfile
     restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     environment:
       NODE_ENV: development
+      NODE_OPTIONS: --dns-result-order=ipv4first
       AUTH_MODE: ${AUTH_MODE:-dev}
       TEST_MODE: ${TEST_MODE:-false}
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/card_platform?schema=public
@@ -56,6 +60,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
       API_PORT: 3001
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      B2C_AUTHORITY: ${VITE_B2C_AUTHORITY:-}
+      B2C_CLIENT_ID: ${VITE_B2C_CLIENT_ID:-}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@platform.example.com}
@@ -78,14 +84,21 @@ services:
       context: .
       dockerfile: apps/socket-service/Dockerfile
     restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     environment:
       NODE_ENV: development
+      NODE_OPTIONS: --dns-result-order=ipv4first
       AUTH_MODE: ${AUTH_MODE:-dev}
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
       SOCKET_PORT: 3002
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173,http://localhost:80}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173,http://localhost:80,http://localhost}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      B2C_AUTHORITY: ${VITE_B2C_AUTHORITY:-}
+      B2C_CLIENT_ID: ${VITE_B2C_CLIENT_ID:-}
+      API_INTERNAL_URL: http://api-service:3001/api/v1
     ports:
       - "3002:3002"
     depends_on:

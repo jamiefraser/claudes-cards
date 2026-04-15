@@ -12,11 +12,12 @@
 
 import express from 'express';
 import { Worker } from 'bullmq';
-import { redis } from './redis/client.js';
-import { logger } from './utils/logger.js';
-import { processTurnTimer } from './processors/turnTimer.processor.js';
-import { processLeaderboard } from './processors/leaderboard.processor.js';
-import { processVapid } from './processors/vapid.processor.js';
+import { redis } from './redis/client';
+import { logger } from './utils/logger';
+import { processTurnTimer } from './processors/turnTimer.processor';
+import { processLeaderboard } from './processors/leaderboard.processor';
+import { processVapid } from './processors/vapid.processor';
+import { processRoomCleanup } from './processors/roomCleanup.processor';
 
 const WORKER_PORT = Number(process.env.WORKER_PORT ?? 3003);
 
@@ -36,7 +37,11 @@ const vapidWorker = new Worker('vapid', processVapid, {
   connection: redis,
 });
 
-const workers = [leaderboardWorker, turnTimerWorker, vapidWorker];
+const roomCleanupWorker = new Worker('roomCleanup', processRoomCleanup, {
+  connection: redis,
+});
+
+const workers = [leaderboardWorker, turnTimerWorker, vapidWorker, roomCleanupWorker];
 
 workers.forEach((worker) => {
   worker.on('completed', (job) => {
@@ -62,7 +67,7 @@ const app = express();
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
-    queues: ['leaderboard', 'turnTimer', 'vapid'],
+    queues: ['leaderboard', 'turnTimer', 'vapid', 'roomCleanup'],
   });
 });
 

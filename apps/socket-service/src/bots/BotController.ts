@@ -12,6 +12,7 @@
 import { randomUUID } from 'crypto';
 import { redis } from '../redis/client';
 import { logger } from '../utils/logger';
+import { turnTimerQueue } from '../queues/turnTimer.queue';
 import type { BotActivatedPayload, BotYieldedPayload } from '@card-platform/shared-types';
 import type { Server } from 'socket.io';
 
@@ -79,6 +80,7 @@ export class BotController {
   async yieldBot(roomId: string, playerId: string, seatIndex = 0): Promise<void> {
     await redis.hdel(`bot:active:${roomId}`, playerId);
     await redis.del(`bot:queue:${roomId}:${playerId}`);
+    await redis.del(`bot:schedule:${roomId}:${playerId}`);
 
     // Update in-memory cache
     const room = this.activeBots.get(roomId);
@@ -102,16 +104,36 @@ export class BotController {
 
   /**
    * Schedule a bot action after a random think time.
-   * Sets bot:queue key in Redis with TTL, then fires executeAction after delay.
-   * The BotPlayer will be imported lazily to avoid circular deps.
+   *
+   * Delivery guarantee: the delay is enforced by a BullMQ delayed job on the
+   * `turnTimer` queue (Redis-backed, consumed by the worker-service processor,
+   * which publishes to `bot:action:{roomId}`, which this service's subscriber
+   * routes to BotPlayer.executeAction).
+   *
+   * Why not setTimeout? A setTimeout lives only in the current Node event loop
+   * — if the socket-service pod restarts between the human move and the fire
+   * time, the bot never plays and the game hangs waiting for the bot's turn.
+   * The BullMQ job survives restarts and retries on failure.
+   *
+   * Idempotency: the jobId encodes roomId+playerId+stateVersion so two back-to-
+   * back scheduleAction calls for the same turn collapse into one job.
+   * `bot:queue:{roomId}:{playerId}` is still set as a cancel/stale marker that
+   * BotPlayer checks before acting.
    */
-  async scheduleAction(roomId: string, botPlayerId: string): Promise<void> {
+  async scheduleAction(
+    roomId: string,
+    botPlayerId: string,
+    scheduledForVersion?: number,
+  ): Promise<void> {
     const thinkTimeMs =
       THINK_TIME_MIN_MS +
       Math.floor(Math.random() * (THINK_TIME_MAX_MS - THINK_TIME_MIN_MS + 1));
 
-    const ttlSeconds = Math.ceil(thinkTimeMs / 1000) + 1; // extra second buffer
-
+    // bot:queue STRING doubles as a "this bot-turn is still live" marker.
+    // BotPlayer.executeAction DELs it after running; if the human rejoins
+    // mid-flight, yieldBot() DELs it too. TTL covers the worst-case think
+    // time + retry window.
+    const ttlSeconds = Math.ceil(thinkTimeMs / 1000) + 30;
     await redis.set(
       `bot:queue:${roomId}:${botPlayerId}`,
       'pending',
@@ -119,22 +141,61 @@ export class BotController {
       ttlSeconds,
     );
 
-    logger.debug('Bot action scheduled', { roomId, botPlayerId, thinkTimeMs });
+    const version = scheduledForVersion ?? Date.now();
+    // BullMQ rejects ':' in custom job ids. botPlayerId already contains
+    // colons (e.g. "bot:<uuid>"), so use '__' as our delimiter instead.
+    const jobIdSafe = (s: string) => s.replace(/:/g, '_');
+    const jobId = `bot-exec__${jobIdSafe(roomId)}__${jobIdSafe(botPlayerId)}__${version}`;
 
-    setTimeout(() => {
-      // Use globalThis._botPlayer to avoid circular dependency with BotPlayer
-      const sharedBotPlayer = (globalThis as Record<string, unknown>)['_botPlayer'] as
-        | { executeAction: (r: string, p: string) => Promise<void> }
-        | undefined;
+    // bot:schedule HASH carries the metadata BotSweeper needs to detect and
+    // replay pub/sub messages that were missed (e.g. subscriber was briefly
+    // disconnected at publish time). Same TTL as bot:queue so cleanup is
+    // automatic if the bot session ends without a completion DEL.
+    const scheduledAt = Date.now();
+    await redis.hset(`bot:schedule:${roomId}:${botPlayerId}`, {
+      scheduledAt: String(scheduledAt),
+      thinkTimeMs: String(thinkTimeMs),
+      scheduledForVersion: String(version),
+      lastFireAt: '0',
+    });
+    await redis.expire(`bot:schedule:${roomId}:${botPlayerId}`, ttlSeconds);
 
-      if (sharedBotPlayer && typeof sharedBotPlayer.executeAction === 'function') {
-        sharedBotPlayer.executeAction(roomId, botPlayerId).catch((err: Error) => {
-          logger.error('Error in scheduled bot action', { roomId, botPlayerId, err: err.message });
+    try {
+      await turnTimerQueue.add(
+        'bot-execute',
+        {
+          type: 'execute',
+          roomId,
+          playerId: botPlayerId,
+          scheduledForVersion: version,
+        },
+        {
+          jobId,
+          delay: thinkTimeMs,
+        },
+      );
+      logger.debug('Bot action enqueued', { roomId, botPlayerId, thinkTimeMs, jobId });
+    } catch (err) {
+      // Fall back to an in-process setTimeout so a Redis/BullMQ hiccup doesn't
+      // freeze the game. Not durable across restarts, but better than hanging.
+      logger.error('Bot action enqueue failed — falling back to setTimeout', {
+        roomId,
+        botPlayerId,
+        err: (err as Error).message,
+      });
+      setTimeout(() => {
+        const sharedBotPlayer = (globalThis as Record<string, unknown>)['_botPlayer'] as
+          | { executeAction: (r: string, p: string) => Promise<void> }
+          | undefined;
+        sharedBotPlayer?.executeAction(roomId, botPlayerId).catch((err2: Error) => {
+          logger.error('Fallback bot action failed', {
+            roomId,
+            botPlayerId,
+            err: err2.message,
+          });
         });
-      } else {
-        logger.warn('No shared BotPlayer instance found for scheduled action', { roomId, botPlayerId });
-      }
-    }, thinkTimeMs);
+      }, thinkTimeMs);
+    }
   }
 
   /**

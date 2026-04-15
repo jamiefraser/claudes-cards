@@ -22,6 +22,28 @@ import type {
 import { createStandardDeck } from '@card-platform/cards-engine';
 import { logger } from '../../utils/logger';
 
+export interface GinRummyShowdownPlayer {
+  playerId: string;
+  displayName: string;
+  isBot: boolean;
+  melds: Card[][];
+  deadwood: Card[];
+  deadwoodPts: number;
+  /** Defender only: cards laid off onto knocker's melds (not allowed on Gin). */
+  laidOff: Card[];
+}
+
+export interface GinRummyShowdown {
+  active: boolean;
+  knockerId: string;
+  isGin: boolean;
+  knockerPts: number;
+  oppPts: number;
+  isUndercut: boolean;
+  players: GinRummyShowdownPlayer[];
+  acked: string[];
+}
+
 interface GinRummyPublicData {
   drawPile: Card[];
   drawPileSize: number;
@@ -30,6 +52,7 @@ interface GinRummyPublicData {
   turnPhase: 'draw' | 'discard';
   knocked: string | null; // playerId who knocked
   knockDeadwood: number;
+  showdown?: GinRummyShowdown;
 }
 
 function shuffle<T>(arr: T[]): void {
@@ -134,6 +157,157 @@ export function computeDeadwood(hand: Card[]): number {
   return minDead;
 }
 
+/**
+ * Apply Hoyle's lay-offs: the defender's deadwood cards may be attached to
+ * the knocker's melds, IF a card extends a meld:
+ *   - Sets:  one card matching the rank of a 3-card set (sets max out at 4).
+ *   - Runs:  a card whose suit matches and rank is one above max OR one below
+ *            min of the run (Ace is low; no A↔K wrap).
+ * Returns the laid-off cards, the residual (true) deadwood, and its point total.
+ *
+ * The melds passed in are the knocker's current arrangement; this function
+ * mutates copies (the input arrays are left untouched).
+ */
+export function applyLayoffs(
+  defenderDeadwood: Card[],
+  knockerMelds: Card[][],
+): { laidOff: Card[]; remaining: Card[]; deadwoodPts: number } {
+  // Working copies — each meld grows as we lay off onto it.
+  const melds = knockerMelds.map(m => [...m]);
+  const remaining = [...defenderDeadwood];
+  const laidOff: Card[] = [];
+
+  const isSet = (m: Card[]): boolean => {
+    if (m.length < 3) return false;
+    const r = m[0]!.rank;
+    return m.every(c => c.rank === r);
+  };
+  const isRun = (m: Card[]): boolean => {
+    if (m.length < 3) return false;
+    const s = m[0]!.suit;
+    if (!m.every(c => c.suit === s)) return false;
+    const ranks = m.map(c => RANK_ORDER[c.rank ?? ''] ?? 0).sort((a, b) => a - b);
+    for (let i = 1; i < ranks.length; i++) {
+      if (ranks[i] !== ranks[i - 1]! + 1) return false;
+    }
+    return true;
+  };
+
+  let progress = true;
+  while (progress) {
+    progress = false;
+    for (let ci = 0; ci < remaining.length; ci++) {
+      const card = remaining[ci]!;
+      const cardRank = RANK_ORDER[card.rank ?? ''] ?? 0;
+      for (const meld of melds) {
+        if (isSet(meld) && meld.length < 4 && card.rank === meld[0]!.rank) {
+          meld.push(card);
+          remaining.splice(ci, 1);
+          laidOff.push(card);
+          progress = true;
+          break;
+        }
+        if (isRun(meld) && card.suit === meld[0]!.suit) {
+          const ranks = meld.map(c => RANK_ORDER[c.rank ?? ''] ?? 0);
+          const min = Math.min(...ranks);
+          const max = Math.max(...ranks);
+          if (cardRank === max + 1 || cardRank === min - 1) {
+            meld.push(card);
+            remaining.splice(ci, 1);
+            laidOff.push(card);
+            progress = true;
+            break;
+          }
+        }
+      }
+      if (progress) break;
+    }
+  }
+
+  const deadwoodPts = remaining.reduce((s, c) => s + cardPt(c), 0);
+  return { laidOff, remaining, deadwoodPts };
+}
+
+/**
+ * Find the meld arrangement that minimises deadwood for a hand. Returns
+ * the chosen melds (as Card[][]) and the leftover (deadwood) cards.
+ * Same algorithm as computeDeadwood, but tracks the winning combination.
+ */
+export function bestMelds(hand: Card[]): { melds: Card[][]; deadwood: Card[]; deadwoodPts: number } {
+  if (hand.length === 0) return { melds: [], deadwood: [], deadwoodPts: 0 };
+  const total = hand.reduce((s, c) => s + cardPt(c), 0);
+
+  const candidates: number[][] = [];
+
+  const byRank: Record<string, number[]> = {};
+  hand.forEach((c, i) => {
+    const r = c.rank ?? '';
+    byRank[r] = byRank[r] ?? [];
+    byRank[r]!.push(i);
+  });
+  for (const idxs of Object.values(byRank)) {
+    if (idxs.length >= 3) {
+      candidates.push([...idxs]);
+      if (idxs.length === 4) {
+        for (let skip = 0; skip < 4; skip++) {
+          candidates.push(idxs.filter((_, j) => j !== skip));
+        }
+      }
+    }
+  }
+
+  const bySuit: Record<string, Array<{ idx: number; rank: number }>> = {};
+  hand.forEach((c, i) => {
+    const s = c.suit ?? '';
+    const r = RANK_ORDER[c.rank ?? ''] ?? 0;
+    bySuit[s] = bySuit[s] ?? [];
+    bySuit[s]!.push({ idx: i, rank: r });
+  });
+  for (const entries of Object.values(bySuit)) {
+    const sorted = [...entries].sort((a, b) => a.rank - b.rank);
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = i + 2; j < sorted.length; j++) {
+        let ok = true;
+        for (let k = i + 1; k <= j; k++) {
+          if (sorted[k]!.rank !== sorted[k - 1]!.rank + 1) { ok = false; break; }
+        }
+        if (ok) {
+          candidates.push(sorted.slice(i, j + 1).map((e) => e.idx));
+        }
+      }
+    }
+  }
+
+  let bestPts = total;
+  let bestUsed: boolean[] = Array(hand.length).fill(false);
+  let bestArrangement: number[][] = [];
+
+  const dfs = (startIdx: number, used: boolean[], meldedPts: number, picked: number[][]): void => {
+    const deadwood = total - meldedPts;
+    if (deadwood < bestPts) {
+      bestPts = deadwood;
+      bestUsed = [...used];
+      bestArrangement = picked.map((c) => [...c]);
+    }
+    if (startIdx >= candidates.length) return;
+    for (let i = startIdx; i < candidates.length; i++) {
+      const cand = candidates[i]!;
+      if (cand.some((idx) => used[idx])) continue;
+      for (const idx of cand) used[idx] = true;
+      picked.push(cand);
+      const pts = cand.reduce((s, idx) => s + cardPt(hand[idx]!), 0);
+      dfs(i + 1, used, meldedPts + pts, picked);
+      picked.pop();
+      for (const idx of cand) used[idx] = false;
+    }
+  };
+  dfs(0, Array(hand.length).fill(false), 0, []);
+
+  const melds = bestArrangement.map((idxs) => idxs.map((i) => hand[i]!));
+  const deadwood = hand.filter((_, i) => !bestUsed[i]);
+  return { melds, deadwood, deadwoodPts: bestPts };
+}
+
 function nextPlayer(players: GameState['players'], currentId: string): string {
   const idx = players.findIndex(p => p.playerId === currentId);
   return players[(idx + 1) % players.length]!.playerId;
@@ -192,8 +366,19 @@ export class GinRummyEngine implements IGameEngine {
   }
 
   applyAction(state: GameState, playerId: string, action: PlayerAction): GameState {
-    if (state.currentTurn !== playerId) throw new Error(`Not ${playerId}'s turn`);
     const pd = state.publicData as unknown as GinRummyPublicData;
+
+    if (pd.showdown?.active) {
+      if (action.type !== 'ack-show') {
+        throw new Error('Round is in showdown — only ack-show is accepted');
+      }
+      if (!pd.showdown.players.some(p => p.playerId === playerId)) {
+        throw new Error(`${playerId} is not in this round's showdown`);
+      }
+      return this.handleAckShow(state, playerId, pd);
+    }
+
+    if (state.currentTurn !== playerId) throw new Error(`Not ${playerId}'s turn`);
 
     switch (action.type) {
       case 'draw': return this.handleDraw(state, playerId, action, pd);
@@ -204,8 +389,14 @@ export class GinRummyEngine implements IGameEngine {
   }
 
   getValidActions(state: GameState, playerId: string): PlayerAction[] {
-    if (state.currentTurn !== playerId) return [];
     const pd = state.publicData as unknown as GinRummyPublicData;
+    if (pd.showdown?.active) {
+      const inShowdown = pd.showdown.players.some(p => p.playerId === playerId);
+      const alreadyAcked = pd.showdown.acked.includes(playerId);
+      if (inShowdown && !alreadyAcked) return [{ type: 'ack-show' }];
+      return [];
+    }
+    if (state.currentTurn !== playerId) return [];
     const player = state.players.find(p => p.playerId === playerId);
     if (!player) return [];
 
@@ -327,37 +518,120 @@ export class GinRummyEngine implements IGameEngine {
   ): GameState {
     if (pd.turnPhase !== 'discard') throw new Error('Must draw before knocking');
     const player = state.players.find(p => p.playerId === playerId)!;
-    const deadwood = computeDeadwood(player.hand);
-    if (deadwood > 10) throw new Error(`Deadwood ${deadwood} too high to knock`);
-
-    const isGin = deadwood === 0;
-    const opponent = state.players.find(p => p.playerId !== playerId)!;
-    const oppDeadwood = computeDeadwood(opponent.hand);
-
-    // Hoyle's scoring:
-    //   - Gin: knocker scores opp's full deadwood + 25 gin bonus.
-    //   - Normal knock won: knocker scores (opp's deadwood \u2212 knocker's deadwood).
-    //   - Undercut: if opp's deadwood \u2264 knocker's deadwood (and knocker did not
-    //     go gin), the OPPONENT scores the difference plus a 25-point undercut
-    //     bonus.
-    let knockerPts = 0;
-    let oppPts = 0;
-    if (isGin) {
-      knockerPts = oppDeadwood + 25;
-    } else if (oppDeadwood <= deadwood) {
-      oppPts = deadwood - oppDeadwood + 25;
-    } else {
-      knockerPts = oppDeadwood - deadwood;
+    const knockerMelds = bestMelds(player.hand);
+    if (knockerMelds.deadwoodPts > 10) {
+      throw new Error(`Deadwood ${knockerMelds.deadwoodPts} too high to knock`);
     }
 
-    const newPlayers = state.players.map(p => {
-      if (p.playerId === playerId) {
-        return { ...p, score: p.score + knockerPts, isOut: true };
-      }
-      return { ...p, score: p.score + oppPts, isOut: false };
-    });
+    const isGin = knockerMelds.deadwoodPts === 0;
+    const opponent = state.players.find(p => p.playerId !== playerId)!;
+    const oppMelds = bestMelds(opponent.hand);
 
-    // Check win condition (100 pts)
+    // Lay-offs: defender attaches deadwood to knocker melds (forbidden on Gin).
+    const layoff = isGin
+      ? { laidOff: [] as Card[], remaining: oppMelds.deadwood, deadwoodPts: oppMelds.deadwoodPts }
+      : applyLayoffs(oppMelds.deadwood, knockerMelds.melds);
+    const oppEffectiveDeadwood = layoff.deadwoodPts;
+
+    // Hoyle's scoring:
+    //   Gin           — knocker scores opp's deadwood + 25 (no lay-offs).
+    //   Knock won     — knocker scores (opp's effective deadwood − knocker's).
+    //   Undercut      — if opp's effective deadwood ≤ knocker's deadwood and not
+    //                   gin, opponent scores the difference + 25.
+    let knockerPts = 0;
+    let oppPts = 0;
+    let isUndercut = false;
+    if (isGin) {
+      knockerPts = oppEffectiveDeadwood + 25;
+    } else if (oppEffectiveDeadwood <= knockerMelds.deadwoodPts) {
+      oppPts = knockerMelds.deadwoodPts - oppEffectiveDeadwood + 25;
+      isUndercut = true;
+    } else {
+      knockerPts = oppEffectiveDeadwood - knockerMelds.deadwoodPts;
+    }
+
+    const showdown: GinRummyShowdown = {
+      active: true,
+      knockerId: playerId,
+      isGin,
+      knockerPts,
+      oppPts,
+      isUndercut,
+      players: [
+        {
+          playerId: player.playerId,
+          displayName: player.displayName,
+          isBot: !!player.isBot,
+          melds: knockerMelds.melds,
+          deadwood: knockerMelds.deadwood,
+          deadwoodPts: knockerMelds.deadwoodPts,
+          laidOff: [],
+        },
+        {
+          playerId: opponent.playerId,
+          displayName: opponent.displayName,
+          isBot: !!opponent.isBot,
+          melds: oppMelds.melds,
+          deadwood: layoff.remaining,
+          deadwoodPts: oppEffectiveDeadwood,
+          laidOff: layoff.laidOff,
+        },
+      ],
+      acked: [],
+    };
+
+    return {
+      ...state,
+      version: state.version + 1,
+      currentTurn: null,
+      publicData: {
+        ...pd,
+        knocked: playerId,
+        knockDeadwood: knockerMelds.deadwoodPts,
+        showdown,
+      } as unknown as Record<string, unknown>,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  private handleAckShow(
+    state: GameState,
+    playerId: string,
+    pd: GinRummyPublicData,
+  ): GameState {
+    const sd = pd.showdown!;
+    if (sd.acked.includes(playerId)) return state;
+
+    const newAcked = [...sd.acked, playerId];
+    const humansRemaining = sd.players
+      .filter(p => !p.isBot)
+      .some(p => !newAcked.includes(p.playerId));
+
+    // Bots auto-ack the moment any human ack lands. They never need to read
+    // the showdown, but we record their ack for parity / replay.
+    const finalAcked = humansRemaining
+      ? newAcked
+      : Array.from(new Set([...newAcked, ...sd.players.map(p => p.playerId)]));
+
+    if (humansRemaining) {
+      return {
+        ...state,
+        version: state.version + 1,
+        publicData: {
+          ...pd,
+          showdown: { ...sd, acked: finalAcked },
+        } as unknown as Record<string, unknown>,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    // All humans have acked — settle the round.
+    const newPlayers = state.players.map(p => {
+      if (p.playerId === sd.knockerId) {
+        return { ...p, score: p.score + sd.knockerPts, isOut: true };
+      }
+      return { ...p, score: p.score + sd.oppPts, isOut: false };
+    });
     const winner = newPlayers.find(p => p.score >= 100);
 
     return {
@@ -368,8 +642,7 @@ export class GinRummyEngine implements IGameEngine {
       currentTurn: null,
       publicData: {
         ...pd,
-        knocked: playerId,
-        knockDeadwood: deadwood,
+        showdown: { ...sd, active: false, acked: finalAcked },
       } as unknown as Record<string, unknown>,
       updatedAt: new Date().toISOString(),
     };

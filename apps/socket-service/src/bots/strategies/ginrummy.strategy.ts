@@ -8,11 +8,16 @@
  */
 
 import type { IBotStrategy, GameState, PlayerAction, Card } from '@card-platform/shared-types';
-import { computeDeadwood } from '../../games/ginrummy/engine.js';
+import { computeDeadwood } from '../../games/ginrummy/engine';
 import { logger } from '../../utils/logger';
 
 interface GinRummyPublicData {
   turnPhase?: 'draw' | 'discard' | string;
+  showdown?: {
+    active: boolean;
+    acked: string[];
+    players: Array<{ playerId: string }>;
+  };
 }
 
 function rankVal(rank: string): number {
@@ -46,6 +51,11 @@ export class GinRummyBotStrategy implements IBotStrategy {
 
   private decide(state: GameState, botPlayerId: string): PlayerAction {
     const pd = state.publicData as unknown as GinRummyPublicData;
+
+    if (pd.showdown?.active && !pd.showdown.acked.includes(botPlayerId)) {
+      return { type: 'ack-show' };
+    }
+
     const turnPhase = pd.turnPhase ?? 'draw';
 
     if (turnPhase === 'draw') {

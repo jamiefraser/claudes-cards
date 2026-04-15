@@ -12,12 +12,13 @@
     "lint": "echo \"No linter configured yet\" && exit 0"
   },
   "dependencies": {
-    "@card-platform/shared-types": "*",
     "@card-platform/cards-engine": "*",
+    "@card-platform/shared-types": "*",
     "bullmq": "^5.7.0",
     "cors": "^2.8.5",
     "express": "^4.19.0",
     "ioredis": "^5.4.0",
+    "jose": "^5.10.0",
     "jsonwebtoken": "^9.0.0",
     "socket.io": "^4.7.0",
     "winston": "^3.13.0"
@@ -37,9 +38,15 @@
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",
-    "roots": ["<rootDir>/__tests__"],
-    "setupFiles": ["<rootDir>/__tests__/setup.ts"],
-    "testMatch": ["**/*.test.ts"],
+    "roots": [
+      "<rootDir>/__tests__"
+    ],
+    "setupFiles": [
+      "<rootDir>/__tests__/setup.ts"
+    ],
+    "testMatch": [
+      "**/*.test.ts"
+    ],
     "testTimeout": 10000,
     "forceExit": true,
     "moduleNameMapper": {

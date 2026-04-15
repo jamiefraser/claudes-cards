@@ -239,6 +239,282 @@ describe("CribbageEngine \u2014 Hoyle's rule suite", () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // Pegging turn-order rules (reported bug, April 2026).
+  // After all players say "go" (or reach 31), the next segment must be led
+  // by the player to the LEFT of the one who played the last card — NOT
+  // the non-dealer as the first buggy implementation returned.
+  // -------------------------------------------------------------------------
+  describe('pegging next-lead after all-pass reset', () => {
+    function makePeggingState(
+      currentTurn: string,
+      pegCards: Card[],
+      pegCardPlayers: string[],
+      pegPassedPlayers: string[],
+      hands: Record<string, Card[]>,
+      playerIds = ['p1', 'p2', 'p3'],
+      dealerIndex = 0,
+    ): GameState {
+      const players = playerIds.map((id, idx) => ({
+        playerId: id,
+        displayName: id,
+        hand: hands[id] ?? [],
+        score: 0,
+        isOut: false,
+        isBot: false,
+        isDealer: idx === dealerIndex,
+      }));
+      const pegCount = pegCards.reduce((s, c) => {
+        const v = c.rank === 'A' ? 1
+          : ['J', 'Q', 'K'].includes(c.rank as string) ? 10
+          : Number(c.rank);
+        return s + v;
+      }, 0);
+      return {
+        version: 1,
+        roomId: 'r-peg',
+        gameId: 'cribbage',
+        phase: 'playing',
+        players,
+        currentTurn,
+        turnNumber: 1,
+        roundNumber: 1,
+        publicData: {
+          gamePhase: 'pegging',
+          crib: [],
+          cutCard: c('cut', '2', 'clubs'),
+          pegCount,
+          pegCards,
+          pegCardPlayers,
+          pegPlayOrder: playerIds,
+          pegPassedPlayers,
+          dealerIndex,
+          scores: Object.fromEntries(playerIds.map(id => [id, 0])),
+          discardedCount: Object.fromEntries(playerIds.map(id => [id, 2])),
+        } as unknown as Record<string, unknown>,
+        cribbageBoardState: {
+          pegs: playerIds.map((id, i) => ({
+            playerId: id,
+            color: (['red', 'green', 'blue'] as const)[i % 3]!,
+            frontPeg: 0,
+            backPeg: 0,
+          })),
+          skunkLine: 91,
+          doubleskunkLine: 61,
+          winScore: 121,
+        },
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    it('3p: after all-go reset, lead goes to the player LEFT of the last-card-player (not the non-dealer)', () => {
+      const e = new CribbageEngine();
+      // Play order p1 -> p2 -> p3. Dealer = p1, so non-dealer = p2.
+      // Count sitting at 30 after K+K+10=30. All players hold cards whose
+      // smallest value + 30 > 31, so nobody can play.
+      // Timeline: p2 played K, p3 played K (count=20), p1 played 10 (count=30),
+      // p2 said go, p3 said go, now p1 says go -> all passed.
+      // Last card played by p1 -> next lead = player LEFT of p1 = p2.
+      // Dealer is p1 so the old buggy code would pick the non-dealer p2.
+      // To distinguish bug from fix, set dealer = p2 so non-dealer = p3.
+      // Then buggy code returns p3; correct code returns p2.
+      // Wait — left-of-p1 is p2, and with dealer=p2 non-dealer=p3 differs. Good.
+      const played = [
+        c('c1', 'K', 'hearts'),
+        c('c2', 'K', 'spades'),
+        c('c3', '10', 'clubs'),
+      ];
+      const hands = {
+        p1: [c('h1', '9', 'clubs')],   // 30+9=39 > 31, cannot play
+        p2: [c('h2', '8', 'diamonds')], // 30+8=38 > 31
+        p3: [c('h3', '7', 'hearts')],   // 30+7=37 > 31
+      };
+      // p3 says go first, then p2 says go, and the engine is about to
+      // receive p1's 'go'. So pegPassedPlayers already has [p3, p2].
+      // currentTurn is p1.
+      const state = makePeggingState(
+        'p1',
+        played,
+        ['p2', 'p3', 'p1'],
+        ['p3', 'p2'],
+        hands,
+        ['p1', 'p2', 'p3'],
+        1, // dealer = p2
+      );
+      const next = e.applyAction(state, 'p1', { type: 'go' });
+      expect(next.currentTurn).toBe('p2');
+    });
+
+    it('3p: "go" point is awarded to the actual last-card-player', () => {
+      const e = new CribbageEngine();
+      const played = [
+        c('c1', 'K', 'hearts'),
+        c('c2', 'K', 'spades'),
+        c('c3', '10', 'clubs'),
+      ];
+      const hands = {
+        p1: [c('h1', '9', 'clubs')],
+        p2: [c('h2', '8', 'diamonds')],
+        p3: [c('h3', '7', 'hearts')],
+      };
+      // p1 is the actual last to play (the 10). p3, p2, p1 all say go.
+      const state = makePeggingState(
+        'p1',
+        played,
+        ['p2', 'p3', 'p1'],
+        ['p3', 'p2'],
+        hands,
+        ['p1', 'p2', 'p3'],
+        1,
+      );
+      const next = e.applyAction(state, 'p1', { type: 'go' });
+      const pd = next.publicData as Record<string, unknown>;
+      const scores = pd['scores'] as Record<string, number>;
+      expect(scores['p1']).toBe(1);
+      expect(scores['p2']).toBe(0);
+      expect(scores['p3']).toBe(0);
+    });
+
+    it('3p: if last-card-player is out of cards, skip them when picking next lead', () => {
+      const e = new CribbageEngine();
+      // p2 played the last card (their only card). On reset p2.hand is
+      // empty, so next-lead skip empties: left-of-p2 = p3.
+      const played = [
+        c('c1', 'K', 'hearts'),
+        c('c2', 'K', 'spades'),
+        c('c3', '10', 'clubs'),
+      ];
+      const hands = {
+        p1: [c('h1', '9', 'clubs')],
+        p2: [], // out of cards after playing c3
+        p3: [c('h3', '7', 'hearts')],
+      };
+      // Timeline: p2 led K (c1), p3 played K (c2, count=20),
+      // p1 said go, p2 played 10 (c3, count=30), p3 said go, now p1 says go.
+      // Last card player = p2, but p2 is empty, so next lead = p3.
+      const state = makePeggingState(
+        'p1',
+        played,
+        ['p2', 'p3', 'p2'],
+        ['p3', 'p1'],
+        hands,
+        ['p1', 'p2', 'p3'],
+        1,
+      );
+      const next = e.applyAction(state, 'p1', { type: 'go' });
+      expect(next.currentTurn).toBe('p3');
+    });
+
+    it('2p: all-go reset returns to the opposite player (classic case)', () => {
+      const e = new CribbageEngine();
+      // 2-player: p1 played last (count=30), p2 said go, now p1 says go.
+      // Next lead = player LEFT of p1 = p2.
+      const played = [
+        c('c1', 'K', 'hearts'),
+        c('c2', 'K', 'spades'),
+        c('c3', '10', 'clubs'),
+      ];
+      const hands = {
+        p1: [c('h1', '9', 'clubs')],
+        p2: [c('h2', '8', 'diamonds')],
+      };
+      const state = makePeggingState(
+        'p1',
+        played,
+        ['p2', 'p1', 'p1'],
+        ['p2'],
+        hands,
+        ['p1', 'p2'],
+        0,
+      );
+      const next = e.applyAction(state, 'p1', { type: 'go' });
+      expect(next.currentTurn).toBe('p2');
+    });
+  });
+
+  describe('pegging leap-frog pegs (CribbageBoardState)', () => {
+    it('first score: back peg stays at 0, front peg moves to new score', () => {
+      const e = new CribbageEngine();
+      const state = e.startGame(makeConfig(2));
+      const board0 = state.cribbageBoardState!;
+      const before = board0.pegs[0]!;
+      expect(before.frontPeg).toBe(0);
+      expect(before.backPeg).toBe(0);
+    });
+
+    it('second score leap-frogs: old front becomes back, new front = old front + pts', () => {
+      // Directly assert addScore semantics by inspecting the board after two
+      // consecutive peg moves. We drive this via the `nextRound`-free path:
+      // score his-heels (J cut) pays dealer 2 — but that requires a J cut.
+      // Simpler: call applyAction with a synthetic pegging state and two
+      // plays that each score. We use a pair to get 2 pts on the second card.
+      const e = new CribbageEngine();
+      const hands: Record<string, Card[]> = {
+        p1: [c('h1a', '7', 'hearts'), c('h1b', '3', 'clubs')],
+        p2: [c('h2a', '7', 'spades'), c('h2b', '4', 'diamonds')],
+      };
+      const state: GameState = {
+        version: 1,
+        roomId: 'r-leap',
+        gameId: 'cribbage',
+        phase: 'playing',
+        players: ['p1', 'p2'].map((id, idx) => ({
+          playerId: id,
+          displayName: id,
+          hand: hands[id]!,
+          score: 0,
+          isOut: false,
+          isBot: false,
+          isDealer: idx === 0,
+        })),
+        currentTurn: 'p2',
+        turnNumber: 1,
+        roundNumber: 1,
+        publicData: {
+          gamePhase: 'pegging',
+          crib: [],
+          cutCard: c('cut', '2', 'clubs'),
+          pegCount: 0,
+          pegCards: [],
+          pegCardPlayers: [],
+          pegPlayOrder: ['p1', 'p2'],
+          pegPassedPlayers: [],
+          dealerIndex: 0,
+          scores: { p1: 0, p2: 0 },
+          discardedCount: { p1: 2, p2: 2 },
+        } as unknown as Record<string, unknown>,
+        cribbageBoardState: {
+          pegs: [
+            { playerId: 'p1', color: 'red', frontPeg: 0, backPeg: 0 },
+            { playerId: 'p2', color: 'blue', frontPeg: 0, backPeg: 0 },
+          ],
+          skunkLine: 91,
+          doubleskunkLine: 61,
+          winScore: 121,
+        },
+        updatedAt: new Date().toISOString(),
+      };
+
+      // p2 plays 7 (count=7, no score)
+      let s = e.applyAction(state, 'p2', { type: 'play', cardIds: ['h2a'] });
+      // p1 plays 7 (pair! +2 pts)
+      s = e.applyAction(s, 'p1', { type: 'play', cardIds: ['h1a'] });
+      const p1Peg = s.cribbageBoardState!.pegs.find(p => p.playerId === 'p1')!;
+      expect(p1Peg.frontPeg).toBe(2);
+      expect(p1Peg.backPeg).toBe(0); // first score: back stays
+
+      // p2 plays 4 (count=18, no score)
+      s = e.applyAction(s, 'p2', { type: 'play', cardIds: ['h2b'] });
+      // p1 plays 3 (count=21, no scoring combo)
+      s = e.applyAction(s, 'p1', { type: 'play', cardIds: ['h1b'] });
+      // Final: p1 has last card -> gets +1 "last card". leap-frog: front was
+      // 2, new front = 2+1 = 3, old front (2) becomes back.
+      const p1PegAfter = s.cribbageBoardState!.pegs.find(p => p.playerId === 'p1')!;
+      expect(p1PegAfter.frontPeg).toBe(3);
+      expect(p1PegAfter.backPeg).toBe(2);
+    });
+  });
+
   describe('initial dealer selection', () => {
     it('random across many games: both players see the deal', () => {
       const e = new CribbageEngine();

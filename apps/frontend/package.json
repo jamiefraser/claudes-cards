@@ -13,6 +13,8 @@
     "lint": "echo \"No linter configured yet\" && exit 0"
   },
   "dependencies": {
+    "@azure/msal-browser": "^3.30.0",
+    "@azure/msal-react": "^2.2.0",
     "@card-platform/cards-engine": "*",
     "@card-platform/shared-types": "*",
     "@dnd-kit/core": "^6.1.0",

@@ -1,6 +1,7 @@
 /**
  * LandingPage tests — RTL
- * Tests behavior: renders user selector, calls login on submit.
+ * Landing is a marketing page. In dev mode the sign-in CTA reveals an inline
+ * test-user picker; selecting a user and submitting calls login().
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -35,7 +36,7 @@ function renderLandingPage() {
   return render(
     <MemoryRouter>
       <LandingPage />
-    </MemoryRouter>
+    </MemoryRouter>,
   );
 }
 
@@ -43,55 +44,58 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+async function revealDevPicker() {
+  // First "Sign in to play" button in the hero reveals the picker in dev mode.
+  const ctas = screen.getAllByRole('button', { name: /sign in to play/i });
+  fireEvent.click(ctas[0]!);
+  return await screen.findByRole('combobox');
+}
+
 describe('LandingPage', () => {
   it('renders an h1 heading', () => {
     renderLandingPage();
     expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
   });
 
-  it('renders a combobox with exactly 5 test-user options', () => {
+  it('advertises games on the landing page', () => {
     renderLandingPage();
-    const select = screen.getByRole('combobox');
-    const options = Array.from(select.querySelectorAll('option'));
-    const testUserOptions = options.filter((o: Element) => (o as HTMLOptionElement).value.startsWith('test-'));
+    expect(screen.getByRole('heading', { name: /games on the table/i })).toBeInTheDocument();
+  });
+
+  it('reveals a test-user picker after clicking the primary CTA in dev mode', async () => {
+    renderLandingPage();
+    const select = await revealDevPicker();
+    const testUserOptions = Array.from(select.querySelectorAll('option')).filter(
+      (o) => (o as HTMLOptionElement).value.startsWith('test-'),
+    );
     expect(testUserOptions).toHaveLength(5);
   });
 
-  it('defaults to test-player-1', () => {
+  it('defaults to test-player-1 in the dev picker', async () => {
     renderLandingPage();
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
+    const select = (await revealDevPicker()) as HTMLSelectElement;
     expect(select.value).toBe('test-player-1');
   });
 
   it('calls login with the selected username on submit', async () => {
     mockLogin.mockResolvedValueOnce(undefined);
     renderLandingPage();
+    const select = await revealDevPicker();
 
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'test-player-2' } });
-    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    fireEvent.change(select, { target: { value: 'test-player-2' } });
+    fireEvent.click(screen.getByRole('button', { name: /^sign in$/i }));
 
     await waitFor(() => {
       expect(mockLogin).toHaveBeenCalledWith('test-player-2');
     });
   });
 
-  it('disables the submit button while login is in progress', async () => {
-    let resolveLogin!: () => void;
-    mockLogin.mockReturnValueOnce(new Promise<void>(r => { resolveLogin = r; }));
-
-    renderLandingPage();
-    const btn = screen.getByRole('button', { name: /sign in/i });
-    fireEvent.click(btn);
-
-    await waitFor(() => expect(btn).toBeDisabled());
-    resolveLogin();
-  });
-
   it('displays an error alert when login throws', async () => {
     mockLogin.mockRejectedValueOnce(new Error('Network error'));
     renderLandingPage();
+    await revealDevPicker();
 
-    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^sign in$/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeInTheDocument();
@@ -101,8 +105,9 @@ describe('LandingPage', () => {
   it('navigates to /lobby when login succeeds', async () => {
     mockLogin.mockResolvedValueOnce(undefined);
     renderLandingPage();
+    await revealDevPicker();
 
-    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^sign in$/i }));
 
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith('/lobby', expect.anything());

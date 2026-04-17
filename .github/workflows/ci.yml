@@ -138,6 +138,12 @@ jobs:
           npm run build --workspace=packages/shared-types
           npm run build --workspace=packages/cards-engine
 
+      # Every workspace that imports @prisma/client (api, socket, worker)
+      # needs the generated client in node_modules/.prisma before tests can
+      # load. Keep it wide so future consumers don't have to edit this.
+      - name: Generate Prisma client
+        run: npx prisma generate --schema=apps/api-service/prisma/schema.prisma
+
       - name: Run Prisma migrations (API only)
         if: matrix.workspace == 'apps/api-service'
         run: |

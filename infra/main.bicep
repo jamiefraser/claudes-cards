@@ -52,6 +52,9 @@ param b2cKnownAuthorities string = 'cards.b2clogin.com'
 @description('Image tag to deploy for every service. CD pipeline overrides this.')
 param imageTag string = 'latest'
 
+@description('Placeholder image used for initial container-app creation. The deploy workflow rolls real ACR-built images in afterwards via `az containerapp update`. This avoids a chicken-and-egg where bicep references an ACR tag that doesn\'t exist yet (MANIFEST_UNKNOWN) and the container-app provisioning hangs on an image pull that will never succeed.')
+param bootstrapImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
+
 // ── Derived names ────────────────────────────────────────────────────────────
 var acrName          = toLower('${projectSlug}acr')
 // ACR login servers follow a stable convention (<name>.azurecr.io). Computing
@@ -252,7 +255,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name: 'api'
-          image: '${acrLoginServerVal}/claudes-cards-api:${imageTag}'
+          image: bootstrapImage
           resources: { cpu: json('0.5'), memory: '1Gi' }
           env: [
             { name: 'NODE_ENV', value: 'production' }
@@ -320,7 +323,7 @@ resource socketApp 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name: 'socket'
-          image: '${acrLoginServerVal}/claudes-cards-socket:${imageTag}'
+          image: bootstrapImage
           resources: { cpu: json('0.5'), memory: '1Gi' }
           env: [
             { name: 'NODE_ENV', value: 'production' }
@@ -372,7 +375,7 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name: 'worker'
-          image: '${acrLoginServerVal}/claudes-cards-worker:${imageTag}'
+          image: bootstrapImage
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
           env: [
             { name: 'NODE_ENV', value: 'production' }
@@ -420,7 +423,7 @@ resource frontendApp 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name: 'web'
-          image: '${acrLoginServerVal}/claudes-cards-web:${imageTag}'
+          image: bootstrapImage
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
         }
       ]

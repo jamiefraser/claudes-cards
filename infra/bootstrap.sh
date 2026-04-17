@@ -70,7 +70,7 @@ log "Azure subscription: $SUBSCRIPTION_ID (tenant $TENANT_ID, caller $CALLER_UPN
 
 log "Checking gh auth…"
 gh auth status >/dev/null 2>&1 || die "Run 'gh auth login' first."
-gh repo view "$GITHUB_REPO" -q .name >/dev/null || die "Can't see repo $GITHUB_REPO; does your gh user have access?"
+gh repo view "$GITHUB_REPO" --json name -q .name >/dev/null || die "Can't see repo $GITHUB_REPO; does your gh user have access?"
 log "GitHub repo: $GITHUB_REPO"
 
 # ── 1 · Resource group ──────────────────────────────────────────────────────
@@ -123,11 +123,11 @@ JSON
 }
 
 log "Registering federated credentials for GitHub OIDC…"
+# Covers both `on: push` and `on: workflow_dispatch` for these branches.
+# (workflow_dispatch inherits the branch's subject — same claim shape as push.)
+# PR runs are intentionally NOT covered; they should never get deploy creds.
 ensure_federated_cred "gha-main"   "repo:${GITHUB_REPO}:ref:refs/heads/main"
 ensure_federated_cred "gha-master" "repo:${GITHUB_REPO}:ref:refs/heads/master"
-# Covers workflow_dispatch on any branch/tag — subject "pull_request" excluded
-# intentionally so PR runs never get deploy creds.
-ensure_federated_cred "gha-dispatch" "repo:${GITHUB_REPO}:ref:refs/heads/main"
 
 # ── 4 · Role assignments ────────────────────────────────────────────────────
 assign_role() {
@@ -159,8 +159,7 @@ set_secret() {
 }
 set_var() {
   local name="$1" value="$2"
-  gh variable set "$name" --repo "$GITHUB_REPO" --body "$value" -o none 2>/dev/null || \
-    gh variable set "$name" --repo "$GITHUB_REPO" --body "$value"
+  gh variable set "$name" --repo "$GITHUB_REPO" --body "$value" >/dev/null
   log "  variable $name set"
 }
 

@@ -54,6 +54,12 @@ log()  { printf '\033[1;34m▸\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m! %s\033[0m\n' "$*"; }
 die()  { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 
+# az on Git Bash (Windows) returns values terminated by \r\n. Those CRs are
+# invisible here but break downstream consumers (GitHub secrets that contain
+# a trailing \r are rejected by Azure AD as "tenant not found", etc). Every
+# `az ... -o tsv` capture must go through az_tsv() to strip them.
+az_tsv() { az "$@" -o tsv 2>/dev/null | tr -d '\r\n'; }
+
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"; }
 need_cmd az
 need_cmd gh
@@ -63,9 +69,9 @@ need_cmd openssl
 log "Checking az login…"
 az account show -o none 2>/dev/null || die "Run 'az login' first."
 
-SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-TENANT_ID=$(az account show --query tenantId -o tsv)
-CALLER_UPN=$(az account show --query user.name -o tsv)
+SUBSCRIPTION_ID=$(az_tsv account show --query id)
+TENANT_ID=$(az_tsv account show --query tenantId)
+CALLER_UPN=$(az_tsv account show --query user.name)
 log "Azure subscription: $SUBSCRIPTION_ID (tenant $TENANT_ID, caller $CALLER_UPN)"
 
 log "Checking gh auth…"
@@ -80,7 +86,7 @@ az group create -n "$RESOURCE_GROUP" -l "$LOCATION" -o none
 # ── 2 · DNS zone location (may live in a different RG) ──────────────────────
 if [ -z "${DNS_ZONE_RG:-}" ]; then
   log "Locating DNS zone $DNS_ZONE…"
-  ZONE_ID=$(az network dns zone list --query "[?name=='$DNS_ZONE'].id" -o tsv | head -n1)
+  ZONE_ID=$(az_tsv network dns zone list --query "[?name=='$DNS_ZONE'].id | [0]")
   [ -n "$ZONE_ID" ] || die "DNS zone $DNS_ZONE not found in subscription $SUBSCRIPTION_ID."
   DNS_ZONE_RG=$(echo "$ZONE_ID" | awk -F/ '{print $5}')
 fi
@@ -88,11 +94,11 @@ log "DNS zone $DNS_ZONE lives in resource group: $DNS_ZONE_RG"
 
 # ── 3 · Service principal + federated credentials ───────────────────────────
 log "Ensuring app registration '$SP_DISPLAY_NAME'…"
-APP_ID=$(az ad app list --display-name "$SP_DISPLAY_NAME" --query '[0].appId' -o tsv)
-APP_OBJECT_ID=$(az ad app list --display-name "$SP_DISPLAY_NAME" --query '[0].id' -o tsv)
+APP_ID=$(az_tsv ad app list --display-name "$SP_DISPLAY_NAME" --query '[0].appId')
+APP_OBJECT_ID=$(az_tsv ad app list --display-name "$SP_DISPLAY_NAME" --query '[0].id')
 if [ -z "$APP_ID" ]; then
-  APP_ID=$(az ad app create --display-name "$SP_DISPLAY_NAME" --query appId -o tsv)
-  APP_OBJECT_ID=$(az ad app show --id "$APP_ID" --query id -o tsv)
+  APP_ID=$(az_tsv ad app create --display-name "$SP_DISPLAY_NAME" --query appId)
+  APP_OBJECT_ID=$(az_tsv ad app show --id "$APP_ID" --query id)
 fi
 log "App id: $APP_ID"
 
@@ -102,7 +108,7 @@ az ad sp show --id "$APP_ID" -o none 2>/dev/null || az ad sp create --id "$APP_I
 ensure_federated_cred() {
   local name="$1" subject="$2"
   local existing
-  existing=$(az ad app federated-credential list --id "$APP_OBJECT_ID" --query "[?name=='$name'].subject" -o tsv)
+  existing=$(az_tsv ad app federated-credential list --id "$APP_OBJECT_ID" --query "[?name=='$name'].subject")
   if [ -n "$existing" ]; then
     log "  federated cred '$name' already present"
     return
@@ -130,22 +136,53 @@ ensure_federated_cred "gha-main"   "repo:${GITHUB_REPO}:ref:refs/heads/main"
 ensure_federated_cred "gha-master" "repo:${GITHUB_REPO}:ref:refs/heads/master"
 
 # ── 4 · Role assignments ────────────────────────────────────────────────────
+# Built-in role definition IDs (stable across all Azure subscriptions).
+ROLE_READER=acdd72a7-3385-48ef-bd42-f606fba81ae7
+ROLE_OWNER=8e3af657-a8ff-443c-a75c-2fe8c4bcb635
+ROLE_ACRPUSH=8311e382-0749-4cb8-b61a-304f252e45ec
+ROLE_DNSZONECONTRIB=befefa01-2a29-4197-83a8-272ff33ce314
+
+# Random UUID via the portable path (uuidgen isn't in Git Bash by default).
+new_guid() {
+  if command -v uuidgen >/dev/null 2>&1; then uuidgen
+  elif command -v powershell.exe >/dev/null 2>&1; then powershell.exe -NoProfile -Command '[guid]::NewGuid().ToString()' | tr -d '\r\n'
+  else python3 -c 'import uuid; print(uuid.uuid4())'
+  fi
+}
+
+# Create a role assignment via the REST API. Some Azure CLI versions (observed
+# on 2.85.0 / Git Bash) fail `az role assignment create` with MissingSubscription
+# regardless of the --scope passed, so we bypass the CLI command entirely.
 assign_role() {
-  local role="$1" scope="$2"
-  if az role assignment list --assignee "$APP_ID" --scope "$scope" --query "[?roleDefinitionName=='$role'] | length(@)" -o tsv | grep -q '^0$'; then
-    log "  granting $role on $scope"
-    az role assignment create --assignee "$APP_ID" --role "$role" --scope "$scope" -o none
+  local role_id="$1" role_name="$2" scope="$3"
+  local existing
+  existing=$(az_tsv role assignment list --all --assignee-object-id "$SP_PRINCIPAL_ID" \
+    --query "[?roleDefinitionId=='/subscriptions/$SUBSCRIPTION_ID/providers/Microsoft.Authorization/roleDefinitions/$role_id' && scope=='$scope'] | length(@)")
+  if [ "$existing" = "0" ] || [ -z "$existing" ]; then
+    local ra_id
+    ra_id=$(new_guid)
+    log "  granting $role_name on $scope"
+    az rest --method PUT \
+      --url "https://management.azure.com${scope}/providers/Microsoft.Authorization/roleAssignments/$ra_id?api-version=2022-04-01" \
+      --body "{\"properties\":{\"roleDefinitionId\":\"/subscriptions/$SUBSCRIPTION_ID/providers/Microsoft.Authorization/roleDefinitions/$role_id\",\"principalId\":\"$SP_PRINCIPAL_ID\",\"principalType\":\"ServicePrincipal\"}}" \
+      >/dev/null
   else
-    log "  $role on $scope already assigned"
+    log "  $role_name on $scope already assigned"
   fi
 }
 
 log "Assigning roles to the deploy SP…"
-SP_PRINCIPAL_ID=$(az ad sp show --id "$APP_ID" --query id -o tsv)
-assign_role "Contributor" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
-assign_role "AcrPush"     "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
-assign_role "DNS Zone Contributor" \
-  "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$DNS_ZONE_RG/providers/Microsoft.Network/dnszones/$DNS_ZONE"
+SP_PRINCIPAL_ID=$(az_tsv ad sp show --id "$APP_ID" --query id)
+# Reader at the subscription scope lets `az login` actually enumerate the
+# subscription; without this the azure/login action fails with "No
+# subscriptions found" even when the SP has downstream RG roles.
+assign_role "$ROLE_READER"          "Reader"               "/subscriptions/$SUBSCRIPTION_ID"
+# Owner (not Contributor) — bicep creates an AcrPull role assignment for the
+# user-assigned managed identity, and roleAssignments/write requires Owner or
+# User Access Administrator. Scope is only this one RG.
+assign_role "$ROLE_OWNER"           "Owner"                "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
+assign_role "$ROLE_ACRPUSH"         "AcrPush"              "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
+assign_role "$ROLE_DNSZONECONTRIB"  "DNS Zone Contributor" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$DNS_ZONE_RG/providers/Microsoft.Network/dnszones/$DNS_ZONE"
 
 # ── 5 · GitHub secrets + variables ──────────────────────────────────────────
 # Generate a strong Postgres admin password + JWT secret if not supplied.
@@ -192,12 +229,12 @@ else
   }
 fi
 
-B2C_APP_OBJECT_ID="${B2C_APP_OBJECT_ID:-$(az ad app show --id "$B2C_APP_CLIENT_ID" --query id -o tsv 2>/dev/null || true)}"
+B2C_APP_OBJECT_ID="${B2C_APP_OBJECT_ID:-$(az_tsv ad app show --id "$B2C_APP_CLIENT_ID" --query id || true)}"
 if [ -z "$B2C_APP_OBJECT_ID" ]; then
   warn "Couldn't locate B2C app $B2C_APP_CLIENT_ID in tenant $B2C_TENANT — add the redirect URI manually."
 else
   # Get existing SPA redirect URIs as newline-separated tsv, check for match.
-  EXISTING=$(az ad app show --id "$B2C_APP_OBJECT_ID" --query "spa.redirectUris" -o tsv 2>/dev/null || true)
+  EXISTING=$(az ad app show --id "$B2C_APP_OBJECT_ID" --query "spa.redirectUris" -o tsv 2>/dev/null | tr -d '\r' || true)
   if printf '%s\n' "$EXISTING" | grep -Fxq "$FRONTEND_URL"; then
     log "  $FRONTEND_URL already registered"
   else

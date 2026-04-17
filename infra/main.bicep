@@ -54,6 +54,12 @@ param imageTag string = 'latest'
 
 // ── Derived names ────────────────────────────────────────────────────────────
 var acrName          = toLower('${projectSlug}acr')
+// ACR login servers follow a stable convention (<name>.azurecr.io). Computing
+// the value from the name rather than via `acr.properties.loginServer` avoids
+// a runtime `reference()` call that the Container Apps RP fails to resolve at
+// template-validation time, surfacing as "invalid image format" with the raw
+// ARM expression in the error message.
+var acrLoginServerVal = '${acrName}.azurecr.io'
 var logAnalyticsName = '${projectSlug}-logs'
 var caeName          = '${projectSlug}-cae'
 var pgServerName     = '${projectSlug}-pg'
@@ -232,7 +238,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
       }
       registries: [
         {
-          server: acr.properties.loginServer
+          server: acrLoginServerVal
           identity: umi.id
         }
       ]
@@ -246,7 +252,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name: 'api'
-          image: '${acr.properties.loginServer}/claudes-cards-api:${imageTag}'
+          image: '${acrLoginServerVal}/claudes-cards-api:${imageTag}'
           resources: { cpu: json('0.5'), memory: '1Gi' }
           env: [
             { name: 'NODE_ENV', value: 'production' }
@@ -301,7 +307,7 @@ resource socketApp 'Microsoft.App/containerApps@2024-03-01' = {
       }
       registries: [
         {
-          server: acr.properties.loginServer
+          server: acrLoginServerVal
           identity: umi.id
         }
       ]
@@ -314,7 +320,7 @@ resource socketApp 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name: 'socket'
-          image: '${acr.properties.loginServer}/claudes-cards-socket:${imageTag}'
+          image: '${acrLoginServerVal}/claudes-cards-socket:${imageTag}'
           resources: { cpu: json('0.5'), memory: '1Gi' }
           env: [
             { name: 'NODE_ENV', value: 'production' }
@@ -353,7 +359,7 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
       activeRevisionsMode: 'Single'
       registries: [
         {
-          server: acr.properties.loginServer
+          server: acrLoginServerVal
           identity: umi.id
         }
       ]
@@ -366,7 +372,7 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name: 'worker'
-          image: '${acr.properties.loginServer}/claudes-cards-worker:${imageTag}'
+          image: '${acrLoginServerVal}/claudes-cards-worker:${imageTag}'
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
           env: [
             { name: 'NODE_ENV', value: 'production' }
@@ -405,7 +411,7 @@ resource frontendApp 'Microsoft.App/containerApps@2024-03-01' = {
       }
       registries: [
         {
-          server: acr.properties.loginServer
+          server: acrLoginServerVal
           identity: umi.id
         }
       ]
@@ -414,7 +420,7 @@ resource frontendApp 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name: 'web'
-          image: '${acr.properties.loginServer}/claudes-cards-web:${imageTag}'
+          image: '${acrLoginServerVal}/claudes-cards-web:${imageTag}'
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
         }
       ]
@@ -445,7 +451,7 @@ module dns 'modules/dns.bicep' = {
 // common failure mode when the cert is created inline.
 
 // ── Outputs (consumed by the deploy workflow) ────────────────────────────────
-output acrLoginServer  string = acr.properties.loginServer
+output acrLoginServer  string = acrLoginServerVal
 output acrName         string = acr.name
 output apiAppName      string = apiApp.name
 output socketAppName   string = socketApp.name

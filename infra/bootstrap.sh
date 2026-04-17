@@ -210,6 +210,7 @@ set_secret JWT_SECRET            "$JWT_SECRET"
 set_var    B2C_CLIENT_ID         "$B2C_APP_CLIENT_ID"
 set_var    B2C_AUTHORITY         "$B2C_AUTHORITY"
 set_var    B2C_KNOWN_AUTHORITIES "$B2C_KNOWN_AUTHORITIES"
+set_var    DNS_ZONE_RG           "$DNS_ZONE_RG"
 
 # ── 6 · B2C redirect URI ────────────────────────────────────────────────────
 # The B2C app registration lives in a separate directory (the B2C tenant),

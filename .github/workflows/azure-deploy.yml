@@ -35,8 +35,9 @@ env:
   PROJECT_SLUG: claudescards
   FRONTEND_SUBDOMAIN: cardgames
   DNS_ZONE: relevanttechnologyservices.com
-  # The DNS zone's RG. If it's the same as the apps RG, leave equal to RESOURCE_GROUP.
-  DNS_ZONE_RG: claudes-cards-rg
+  # DNS zone's resource group. Bootstrap writes this as a GitHub variable
+  # after auto-detecting the zone's RG; fall back to RESOURCE_GROUP if unset.
+  DNS_ZONE_RG: ${{ vars.DNS_ZONE_RG || 'claudes-cards-rg' }}
 
 jobs:
   deploy:

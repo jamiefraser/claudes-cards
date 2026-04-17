@@ -3,6 +3,27 @@ FROM node:20 AS builder
 
 WORKDIR /build
 
+# Vite bakes env vars at build time. In Azure, the API + socket URLs are the
+# Container App FQDNs; they aren't known until the CAE exists, so the deploy
+# workflow supplies them as --build-arg.
+ARG VITE_API_URL=/api/v1
+ARG VITE_SOCKET_URL=
+ARG VITE_AUTH_MODE=production
+ARG VITE_B2C_CLIENT_ID=
+ARG VITE_B2C_AUTHORITY=
+ARG VITE_B2C_KNOWN_AUTHORITIES=
+ARG VITE_B2C_REDIRECT_URI=
+ARG VITE_LOG_LEVEL=info
+
+ENV VITE_API_URL=$VITE_API_URL \
+    VITE_SOCKET_URL=$VITE_SOCKET_URL \
+    VITE_AUTH_MODE=$VITE_AUTH_MODE \
+    VITE_B2C_CLIENT_ID=$VITE_B2C_CLIENT_ID \
+    VITE_B2C_AUTHORITY=$VITE_B2C_AUTHORITY \
+    VITE_B2C_KNOWN_AUTHORITIES=$VITE_B2C_KNOWN_AUTHORITIES \
+    VITE_B2C_REDIRECT_URI=$VITE_B2C_REDIRECT_URI \
+    VITE_LOG_LEVEL=$VITE_LOG_LEVEL
+
 COPY package.json package-lock.json turbo.json tsconfig.base.json ./
 COPY packages/shared-types/package.json ./packages/shared-types/
 COPY packages/cards-engine/package.json ./packages/cards-engine/
@@ -28,10 +49,10 @@ RUN apk add --no-cache wget
 # Copy built static assets
 COPY --from=builder /build/apps/frontend/dist /usr/share/nginx/html
 
-# Copy nginx configuration
-COPY apps/frontend/nginx.conf /etc/nginx/conf.d/default.conf
+# Nginx serves static only in Azure — the browser talks to the API and socket
+# container apps directly via absolute URLs baked into the Vite bundle above.
+COPY apps/frontend/nginx.azure.conf /etc/nginx/conf.d/default.conf
 
-# Remove default nginx config
 RUN rm -f /etc/nginx/conf.d/default.conf.bak 2>/dev/null || true
 
 EXPOSE 80

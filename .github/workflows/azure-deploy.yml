@@ -1,0 +1,288 @@
+name: Azure deploy
+
+# Triggers:
+#   - push to main (auto-redeploy)
+#   - workflow_dispatch (on-demand redeploy; optional `image_tag` input)
+on:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to build & deploy (default = short commit SHA)'
+        required: false
+        default: ''
+      skip_infra:
+        description: 'Skip bicep deployment (only push new images + update apps)'
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write   # Federated OIDC login to Azure
+  contents: read
+
+concurrency:
+  group: azure-deploy
+  cancel-in-progress: false   # Never cancel an in-flight deploy mid-rollout
+
+env:
+  AZURE_LOCATION: canadacentral
+  RESOURCE_GROUP: claudes-cards-rg
+  PROJECT_SLUG: claudescards
+  FRONTEND_SUBDOMAIN: cardgames
+  DNS_ZONE: relevanttechnologyservices.com
+  # The DNS zone's RG. If it's the same as the apps RG, leave equal to RESOURCE_GROUP.
+  DNS_ZONE_RG: claudes-cards-rg
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derive image tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Login to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Ensure resource group
+        run: |
+          az group create --name "$RESOURCE_GROUP" --location "$AZURE_LOCATION" --output none
+
+      - name: Deploy bicep (infrastructure)
+        if: ${{ !inputs.skip_infra }}
+        id: bicep
+        run: |
+          set -euo pipefail
+          DEPLOY_NAME="cards-infra-$(date +%Y%m%d-%H%M%S)"
+          az deployment group create \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$DEPLOY_NAME" \
+            --template-file infra/main.bicep \
+            --parameters \
+                location="$AZURE_LOCATION" \
+                projectSlug="$PROJECT_SLUG" \
+                dnsZoneName="$DNS_ZONE" \
+                frontendSubdomain="$FRONTEND_SUBDOMAIN" \
+                dnsZoneResourceGroup="$DNS_ZONE_RG" \
+                imageTag="${{ steps.tag.outputs.tag }}" \
+                pgAdminPassword="${{ secrets.PG_ADMIN_PASSWORD }}" \
+                jwtSecret="${{ secrets.JWT_SECRET }}" \
+                b2cAuthority="${{ vars.B2C_AUTHORITY }}" \
+                b2cClientId="${{ vars.B2C_CLIENT_ID }}" \
+                b2cKnownAuthorities="${{ vars.B2C_KNOWN_AUTHORITIES }}" \
+            --output none
+          {
+            echo "acr_name=$(az deployment group show -g "$RESOURCE_GROUP" -n "$DEPLOY_NAME" --query 'properties.outputs.acrName.value' -o tsv)"
+            echo "acr_login=$(az deployment group show -g "$RESOURCE_GROUP" -n "$DEPLOY_NAME" --query 'properties.outputs.acrLoginServer.value' -o tsv)"
+            echo "api_fqdn=$(az deployment group show -g "$RESOURCE_GROUP" -n "$DEPLOY_NAME" --query 'properties.outputs.apiFqdn.value' -o tsv)"
+            echo "socket_fqdn=$(az deployment group show -g "$RESOURCE_GROUP" -n "$DEPLOY_NAME" --query 'properties.outputs.socketFqdn.value' -o tsv)"
+            echo "web_fqdn=$(az deployment group show -g "$RESOURCE_GROUP" -n "$DEPLOY_NAME" --query 'properties.outputs.webFqdn.value' -o tsv)"
+            echo "custom_fqdn=$(az deployment group show -g "$RESOURCE_GROUP" -n "$DEPLOY_NAME" --query 'properties.outputs.customFqdn.value' -o tsv)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve outputs (skip_infra path)
+        if: ${{ inputs.skip_infra }}
+        id: outputs
+        run: |
+          set -euo pipefail
+          ACR_NAME="${PROJECT_SLUG}acr"
+          ACR_LOGIN="$(az acr show -n "$ACR_NAME" -g "$RESOURCE_GROUP" --query loginServer -o tsv)"
+          CAE_DOMAIN="$(az containerapp env show -n "${PROJECT_SLUG}-cae" -g "$RESOURCE_GROUP" --query properties.defaultDomain -o tsv)"
+          {
+            echo "acr_name=$ACR_NAME"
+            echo "acr_login=$ACR_LOGIN"
+            echo "api_fqdn=${PROJECT_SLUG}-api.$CAE_DOMAIN"
+            echo "socket_fqdn=${PROJECT_SLUG}-socket.$CAE_DOMAIN"
+            echo "web_fqdn=${PROJECT_SLUG}-web.$CAE_DOMAIN"
+            echo "custom_fqdn=$FRONTEND_SUBDOMAIN.$DNS_ZONE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Consolidate endpoints
+        id: ep
+        run: |
+          ACR_NAME="${{ steps.bicep.outputs.acr_name || steps.outputs.outputs.acr_name }}"
+          ACR_LOGIN="${{ steps.bicep.outputs.acr_login || steps.outputs.outputs.acr_login }}"
+          API_FQDN="${{ steps.bicep.outputs.api_fqdn || steps.outputs.outputs.api_fqdn }}"
+          SOCKET_FQDN="${{ steps.bicep.outputs.socket_fqdn || steps.outputs.outputs.socket_fqdn }}"
+          WEB_FQDN="${{ steps.bicep.outputs.web_fqdn || steps.outputs.outputs.web_fqdn }}"
+          CUSTOM_FQDN="${{ steps.bicep.outputs.custom_fqdn || steps.outputs.outputs.custom_fqdn }}"
+          {
+            echo "acr_name=$ACR_NAME"
+            echo "acr_login=$ACR_LOGIN"
+            echo "api_fqdn=$API_FQDN"
+            echo "socket_fqdn=$SOCKET_FQDN"
+            echo "web_fqdn=$WEB_FQDN"
+            echo "custom_fqdn=$CUSTOM_FQDN"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::API=https://$API_FQDN"
+          echo "::notice::Socket=https://$SOCKET_FQDN"
+          echo "::notice::Web=https://$CUSTOM_FQDN (default: https://$WEB_FQDN)"
+
+      - name: Build backend images in ACR (api, socket, worker)
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          ACR: ${{ steps.ep.outputs.acr_name }}
+        run: |
+          set -euo pipefail
+          # Parallel builds via ACR Tasks — all three use the same context.
+          az acr build --registry "$ACR" --image "claudes-cards-api:$TAG"    --image "claudes-cards-api:latest"    --file apps/api-service/Dockerfile    . &
+          az acr build --registry "$ACR" --image "claudes-cards-socket:$TAG" --image "claudes-cards-socket:latest" --file apps/socket-service/Dockerfile . &
+          az acr build --registry "$ACR" --image "claudes-cards-worker:$TAG" --image "claudes-cards-worker:latest" --file apps/worker-service/Dockerfile . &
+          wait
+
+      - name: Build frontend image with baked Azure URLs
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          ACR: ${{ steps.ep.outputs.acr_name }}
+          API_FQDN: ${{ steps.ep.outputs.api_fqdn }}
+          SOCKET_FQDN: ${{ steps.ep.outputs.socket_fqdn }}
+          CUSTOM_FQDN: ${{ steps.ep.outputs.custom_fqdn }}
+        run: |
+          set -euo pipefail
+          az acr build --registry "$ACR" \
+            --image "claudes-cards-web:$TAG" \
+            --image "claudes-cards-web:latest" \
+            --file apps/frontend/Dockerfile \
+            --build-arg VITE_API_URL="https://$API_FQDN/api/v1" \
+            --build-arg VITE_SOCKET_URL="https://$SOCKET_FQDN" \
+            --build-arg VITE_AUTH_MODE=production \
+            --build-arg VITE_B2C_CLIENT_ID="${{ vars.B2C_CLIENT_ID }}" \
+            --build-arg VITE_B2C_AUTHORITY="${{ vars.B2C_AUTHORITY }}" \
+            --build-arg VITE_B2C_KNOWN_AUTHORITIES="${{ vars.B2C_KNOWN_AUTHORITIES }}" \
+            --build-arg VITE_B2C_REDIRECT_URI="https://$CUSTOM_FQDN" \
+            --build-arg VITE_LOG_LEVEL=info \
+            .
+
+      - name: Update container apps to the new image tag
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          ACR_LOGIN: ${{ steps.ep.outputs.acr_login }}
+        run: |
+          set -euo pipefail
+          az containerapp update -n "${PROJECT_SLUG}-api"    -g "$RESOURCE_GROUP" --image "$ACR_LOGIN/claudes-cards-api:$TAG"    --output none
+          az containerapp update -n "${PROJECT_SLUG}-socket" -g "$RESOURCE_GROUP" --image "$ACR_LOGIN/claudes-cards-socket:$TAG" --output none
+          az containerapp update -n "${PROJECT_SLUG}-worker" -g "$RESOURCE_GROUP" --image "$ACR_LOGIN/claudes-cards-worker:$TAG" --output none
+          az containerapp update -n "${PROJECT_SLUG}-web"    -g "$RESOURCE_GROUP" --image "$ACR_LOGIN/claudes-cards-web:$TAG"    --output none
+
+      - name: Run Prisma migrations (one-shot job)
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          ACR_LOGIN: ${{ steps.ep.outputs.acr_login }}
+        run: |
+          set -euo pipefail
+          # Pull DATABASE_URL from the api-service's secret (the api image ships
+          # with Prisma + the schema). One-shot container-app job, lives 2 min.
+          JOB_NAME="${PROJECT_SLUG}-migrate"
+          DB_URL=$(az containerapp secret show -n "${PROJECT_SLUG}-api" -g "$RESOURCE_GROUP" --secret-name database-url --query value -o tsv)
+
+          # Idempotent: create-or-update the job, then run it synchronously.
+          az containerapp job show -n "$JOB_NAME" -g "$RESOURCE_GROUP" --output none 2>/dev/null || \
+          az containerapp job create \
+            --name "$JOB_NAME" -g "$RESOURCE_GROUP" \
+            --environment "${PROJECT_SLUG}-cae" \
+            --trigger-type Manual --replica-timeout 600 --replica-retry-limit 1 \
+            --registry-server "$ACR_LOGIN" --registry-identity "$(az identity show -n "${PROJECT_SLUG}-umi" -g "$RESOURCE_GROUP" --query id -o tsv)" \
+            --image "$ACR_LOGIN/claudes-cards-api:$TAG" \
+            --cpu 0.5 --memory 1Gi \
+            --secrets "database-url=$DB_URL" \
+            --env-vars "DATABASE_URL=secretref:database-url" \
+            --command /bin/sh --args "-c,cd /app/apps/api-service && npx prisma migrate deploy --schema=prisma/schema.prisma" \
+            --output none
+
+          az containerapp job update -n "$JOB_NAME" -g "$RESOURCE_GROUP" \
+            --image "$ACR_LOGIN/claudes-cards-api:$TAG" \
+            --output none || true
+
+          az containerapp job start -n "$JOB_NAME" -g "$RESOURCE_GROUP" --output none
+          echo "Prisma migrate job started. Follow: az containerapp job execution list -n $JOB_NAME -g $RESOURCE_GROUP"
+
+      - name: Bind custom domain + managed TLS cert
+        env:
+          CUSTOM_FQDN: ${{ steps.ep.outputs.custom_fqdn }}
+        run: |
+          set -euo pipefail
+          WEB_APP="${PROJECT_SLUG}-web"
+          CAE_NAME="${PROJECT_SLUG}-cae"
+
+          # Already bound? exit fast.
+          if az containerapp hostname list -n "$WEB_APP" -g "$RESOURCE_GROUP" --query "[?name=='$CUSTOM_FQDN']" -o tsv | grep -q .; then
+            echo "Custom domain $CUSTOM_FQDN already bound; checking cert status."
+            az containerapp hostname list -n "$WEB_APP" -g "$RESOURCE_GROUP" --query "[?name=='$CUSTOM_FQDN']" -o table
+            exit 0
+          fi
+
+          # Create or reuse a managed cert for this FQDN.
+          CERT_NAME="$(echo "$CUSTOM_FQDN" | tr '.' '-')"
+          CERT_ID=$(az containerapp env certificate list -g "$RESOURCE_GROUP" -n "$CAE_NAME" --managed-certificates-only --query "[?properties.subjectName=='$CUSTOM_FQDN'].id | [0]" -o tsv)
+          if [ -z "$CERT_ID" ]; then
+            echo "Requesting new managed cert for $CUSTOM_FQDN (DNS CNAME must resolve)."
+            az containerapp env certificate create \
+              -g "$RESOURCE_GROUP" --name "$CAE_NAME" \
+              --certificate-name "$CERT_NAME" \
+              --hostname "$CUSTOM_FQDN" \
+              --validation-method CNAME \
+              --output none
+            CERT_ID=$(az containerapp env certificate list -g "$RESOURCE_GROUP" -n "$CAE_NAME" --managed-certificates-only --query "[?properties.subjectName=='$CUSTOM_FQDN'].id | [0]" -o tsv)
+          fi
+
+          echo "Binding $CUSTOM_FQDN → $WEB_APP with cert $CERT_ID"
+          az containerapp hostname bind \
+            -n "$WEB_APP" -g "$RESOURCE_GROUP" \
+            --hostname "$CUSTOM_FQDN" \
+            --environment "$CAE_NAME" \
+            --validation-method CNAME \
+            --output none
+
+          az containerapp hostname list -n "$WEB_APP" -g "$RESOURCE_GROUP" -o table
+
+      - name: Smoke test
+        env:
+          API_FQDN: ${{ steps.ep.outputs.api_fqdn }}
+          WEB_FQDN: ${{ steps.ep.outputs.web_fqdn }}
+          CUSTOM_FQDN: ${{ steps.ep.outputs.custom_fqdn }}
+        run: |
+          set -euo pipefail
+          echo "Waiting for api /health …"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' "https://$API_FQDN/health" || true)
+            if [ "$code" = "200" ]; then echo "api healthy"; break; fi
+            echo "attempt $i: got $code, retrying in 10s"; sleep 10
+          done
+          curl -sS -o /dev/null -w 'default web %{http_code}\n' "https://$WEB_FQDN/" || true
+          curl -sS -o /dev/null -w 'custom  web %{http_code}\n' "https://$CUSTOM_FQDN/" || true
+
+      - name: Summary
+        env:
+          API_FQDN: ${{ steps.ep.outputs.api_fqdn }}
+          SOCKET_FQDN: ${{ steps.ep.outputs.socket_fqdn }}
+          WEB_FQDN: ${{ steps.ep.outputs.web_fqdn }}
+          CUSTOM_FQDN: ${{ steps.ep.outputs.custom_fqdn }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
+          ## Deployed
+          - **Image tag:** \`$TAG\`
+          - **Web (custom):** https://$CUSTOM_FQDN
+          - **Web (default):** https://$WEB_FQDN
+          - **API:** https://$API_FQDN
+          - **Socket:** https://$SOCKET_FQDN
+
+          ### Redeploy
+          Actions → *Azure deploy* → **Run workflow** (optionally override image tag).
+          EOF

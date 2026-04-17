@@ -71,6 +71,14 @@ jobs:
           npm run build --workspace=packages/shared-types
           npm run build --workspace=packages/cards-engine
 
+      # api-service's typecheck (and worker/socket when they import Prisma
+      # models transitively) reads generated types from node_modules/.prisma.
+      # The Dockerfile does this too; keep parity here so CI matches what
+      # the image build sees.
+      - name: Generate Prisma client
+        if: matrix.workspace == 'apps/api-service' || matrix.workspace == 'apps/worker-service' || matrix.workspace == 'apps/socket-service'
+        run: npx prisma generate --schema=apps/api-service/prisma/schema.prisma
+
       - name: Type check
         run: npm run typecheck --workspace=${{ matrix.workspace }}
 

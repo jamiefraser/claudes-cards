@@ -80,7 +80,6 @@ jobs:
                 projectSlug="$PROJECT_SLUG" \
                 dnsZoneName="$DNS_ZONE" \
                 frontendSubdomain="$FRONTEND_SUBDOMAIN" \
-                dnsZoneResourceGroup="$DNS_ZONE_RG" \
                 imageTag="${{ steps.tag.outputs.tag }}" \
                 pgAdminPassword="${{ secrets.PG_ADMIN_PASSWORD }}" \
                 jwtSecret="${{ secrets.JWT_SECRET }}" \
@@ -212,6 +211,35 @@ jobs:
 
           az containerapp job start -n "$JOB_NAME" -g "$RESOURCE_GROUP" --output none
           echo "Prisma migrate job started. Follow: az containerapp job execution list -n $JOB_NAME -g $RESOURCE_GROUP"
+
+      - name: Ensure DNS records (CNAME + asuid TXT)
+        env:
+          CUSTOM_FQDN: ${{ steps.ep.outputs.custom_fqdn }}
+        run: |
+          set -euo pipefail
+          WEB_APP="${PROJECT_SLUG}-web"
+          WEB_INGRESS_FQDN=$(az containerapp show -n "$WEB_APP" -g "$RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)
+          VERIFICATION_ID=$(az containerapp show -n "$WEB_APP" -g "$RESOURCE_GROUP" --query properties.customDomainVerificationId -o tsv)
+
+          echo "CNAME $FRONTEND_SUBDOMAIN.$DNS_ZONE → $WEB_INGRESS_FQDN"
+          az network dns record-set cname set-record \
+            -g "$DNS_ZONE_RG" -z "$DNS_ZONE" \
+            -n "$FRONTEND_SUBDOMAIN" -c "$WEB_INGRESS_FQDN" \
+            --ttl 3600 --output none
+
+          echo "TXT asuid.$FRONTEND_SUBDOMAIN.$DNS_ZONE → $VERIFICATION_ID"
+          # record-set add-record is additive; clear first so the value reflects
+          # the *current* app's verification id (which never changes for a given
+          # app but may differ if the app was recreated).
+          az network dns record-set txt delete \
+            -g "$DNS_ZONE_RG" -z "$DNS_ZONE" \
+            -n "asuid.$FRONTEND_SUBDOMAIN" --yes --output none 2>/dev/null || true
+          az network dns record-set txt add-record \
+            -g "$DNS_ZONE_RG" -z "$DNS_ZONE" \
+            -n "asuid.$FRONTEND_SUBDOMAIN" -v "$VERIFICATION_ID" --output none
+          az network dns record-set txt update \
+            -g "$DNS_ZONE_RG" -z "$DNS_ZONE" \
+            -n "asuid.$FRONTEND_SUBDOMAIN" --set ttl=3600 --output none
 
       - name: Bind custom domain + managed TLS cert
         env:

@@ -23,9 +23,6 @@ param dnsZoneName string = 'relevanttechnologyservices.com'
 @description('Subdomain (relative to the zone) that fronts the web app.')
 param frontendSubdomain string = 'cardgames'
 
-@description('Resource group holding the DNS zone. Defaults to the current RG.')
-param dnsZoneResourceGroup string = resourceGroup().name
-
 @description('Short project slug used in resource names.')
 param projectSlug string = 'claudescards'
 
@@ -433,25 +430,19 @@ resource frontendApp 'Microsoft.App/containerApps@2024-03-01' = {
   dependsOn: [ acrPullAssign ]
 }
 
-// ── DNS records for custom domain verification ────────────────────────────────
-// The bicep module pattern below scopes DNS writes to the zone's RG, which may
-// be different from the one holding the apps.
-module dns 'modules/dns.bicep' = {
-  name: 'dns-${frontendSubdomain}'
-  scope: resourceGroup(dnsZoneResourceGroup)
-  params: {
-    dnsZoneName: dnsZoneName
-    recordName: frontendSubdomain
-    targetFqdn: frontendApp.properties.configuration.ingress.fqdn
-    verificationId: frontendApp.properties.customDomainVerificationId
-  }
-}
-
-// NOTE: The managed certificate + hostname binding for the custom domain is
-// handled *outside* bicep by the deploy workflow using `az containerapp
-// hostname bind --environment --validation-method CNAME`. Doing it there
-// lets the workflow wait for DNS propagation between steps, which is the
-// common failure mode when the cert is created inline.
+// NOTE: DNS records (CNAME + asuid TXT) AND the managed certificate + hostname
+// binding for the custom domain are handled *outside* bicep, by the deploy
+// workflow. Reasons:
+//
+//   * Writing DNS records via a bicep module requires Microsoft.Resources/
+//     deployments/write on the zone's resource group, which would force us to
+//     grant Contributor on that RG. Writing them directly via `az network dns
+//     record-set *` only needs DNS Zone Contributor on the zone itself.
+//
+//   * Managed cert issuance needs DNS to be in place AND propagated before the
+//     CAE can validate. Stepping DNS → cert → hostname bind in the workflow
+//     lets us insert small waits between them; a monolithic bicep deploy does
+//     not wait and routinely fails the cert step on first run.
 
 // ── Outputs (consumed by the deploy workflow) ────────────────────────────────
 output acrLoginServer  string = acrLoginServerVal

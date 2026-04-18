@@ -16,8 +16,8 @@ on:
         description: 'Image tag to build & deploy (default = short commit SHA)'
         required: false
         default: ''
-      skip_infra:
-        description: 'Skip bicep deployment (only push new images + update apps)'
+      run_infra:
+        description: 'Force the bicep step to run even when nothing under infra/ changed.'
         type: boolean
         default: false
 
@@ -44,6 +44,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Need at least two commits so the infra-change detector can
+          # `git diff HEAD~1 HEAD`. For push events we also have
+          # github.event.before as a fallback.
+          fetch-depth: 2
 
       - name: Derive image tag
         id: tag
@@ -65,8 +70,38 @@ jobs:
         run: |
           az group create --name "$RESOURCE_GROUP" --location "$AZURE_LOCATION" --output none
 
+      - name: Decide whether to run bicep
+        id: infra
+        run: |
+          # Run bicep only when something warrants it, because `az deployment
+          # group create` still walks every resource serially even when
+          # nothing drifted — that's 4–8 min of idle time on a plain push.
+          #
+          #   workflow_dispatch + run_infra=true  → force run
+          #   push touches infra/** or this workflow file → run
+          #   the Container Apps env doesn't exist yet (first-time bootstrap) → run
+          #   otherwise → skip
+          set -euo pipefail
+          reason="skip"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.run_infra }}" = "true" ]; then
+            reason="workflow_dispatch with run_infra=true"
+            run=true
+          elif ! az containerapp env show -n "${PROJECT_SLUG}-cae" -g "$RESOURCE_GROUP" --only-show-errors -o none 2>/dev/null; then
+            reason="first-time bootstrap (Container Apps env missing)"
+            run=true
+          elif git diff --name-only ${{ github.event.before || 'HEAD~1' }} HEAD -- infra/ .github/workflows/azure-deploy.yml 2>/dev/null | grep -q .; then
+            reason="infra/ or azure-deploy.yml changed in this push"
+            run=true
+          else
+            run=false
+          fi
+
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "::notice::Bicep decision: run=$run ($reason)"
+
       - name: Deploy bicep (infrastructure)
-        if: ${{ !inputs.skip_infra }}
+        if: ${{ steps.infra.outputs.run == 'true' }}
         id: bicep
         run: |
           set -euo pipefail
@@ -93,8 +128,8 @@ jobs:
             echo "web_fqdn=$(az deployment group show -g "$RESOURCE_GROUP" -n "$DEPLOY_NAME" --query 'properties.outputs.webFqdn.value' -o tsv)"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Resolve outputs (skip_infra path)
-        if: ${{ inputs.skip_infra }}
+      - name: Resolve outputs (bicep-skipped path)
+        if: ${{ steps.infra.outputs.run != 'true' }}
         id: outputs
         run: |
           set -euo pipefail

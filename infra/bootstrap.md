@@ -61,7 +61,7 @@ First run: ~10 min (Postgres + Redis + image builds). Subsequent runs: ~5 min.
 On-demand redeploys from the Actions tab → **Azure deploy** → Run workflow. Inputs:
 
 - `image_tag` — leave blank to use the current commit SHA, or paste any previously-built tag to roll back.
-- `skip_infra` — check this to skip the bicep step (only rebuild + roll images) when you know infra hasn't changed.
+- `run_infra` — check this to force the bicep step to run. By default the workflow runs bicep **only** when something under `infra/` or `.github/workflows/azure-deploy.yml` changed in the push (or the Container Apps environment doesn't exist yet). On a normal code-only change the bicep step is skipped and the deploy finishes in a few minutes instead of ~10.
 
 ## Tear down
 

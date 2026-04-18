@@ -258,8 +258,8 @@ describe('PATCH /api/v1/admin/games/:id', () => {
       .get('/api/v1/games')
       .set('Authorization', `Bearer ${adminToken}`);
 
-    if (gamesRes.body.games.length > 0) {
-      const gameId = gamesRes.body.games[0].id;
+    if (Array.isArray(gamesRes.body) && gamesRes.body.length > 0) {
+      const gameId = gamesRes.body[0].id;
 
       const res = await request(app)
         .patch(`/api/v1/admin/games/${gameId}`)

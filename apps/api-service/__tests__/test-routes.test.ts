@@ -23,14 +23,19 @@ afterAll(async () => {
 
 describe('POST /api/v1/test/force-bot-activate', () => {
   it('returns 200 with ok and echoes roomId/playerId', async () => {
+    // The endpoint now resolves username → UUID, so we have to pass either a
+    // real seed username or a UUID. Using test-player-1 because the seed
+    // script guarantees it exists.
     const res = await request(app)
       .post('/api/v1/test/force-bot-activate')
-      .send({ roomId: 'room-1', playerId: 'player-1' })
+      .send({ roomId: 'room-1', playerId: 'test-player-1' })
       .expect(200);
 
     expect(res.body.ok).toBe(true);
     expect(res.body.roomId).toBe('room-1');
-    expect(res.body.playerId).toBe('player-1');
+    // The response echoes the *resolved* UUID, not the username we sent.
+    expect(typeof res.body.playerId).toBe('string');
+    expect(res.body.playerId.length).toBeGreaterThan(0);
   });
 
   it('returns 400 when roomId is missing', async () => {
@@ -47,7 +52,7 @@ describe('POST /api/v1/test/force-player-rejoin', () => {
   it('returns 200 with ok and echoes roomId/playerId', async () => {
     const res = await request(app)
       .post('/api/v1/test/force-player-rejoin')
-      .send({ roomId: 'room-1', playerId: 'player-1' })
+      .send({ roomId: 'room-1', playerId: 'test-player-1' })
       .expect(200);
 
     expect(res.body.ok).toBe(true);

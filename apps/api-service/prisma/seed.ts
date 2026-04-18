@@ -67,7 +67,10 @@ const GAME_CATALOG: GameEntry[] = [
     id: 'canasta',
     name: 'Canasta',
     category: 'rummy',
-    minPlayers: 4,
+    // Engine supports three variants: 2p (15-card deal, 2-card draw, 2 canastas
+    // to go out), 3p (13-card deal, individual), 4p partnership (11-card deal,
+    // classic). See apps/socket-service/src/games/canasta/engine.ts.
+    minPlayers: 2,
     maxPlayers: 4,
     supportsAsync: true,
   },

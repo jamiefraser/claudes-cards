@@ -387,20 +387,21 @@
       },
       "canasta": {
         "title": "Canasta",
-        "subtitle": "Partnership melding with wild cards",
+        "subtitle": "Melding with wild cards — 2, 3, or 4 players",
         "sections": {
           "objective": [
             "Build melds of matching ranks, aiming to complete seven-card canastas. First side to 5,000 points wins the match."
           ],
           "setup": [
-            "Two 52-card decks plus four jokers (108 cards total). Deal eleven cards to each of four players in two partnerships. The top stock card starts the discard pile."
+            "Two 52-card decks plus four jokers (108 cards total). The top stock card starts the discard pile.",
+            "Four players play in two partnerships and deal eleven cards each. Three players play individually and deal thirteen each. Two players play individually, deal fifteen each, and draw two cards per turn."
           ],
           "play": [
             "On your turn, draw from the stock (or take the entire discard pile if you can use its top card in a meld), then lay down any melds of three or more matching ranks, and discard one card.",
             "Jokers and 2s are wild. Black 3s block the discard pile; red 3s are bonuses laid down immediately."
           ],
           "melds": [
-            "A natural canasta is seven cards of the same rank with no wild cards (500 bonus). A mixed canasta includes at least one wild (300 bonus). A side must complete at least one canasta before going out."
+            "A natural canasta is seven cards of the same rank with no wild cards (500 bonus). A mixed canasta includes at least one wild (300 bonus). Four-player and three-player games need one canasta before going out; the two-player game needs two."
           ],
           "scoring": [
             "Add meld values (A/2 = 20, 8–K = 10, 4–7 = 5, joker = 50, red 3 = 100) and subtract any cards left in hand. Going out scores a 100-point bonus; going out concealed scores 200."

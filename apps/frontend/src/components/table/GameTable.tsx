@@ -12,7 +12,9 @@ import {
   useSensors,
   PointerSensor,
   KeyboardSensor,
+  closestCenter,
 } from '@dnd-kit/core';
+import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { useGameStore } from '@/store/gameStore';
 import { useGameState } from '@/hooks/useGameState';
 import { useAuth } from '@/auth/useAuth';
@@ -32,6 +34,7 @@ import { GinRummyShowdown, type GinRummyShowdownPlayer } from './GinRummyShowdow
 import { WinCelebration } from './WinCelebration';
 import { Phase10Objective } from './Phase10Objective';
 import { MeldsArea, type MeldGroup } from './MeldsArea';
+import { Phase10HitTargetModal, type Phase10HitTarget } from './Phase10HitTargetModal';
 import { CribbagePegArea } from './CribbagePegArea';
 import { CribbageBoard } from './cribbage/CribbageBoard';
 import { CribbageCountingDisplay } from './CribbageCountingDisplay';
@@ -138,12 +141,15 @@ export function GameTable({ roomId }: GameTableProps) {
   // Tracked by state version so we only fire once per state.
   const autoGoFiredRef = useRef<number>(-1);
 
-  // DnD sensors
+  // DnD sensors — PointerSensor needs a short distance so click-to-select
+  // still works without accidentally triggering a drag. KeyboardSensor uses
+  // the sortable-preset coordinate getter because drags of hand cards are
+  // sortable operations.
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
+      activationConstraint: { distance: 6 },
     }),
-    useSensor(KeyboardSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
   useEffect(() => {
@@ -197,23 +203,71 @@ export function GameTable({ roomId }: GameTableProps) {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [clearSelection, selectedCardIds, gameState, player, roomId]);
 
-  // Drag end — card dropped on discard pile
+  // Phase 10: hit-meld target modal state. A drop onto a specific meld goes
+  // straight to the engine; a click on "Hit Meld" without a specific target
+  // opens this modal so the player picks one.
+  const [hitModalOpen, setHitModalOpen] = useState(false);
+
+  // Unified drag-end. Three cases:
+  //   1. Reorder  — `over.id` is another of the local player's hand card ids
+  //   2. Discard  — `over.id === 'discard-pile'`
+  //   3. Hit meld — `over.id` starts with `meld:<playerId>:<groupIndex>`
+  // HandComponent no longer owns its own DndContext, so this handler is the
+  // single entry point for every sortable / droppable in the table.
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { over, active } = event;
-      if (over?.id === 'discard-pile' && active.id) {
-        const cardId = active.id as string;
+      if (!over || !active.id) return;
+      const activeId = active.id as string;
+      const overId = over.id as string;
+
+      // 1. Reorder the local player's hand.
+      if (player && gameState) {
+        const me = gameState.players.find(p => p.playerId === player.id);
+        const handIds = me?.hand.map(c => c.id) ?? [];
+        if (handIds.includes(activeId) && handIds.includes(overId) && activeId !== overId) {
+          const oldIndex = handIds.indexOf(activeId);
+          const newIndex = handIds.indexOf(overId);
+          setHandOrder(roomId, arrayMove(handIds, oldIndex, newIndex));
+          return;
+        }
+      }
+
+      // 2. Drop on the discard pile.
+      if (overId === 'discard-pile') {
         const socket = getGameSocket();
         const payload: GameActionPayload = {
           roomId,
-          action: { type: 'discard', cardIds: [cardId] },
+          action: { type: 'discard', cardIds: [activeId] },
         };
         socket.emit('game_action', payload);
-        logger.debug('GameTable: drag discard', { cardId });
+        logger.debug('GameTable: drag discard', { cardId: activeId });
         clearSelection();
+        return;
+      }
+
+      // 3. Drop on a Phase 10 meld group. `over.id` encodes
+      //    `meld:<targetPlayerId>:<groupIndex>` (set by MeldsArea).
+      if (overId.startsWith('meld:')) {
+        const parts = overId.split(':');
+        const targetPlayerId = parts.slice(1, -1).join(':'); // playerIds can contain ':'
+        const groupIndex = Number(parts[parts.length - 1]);
+        if (!targetPlayerId || Number.isNaN(groupIndex)) return;
+        const socket = getGameSocket();
+        const payload: GameActionPayload = {
+          roomId,
+          action: {
+            type: 'hit-meld',
+            payload: { targetPlayerId, groupIndex, cardIds: [activeId] },
+          },
+        };
+        socket.emit('game_action', payload);
+        logger.debug('GameTable: drag hit-meld', { cardId: activeId, targetPlayerId, groupIndex });
+        clearSelection();
+        return;
       }
     },
-    [roomId, clearSelection],
+    [roomId, clearSelection, player, gameState, setHandOrder],
   );
 
   const handleCardSelect = useCallback(
@@ -358,6 +412,77 @@ export function GameTable({ roomId }: GameTableProps) {
     return groups.map((g) => ({ type: g.type, cardIds: g.cardIds }));
   };
 
+  // Rummy family — opponents' melds render at 33% so the felt stays readable.
+  // Everything on this list shares the same "meld cards visible to all but
+  // only the local hand is full-size" aesthetic.
+  const RUMMY_FAMILY = new Set(['rummy', 'ginrummy', 'canasta', 'phase10']);
+  const isRummyFamily = RUMMY_FAMILY.has(gameState.gameId);
+
+  // Phase 10 hit-meld eligibility. A group accepts:
+  //   - a wild card: any group
+  //   - a skip card: never
+  //   - a number card: any group (engine validates the full rules; the client
+  //     just has to produce a list the server won't flat-reject).
+  // Only players who've already laid down their own phase are allowed to hit,
+  // and only targets (including themselves) who have laid down expose melds
+  // that can be extended.
+  const phase10HitTargets: Phase10HitTarget[] = (() => {
+    if (gameState.gameId !== 'phase10' || !myPlayer || !myPlayer.phaseLaidDown) return [];
+    const selectedCards = selectedCardIds
+      .map(id => myPlayer.hand.find(c => c.id === id))
+      .filter((c): c is Card => !!c);
+    if (selectedCards.length === 0) return [];
+    if (selectedCards.some(c => c.phase10Type === 'skip')) return [];
+    const targets: Phase10HitTarget[] = [];
+    for (const targetId of Object.keys(laidDownPhases)) {
+      const groups = laidDownPhases[targetId] ?? [];
+      for (let gi = 0; gi < groups.length; gi++) {
+        const g = groups[gi]!;
+        const cards = g.cardIds
+          .map(id => cardCatalogue[id])
+          .filter((c): c is Card => !!c);
+        const ownerName =
+          targetId === player?.id
+            ? 'You'
+            : playerNames[targetId] ?? targetId;
+        targets.push({
+          targetPlayerId: targetId,
+          targetPlayerName: ownerName,
+          groupIndex: gi,
+          type: g.type,
+          cards,
+        });
+      }
+    }
+    return targets;
+  })();
+
+  const handleHitRequest = useCallback(() => {
+    if (phase10HitTargets.length === 0) return;
+    setHitModalOpen(true);
+  }, [phase10HitTargets.length]);
+
+  const handleHitPick = useCallback(
+    (target: Phase10HitTarget) => {
+      setHitModalOpen(false);
+      if (selectedCardIds.length === 0) return;
+      const socket = getGameSocket();
+      socket.emit('game_action', {
+        roomId,
+        action: {
+          type: 'hit-meld',
+          payload: {
+            targetPlayerId: target.targetPlayerId,
+            groupIndex: target.groupIndex,
+            cardIds: [...selectedCardIds],
+          },
+        },
+      } satisfies GameActionPayload);
+      clearSelection();
+    },
+    [roomId, selectedCardIds, clearSelection],
+  );
+
   const actionBarProps = myPlayer ? (() => {
     const cribbagePhase = isCribbage
       ? (gameState.publicData['gamePhase'] as
@@ -410,6 +535,50 @@ export function GameTable({ roomId }: GameTableProps) {
         ? myPlayer.hand.find(c => c.id === selectedCardIds[0])?.rank
         : undefined;
 
+    // Canasta: derive the meld / discard bar inputs. Figure out the player's
+    // "side" (team key for 4p, playerId otherwise), project the selected
+    // cards to their actual Card objects (so the bar can tell wild from
+    // natural), and build a list of existing melds on the side that a
+    // wild-only selection could extend.
+    let canastaProps: {
+      phase: 'draw' | 'meld-discard' | 'ended';
+      selectedCards: Array<{ id: string; rank?: string; suit?: string }>;
+      extendableMelds: Array<{ rank: string; naturals: number; wilds: number; isCanasta: boolean }>;
+    } | undefined;
+    if (gameState.gameId === 'canasta' && myPlayer && player) {
+      const pd = gameState.publicData as Record<string, unknown>;
+      const variant = pd['variant'] as '2p' | '3p' | '4p' | undefined;
+      let mySide: string;
+      if (variant === '4p') {
+        const idx = gameState.players.findIndex(p => p.playerId === player.id);
+        mySide = idx === 0 || idx === 2 ? 'A' : 'B';
+      } else {
+        mySide = player.id;
+      }
+      const melds =
+        (pd['melds'] as
+          | Record<string, Array<{ rank: string; naturals: number; wilds: number; isCanasta: boolean; blackThrees?: boolean }>>
+          | undefined) ?? {};
+      const sideMelds = melds[mySide] ?? [];
+      const extendableMelds = sideMelds
+        .filter((m) => !m.blackThrees)
+        .map((m) => ({
+          rank: m.rank,
+          naturals: m.naturals,
+          wilds: m.wilds,
+          isCanasta: m.isCanasta,
+        }));
+      const selectedCards = selectedCardIds
+        .map((id) => myPlayer.hand.find((c) => c.id === id))
+        .filter((c): c is NonNullable<typeof c> => c !== undefined)
+        .map((c) => ({ id: c.id, rank: c.rank, suit: c.suit }));
+      const phase = (pd['gamePhase'] as 'draw' | 'meld-discard' | 'ended' | undefined) ?? 'draw';
+      canastaProps = { phase, selectedCards, extendableMelds };
+    }
+
+    const phase10LaidDown =
+      gameState.gameId === 'phase10' && !!myPlayer.phaseLaidDown;
+
     return {
       roomId,
       isMyTurn,
@@ -426,6 +595,9 @@ export function GameTable({ roomId }: GameTableProps) {
       ginrummyKnock,
       ginrummyShowdown,
       selectedCardRank: onlySelectedRank,
+      canasta: canastaProps,
+      phase10LaidDown,
+      onPhase10HitRequest: phase10LaidDown ? handleHitRequest : undefined,
     };
   })() : null;
 
@@ -453,7 +625,7 @@ export function GameTable({ roomId }: GameTableProps) {
   const currentHand = (gameState.publicData['currentHand'] as number | undefined) ?? 1;
 
   return (
-    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <div className="relative flex flex-col lg:flex-row min-h-screen bg-night overflow-hidden font-sans text-parchment">
         {botAnnouncerEl}
 
@@ -705,6 +877,7 @@ export function GameTable({ roomId }: GameTableProps) {
                             isCurrentTurn={isCurrentTurn}
                             deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
                             isDealer={dealerId === p.playerId}
+                            compact={isRummyFamily}
                           />
                         ) : (
                           <PlayerSeat
@@ -713,6 +886,7 @@ export function GameTable({ roomId }: GameTableProps) {
                             isSelf={false}
                             deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
                             isDealer={dealerId === p.playerId}
+                            compact={isRummyFamily}
                           />
                         )}
                         {melds.length > 0 && (
@@ -720,6 +894,12 @@ export function GameTable({ roomId }: GameTableProps) {
                             groups={melds}
                             cardCatalogue={cardCatalogue}
                             label={`${p.displayName}'s melds`}
+                            scale={isRummyFamily ? 'tiny' : 'full'}
+                            dropTargetPlayerId={
+                              gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
+                                ? p.playerId
+                                : undefined
+                            }
                           />
                         )}
                       </div>
@@ -819,6 +999,11 @@ export function GameTable({ roomId }: GameTableProps) {
                   groups={meldsByPlayer(myPlayer.playerId)}
                   cardCatalogue={cardCatalogue}
                   label="Your melds"
+                  dropTargetPlayerId={
+                    gameState.gameId === 'phase10' && myPlayer.phaseLaidDown
+                      ? myPlayer.playerId
+                      : undefined
+                  }
                 />
               )}
             </div>
@@ -826,6 +1011,13 @@ export function GameTable({ roomId }: GameTableProps) {
         </div>
 
         <TableChat roomId={roomId} />
+
+        <Phase10HitTargetModal
+          isOpen={hitModalOpen}
+          targets={phase10HitTargets}
+          onPick={handleHitPick}
+          onClose={() => setHitModalOpen(false)}
+        />
       </div>
     </DndContext>
   );

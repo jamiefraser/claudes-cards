@@ -14,6 +14,8 @@ export interface BotSeatProps {
   isCurrentTurn: boolean;
   deckType?: DeckType;
   isDealer?: boolean;
+  /** Mirror PlayerSeat.compact — 33% opponent card-back sizing for rummy. */
+  compact?: boolean;
 }
 
 function RobotIcon() {
@@ -52,11 +54,14 @@ export function BotSeat({
   isCurrentTurn,
   deckType = 'standard',
   isDealer = false,
+  compact = false,
 }: BotSeatProps) {
   const tooltipText = en.table.botTooltip.replace('{name}', originalDisplayName);
   const backUrl = getCardBackUrl(deckType);
   const needsCrop = backImageNeedsLeftCrop(deckType);
   const visibleCards = Math.min(playerState.hand.length, 7);
+  const cardBackSizeClass = compact ? 'w-4 h-6' : 'w-5 h-7';
+  const cardBackOverlap = compact ? '-8px' : '-10px';
 
   return (
     <div
@@ -122,8 +127,8 @@ export function BotSeat({
           {Array.from({ length: visibleCards }).map((_, i) => (
             <div
               key={i}
-              className="w-5 h-7 rounded-sm border border-brass/30 bg-night overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.5)]"
-              style={{ marginLeft: i === 0 ? 0 : '-10px', zIndex: i }}
+              className={`${cardBackSizeClass} rounded-sm border border-brass/30 bg-night overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.5)]`}
+              style={{ marginLeft: i === 0 ? 0 : cardBackOverlap, zIndex: i }}
             >
               {backUrl && (
                 <img

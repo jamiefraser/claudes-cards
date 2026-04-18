@@ -68,6 +68,12 @@ export function getCardFaceUrl(card: Card): string | null {
     return phase10Url(`${prefix}${card.value}.svg`);
   }
   // Standard deck
+  // Jokers (used by Canasta) have no rank or suit. Alternate the red/black
+  // joker art by card id so the same hand doesn't render four identical backs.
+  if (card.rank === undefined && card.suit === undefined) {
+    const isRed = /joker-[13]/.test(card.id);
+    return standardUrl(isRed ? 'joker_red.svg' : 'joker_black.svg');
+  }
   const prefix = card.suit ? SUIT_PREFIX[card.suit] : null;
   if (!prefix) return null;
   return standardUrl(`${prefix}${card.value}.svg`);

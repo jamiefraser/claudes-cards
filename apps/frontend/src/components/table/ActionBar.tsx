@@ -2,12 +2,16 @@
  * ActionBar — bottom action bar for game controls.
  * SPEC.md §15
  */
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { getGameSocket } from '@/hooks/useSocket';
 import { useGameStore } from '@/store/gameStore';
 import { logger } from '@/utils/logger';
 import type { GameActionPayload } from '@shared/socket';
 import en from '@/i18n/en.json';
+import {
+  CanastaMeldTargetModal,
+  type CanastaExtendableMeld,
+} from './CanastaMeldTargetModal';
 
 export interface ActionBarProps {
   roomId: string;
@@ -53,6 +57,34 @@ export interface ActionBarProps {
    * replaced by four suit buttons so the player can declare a suit.
    */
   selectedCardRank?: string;
+  /**
+   * Canasta-only state. Drives the Meld / Discard bar and the wild-only
+   * extend-target picker modal:
+   *   - phase: current sub-phase (draw vs meld-discard vs ended)
+   *   - selectedCards: the actual Card objects for `selectedCardIds` (needed
+   *     to classify wild vs natural without another lookup). Array order
+   *     follows the hand order.
+   *   - extendableMelds: the player-side's existing melds that a wild-only
+   *     selection can be added to (black-3 exit melds excluded).
+   */
+  canasta?: {
+    phase: 'draw' | 'meld-discard' | 'ended';
+    selectedCards: ReadonlyArray<{ id: string; rank?: string; suit?: string }>;
+    extendableMelds: readonly CanastaExtendableMeld[];
+  };
+  /**
+   * Phase 10 — true once the local player has laid down their phase. After
+   * that the "Lay Down" button becomes a "Hit Meld" button (the engine only
+   * accepts `lay-down` while the phase isn't yet down; after that, only
+   * `hit-meld` can legally empty the hand).
+   */
+  phase10LaidDown?: boolean;
+  /**
+   * Called when the player clicks Hit Meld. The parent resolves the target
+   * (via a modal picker that lists legal melds for the selection) and emits
+   * the `hit-meld` action itself.
+   */
+  onPhase10HitRequest?: () => void;
 }
 
 export function ActionBar({
@@ -71,8 +103,12 @@ export function ActionBar({
   ginrummyKnock,
   ginrummyShowdown,
   selectedCardRank,
+  canasta,
+  phase10LaidDown,
+  onPhase10HitRequest,
 }: ActionBarProps) {
   const clearSelection = useGameStore(s => s.clearSelection);
+  const [extendModalOpen, setExtendModalOpen] = useState(false);
 
   const emitAction = useCallback(
     (type: string, cardIds?: string[], payload?: Record<string, unknown>) => {
@@ -92,6 +128,7 @@ export function ActionBar({
   const isGinRummy = gameId === 'ginrummy';
   // Accept both the engine's compact id and the hyphenated Room/seed form.
   const isCrazyEights = gameId === 'crazyeights' || gameId === 'crazy-eights';
+  const isCanasta = gameId === 'canasta';
   const isDiscardingToCrib = isCribbage && cribbagePhase === 'discarding';
   const isPegging = isCribbage && cribbagePhase === 'pegging';
   const isCounting = isCribbage && cribbagePhase === 'counting';
@@ -128,6 +165,65 @@ export function ActionBar({
   };
   const handleSkip = () => emitAction('skip');
   const handleAckCount = () => emitAction('ack-count');
+
+  // --- Canasta meld handlers ------------------------------------------------
+  // A canasta meld can be one of two shapes:
+  //   - a brand-new meld: ≥3 cards sharing a natural rank, possibly with some
+  //     wilds mixed in. The server accepts `action.cardIds` as a shorthand.
+  //   - an extension: cards (incl. pure wild groups) added to one of the
+  //     player's existing melds. Those must go through the payload shape
+  //     { melds: [{ cardIds, extend: <rank> }] } because the server can't
+  //     guess which existing meld to extend from a pure-wild selection.
+  const canastaSelected = canasta?.selectedCards ?? [];
+  const canastaAllWilds =
+    canastaSelected.length > 0 &&
+    canastaSelected.every(
+      (c) => c.rank === '2' || (c.rank === undefined && c.suit === undefined),
+    );
+  const canastaCanMeld =
+    isMyTurn && canasta?.phase === 'meld-discard' && canastaSelected.length >= 1;
+  const canastaCanDiscard =
+    isMyTurn && canasta?.phase === 'meld-discard' && selectedCardIds.length === 1;
+
+  const handleCanastaMeld = () => {
+    if (!canastaCanMeld) return;
+    if (canastaAllWilds) {
+      // Wild-only selection needs a target meld; ask the player.
+      setExtendModalOpen(true);
+      return;
+    }
+    // If the naturals in the selection all share a rank and the side already
+    // has a meld of that rank, lay off directly as an extension. Otherwise
+    // treat the selection as a new meld (engine requires ≥ 3 cards).
+    const naturalRanks = new Set(
+      canastaSelected
+        .filter((c) => {
+          // Wild = rank '2' or joker (no rank + no suit).
+          if (c.rank === '2') return false;
+          if (c.rank === undefined && c.suit === undefined) return false;
+          return c.rank !== undefined;
+        })
+        .map((c) => c.rank!),
+    );
+    if (naturalRanks.size === 1) {
+      const [naturalRank] = Array.from(naturalRanks);
+      const existing = canasta?.extendableMelds.find((m) => m.rank === naturalRank);
+      if (existing) {
+        emitAction('meld', undefined, {
+          melds: [{ cardIds: selectedCardIds, extend: naturalRank }],
+        });
+        return;
+      }
+    }
+    emitAction('meld', selectedCardIds);
+  };
+  const handleCanastaExtendPick = (rank: string) => {
+    setExtendModalOpen(false);
+    if (!canastaCanMeld) return;
+    emitAction('meld', undefined, {
+      melds: [{ cardIds: selectedCardIds, extend: rank }],
+    });
+  };
   const handleKnock = () => {
     if (isMyTurn) emitAction('knock');
   };
@@ -486,7 +582,81 @@ export function ActionBar({
     );
   }
 
-  // --- Default (Phase 10 / Canasta etc.) ---
+  // --- Canasta ---
+  // A turn has two sub-phases driven by `canasta.phase`:
+  //   draw         → Draw Deck / Take Top. Taking the pile triggers the
+  //                  engine's take-discard branch.
+  //   meld-discard → Meld (sends the selected cards) / Discard (single card).
+  // If the meld selection is all wilds the player is prompted to pick which
+  // existing meld to extend, because a brand-new meld must contain a natural.
+  if (isCanasta) {
+    const phase = canasta?.phase ?? 'draw';
+    if (phase === 'draw') {
+      return (
+        <div className={barBase} role="toolbar" aria-label={en.table.gameActions}>
+          <button
+            type="button"
+            onClick={handleDrawDeck}
+            disabled={!isMyTurn}
+            className={`${btnBase} ${isMyTurn ? btnEnabled : btnDisabled}`}
+            aria-label={en.table.drawDeckAria}
+          >
+            {en.table.drawDeck}
+          </button>
+          <button
+            type="button"
+            onClick={handleDrawDiscard}
+            disabled={!isMyTurn}
+            className={`${btnBase} ${isMyTurn ? btnGhost : btnDisabled}`}
+            aria-label={en.table.takeTopAria}
+          >
+            {en.table.takeTop}
+          </button>
+          {!isMyTurn && (
+            <span className="text-parchment/50 text-sm ml-2 italic font-display">
+              {en.table.waitingForPlayers}
+            </span>
+          )}
+        </div>
+      );
+    }
+    // meld-discard
+    return (
+      <div className={barBase} role="toolbar" aria-label={en.table.gameActions}>
+        <button
+          type="button"
+          onClick={handleCanastaMeld}
+          disabled={!canastaCanMeld}
+          className={`${btnBase} ${canastaCanMeld ? btnEnabled : btnDisabled}`}
+          aria-label={en.table.canastaMeldAria}
+        >
+          {en.table.canastaMeld}
+        </button>
+        <button
+          type="button"
+          onClick={handleDiscard}
+          disabled={!canastaCanDiscard}
+          className={`${btnBase} ${canastaCanDiscard ? btnDanger : btnDisabled}`}
+          aria-label={en.table.discardAria}
+        >
+          {en.table.discard}
+        </button>
+        {!isMyTurn && (
+          <span className="text-parchment/50 text-sm ml-2 italic font-display">
+            {en.table.waitingForPlayers}
+          </span>
+        )}
+        <CanastaMeldTargetModal
+          isOpen={extendModalOpen}
+          melds={canasta?.extendableMelds ?? []}
+          onPick={handleCanastaExtendPick}
+          onClose={() => setExtendModalOpen(false)}
+        />
+      </div>
+    );
+  }
+
+  // --- Default (Phase 10 etc.) ---
   return (
     <div
       className={barBase}
@@ -513,15 +683,35 @@ export function ActionBar({
         {en.table.takeTop}
       </button>
 
-      <button
-        type="button"
-        onClick={handleLayDown}
-        disabled={!isMyTurn}
-        className={`${btnBase} ${isMyTurn ? btnEnabled : btnDisabled}`}
-        aria-label={en.table.layDownAria}
-      >
-        {en.table.layDown}
-      </button>
+      {phase10LaidDown ? (
+        <button
+          type="button"
+          onClick={() => {
+            if (!isMyTurn) return;
+            // The parent opens a target-picker modal. If it's a single wild
+            // the picker is essential (the wild could extend any meld); for
+            // naturals it still lets the player resolve which meld to hit.
+            onPhase10HitRequest?.();
+          }}
+          disabled={!isMyTurn || selectedCardIds.length === 0}
+          className={`${btnBase} ${
+            isMyTurn && selectedCardIds.length > 0 ? btnEnabled : btnDisabled
+          }`}
+          aria-label={en.table.phase10HitAria}
+        >
+          {en.table.phase10Hit}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={handleLayDown}
+          disabled={!isMyTurn}
+          className={`${btnBase} ${isMyTurn ? btnEnabled : btnDisabled}`}
+          aria-label={en.table.layDownAria}
+        >
+          {en.table.layDown}
+        </button>
+      )}
 
       <button
         type="button"

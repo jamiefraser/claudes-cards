@@ -207,6 +207,68 @@ describe('BotPlayer.executeAction', () => {
     );
   });
 
+  it('falls back to rightmost discard when the engine rejects the strategy action', async () => {
+    // Simulate an engine that rejects the strategy's 'draw' action but
+    // accepts the rightmost-discard fallback. Without the BotPlayer catch
+    // around applyAction, the exception would propagate and leave bot:queue
+    // alive → the sweeper would replay the same failing action indefinitely.
+    const engine = makeEngine('generic');
+    let call = 0;
+    (engine.applyAction as jest.Mock).mockImplementation(() => {
+      call += 1;
+      if (call === 1) throw new Error('not allowed in this phase');
+      return { ...makeGameState(), version: 2 };
+    });
+    const strategy = makeStrategy('generic');
+    registry.register(engine, strategy);
+
+    const state = makeGameState();
+    (mockRedis.hexists as jest.Mock).mockResolvedValue(1);
+    (mockRedis.exists as jest.Mock).mockResolvedValue(1);
+    (mockRedis.set as jest.Mock).mockResolvedValue('OK');
+    (mockRedis.get as jest.Mock).mockResolvedValue(JSON.stringify(state));
+
+    await botPlayer.executeAction('room-1', 'bot-player');
+
+    // First attempt was the strategy's draw; second attempt must be the
+    // rightmost-discard fallback (c2 is rightmost in the test hand).
+    expect(engine.applyAction).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      'bot-player',
+      expect.objectContaining({ type: 'discard', cardIds: ['c2'] }),
+    );
+    // bot:queue and bot:schedule must be cleared so the sweeper doesn't
+    // re-fire after we've already succeeded on the fallback path.
+    expect(mockRedis.del).toHaveBeenCalledWith('bot:queue:room-1:bot-player');
+    expect(mockRedis.del).toHaveBeenCalledWith('bot:schedule:room-1:bot-player');
+  });
+
+  it('force-passes (clears keys) when rightmost discard is also rejected', async () => {
+    const engine = makeEngine('generic');
+    (engine.applyAction as jest.Mock).mockImplementation(() => {
+      throw new Error('nothing works');
+    });
+    const strategy = makeStrategy('generic');
+    registry.register(engine, strategy);
+
+    const state = makeGameState();
+    (mockRedis.hexists as jest.Mock).mockResolvedValue(1);
+    (mockRedis.exists as jest.Mock).mockResolvedValue(1);
+    (mockRedis.set as jest.Mock).mockResolvedValue('OK');
+    (mockRedis.get as jest.Mock).mockResolvedValue(JSON.stringify(state));
+
+    await botPlayer.executeAction('room-1', 'bot-player');
+
+    // No state update / no game_state_delta — but keys cleared so the sweeper
+    // won't spin.
+    expect(mockEmit).not.toHaveBeenCalled();
+    expect(mockRedis.del).toHaveBeenCalledWith('bot:queue:room-1:bot-player');
+    expect(mockRedis.del).toHaveBeenCalledWith('bot:schedule:room-1:bot-player');
+    // Lock always released.
+    expect(mockRedis.del).toHaveBeenCalledWith('game:lock:room-1');
+  });
+
   it('aborts gracefully when lock cannot be acquired (returns null)', async () => {
     const engine = makeEngine('generic');
     registry.register(engine);

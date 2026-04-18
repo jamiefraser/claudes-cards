@@ -171,7 +171,42 @@ export class BotPlayer {
         return;
       }
 
-      const nextState = engine.applyAction(state, botPlayerId, action);
+      // applyAction can reject a strategy-produced action (stale state,
+      // misjudged rule). Without this catch the exception propagates past
+      // the key-cleanup below, bot:queue stays set, and the sweeper replays
+      // the same failing action forever — the bot appears stuck "thinking"
+      // indefinitely. Budget one re-attempt with rightmostDiscard, then
+      // force 'pass' so the room never waits > one think-cycle for us.
+      let nextState: GameState;
+      try {
+        nextState = engine.applyAction(state, botPlayerId, action);
+      } catch (err) {
+        logger.warn('BotPlayer: engine rejected strategy action, retrying with rightmost discard', {
+          roomId,
+          botPlayerId,
+          action: action.type,
+          err: String(err),
+        });
+        try {
+          const fallback = this.rightmostDiscard(state, botPlayerId);
+          if (fallback.type === 'pass') {
+            await redis.del(`bot:queue:${roomId}:${botPlayerId}`);
+            await redis.del(`bot:schedule:${roomId}:${botPlayerId}`);
+            return;
+          }
+          nextState = engine.applyAction(state, botPlayerId, fallback);
+          action = fallback;
+        } catch (err2) {
+          logger.error('BotPlayer: rightmost-discard fallback also rejected; forcing pass', {
+            roomId,
+            botPlayerId,
+            err: String(err2),
+          });
+          await redis.del(`bot:queue:${roomId}:${botPlayerId}`);
+          await redis.del(`bot:schedule:${roomId}:${botPlayerId}`);
+          return;
+        }
+      }
 
       // 8. Build action record (isBot: true per SPEC.md rule #11)
       const gameAction: GameAction = {

@@ -117,22 +117,29 @@ export class CanastaBotStrategy implements IBotStrategy {
     }
 
     if (meldCandidates.length > 0) {
-      // If this is the initial meld, make sure the total point value clears
-      // the threshold. If not, skip melding for now — better to discard.
       if (!alreadyMelded) {
+        // Initial meld: the engine validates that the *single action's*
+        // natural points clear the threshold, so we must submit all qualifying
+        // groups together as payload.melds. Pick the set of groups whose
+        // combined natural points ≥ required; if even all groups together
+        // don't reach it, skip melding this turn.
         const prior = pd.scoresPriorHand?.[side] ?? 0;
         const required = initialMeldMinimum(prior);
-        const totalPoints = meldCandidates
+        const allPoints = meldCandidates
           .flat()
           .reduce((sum, c) => sum + canastaCardPoints(c), 0);
-        if (totalPoints >= required) {
-          // Flatten all candidate groups into one action — the engine
-          // accepts them one at a time, so pick the largest group.
-          const best = meldCandidates.sort((a, b) => b.length - a.length)[0]!;
-          return { type: 'meld', cardIds: best.map((c) => c.id) };
+        if (allPoints >= required) {
+          return {
+            type: 'meld',
+            payload: {
+              melds: meldCandidates.map((group) => ({
+                cardIds: group.map((c) => c.id),
+              })),
+            },
+          };
         }
       } else {
-        // Already melded — any new group is a legal add.
+        // Already melded — any new group of 3+ naturals is legal.
         const best = meldCandidates.sort((a, b) => b.length - a.length)[0]!;
         return { type: 'meld', cardIds: best.map((c) => c.id) };
       }

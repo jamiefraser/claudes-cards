@@ -2,26 +2,17 @@
  * HandComponent — player's hand of cards, horizontal fan layout.
  * SPEC.md §15
  *
- * Supports drag-to-reorder via @dnd-kit/sortable. The parent owns the order
- * (so it can be persisted across deals); we just emit the new sequence via
- * `onReorder` after a successful drag.
+ * Supports drag-to-reorder via @dnd-kit/sortable. Uses the ambient DndContext
+ * provided by the parent (GameTable), so drops onto meld groups / discard
+ * pile — which are siblings under the same context — are dispatched to the
+ * parent's unified drag-end handler. The parent is responsible for calling
+ * `onReorder` when a reorder happens (see GameTable.handleDragEnd).
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  DndContext,
-  type DragEndEvent,
-  PointerSensor,
-  KeyboardSensor,
-  useSensor,
-  useSensors,
-  closestCenter,
-} from '@dnd-kit/core';
-import {
-  arrayMove,
   SortableContext,
   horizontalListSortingStrategy,
   useSortable,
-  sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Card } from '@shared/cards';
@@ -148,26 +139,7 @@ export function HandComponent({
     [disabled, onSelect],
   );
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
   const reorderEnabled = !!onReorder;
-
-  const handleDragEnd = useCallback(
-    (e: DragEndEvent) => {
-      if (!onReorder) return;
-      const { active, over } = e;
-      if (!over || active.id === over.id) return;
-      const ids = cards.map(c => c.id);
-      const oldIndex = ids.indexOf(active.id as string);
-      const newIndex = ids.indexOf(over.id as string);
-      if (oldIndex < 0 || newIndex < 0) return;
-      onReorder(arrayMove(ids, oldIndex, newIndex));
-    },
-    [cards, onReorder],
-  );
 
   const list = (
     <ul
@@ -194,10 +166,8 @@ export function HandComponent({
   if (!reorderEnabled) return list;
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <SortableContext items={cards.map(c => c.id)} strategy={horizontalListSortingStrategy}>
-        {list}
-      </SortableContext>
-    </DndContext>
+    <SortableContext items={cards.map(c => c.id)} strategy={horizontalListSortingStrategy}>
+      {list}
+    </SortableContext>
   );
 }

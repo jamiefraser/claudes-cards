@@ -4,6 +4,7 @@
  * have completed their phase.
  */
 import React from 'react';
+import { useDroppable } from '@dnd-kit/core';
 import type { Card } from '@shared/cards';
 import { CardComponent } from '../cards/CardComponent';
 
@@ -26,8 +27,43 @@ export interface MeldsAreaProps {
   cardCatalogue: Record<string, Card>;
   /** Label shown above the melds (e.g. "Your melds", "Ada's melds"). */
   label?: string;
-  /** Layout scale: compact renders smaller cards for opponent seats. */
-  compact?: boolean;
+  /**
+   * Layout scale. `full` matches the player's own hand cards, `compact` shrinks
+   * to ~50% (pre-existing), and `tiny` to ~33% — used for opponents in the
+   * rummy family so their melds never dominate the seat. Kept in sync with
+   * the opponent-hand-back size set in PlayerSeat.
+   */
+  scale?: 'full' | 'compact' | 'tiny';
+  /**
+   * When set, each group is wrapped in a @dnd-kit droppable with id
+   * `meld:{dropTargetPlayerId}:{groupIndex}` so the parent DndContext can
+   * distinguish drops onto specific melds (used by Phase 10's hit-meld flow).
+   */
+  dropTargetPlayerId?: string;
+}
+
+function GroupDropZone({
+  dropId,
+  active,
+  children,
+}: {
+  dropId: string;
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  const { isOver, setNodeRef } = useDroppable({ id: dropId, disabled: !active });
+  return (
+    <div
+      ref={setNodeRef}
+      className={[
+        'rounded-md transition-colors',
+        active ? 'ring-1 ring-transparent' : '',
+        isOver ? 'bg-brass/20 ring-brass/60' : '',
+      ].join(' ')}
+    >
+      {children}
+    </div>
+  );
 }
 
 function GroupTypeBadge({ type }: { type: MeldGroup['type'] }) {
@@ -47,16 +83,31 @@ export function MeldsArea({
   groups,
   cardCatalogue,
   label,
-  compact = false,
+  scale = 'full',
+  dropTargetPlayerId,
 }: MeldsAreaProps) {
   if (groups.length === 0) return null;
+
+  const isTiny = scale === 'tiny';
+  const isCompact = scale === 'compact';
+  // CardComponent renders itself at a fixed 48×72 (sm: 64×96), so to shrink
+  // we scale visually via CSS transform AND clamp the wrapper's layout box to
+  // the target size. Without the explicit wrapper size the scaled card still
+  // reserves its full 48×72, producing comically large gaps between melds.
+  const scaleFactor = scale === 'tiny' ? 0.33 : scale === 'compact' ? 0.5 : 1;
+  const overlapClass =
+    scale === 'tiny'
+      ? '-space-x-2'
+      : scale === 'compact'
+        ? '-space-x-3'
+        : '-space-x-4';
 
   return (
     <div
       className={[
         'flex flex-col items-center gap-1 p-2 rounded-md',
         'bg-slate-800/60 border border-slate-700',
-        compact ? 'text-xs' : 'text-sm',
+        isTiny || isCompact ? 'text-xs' : 'text-sm',
       ].join(' ')}
       aria-label={label ?? 'Laid-down melds'}
     >
@@ -68,31 +119,54 @@ export function MeldsArea({
           const cards = group.cardIds
             .map(id => cardCatalogue[id])
             .filter((c): c is Card => !!c);
-          return (
+          const body = (
             <div
-              key={gi}
               className="flex flex-col items-center"
               aria-label={`${group.type} of ${cards.length}`}
             >
               <GroupTypeBadge type={group.type} />
-              <div
-                className={
-                  compact
-                    ? 'flex flex-row -space-x-3'
-                    : 'flex flex-row -space-x-4'
-                }
-              >
+              <div className={`flex flex-row ${overlapClass}`}>
                 {cards.map(card => (
                   <div
                     key={card.id}
-                    className={compact ? 'scale-50 origin-top-left' : ''}
+                    style={
+                      scaleFactor < 1
+                        ? {
+                            width: `calc(3rem * ${scaleFactor})`,
+                            height: `calc(4.5rem * ${scaleFactor})`,
+                          }
+                        : undefined
+                    }
                   >
-                    <CardComponent card={card} faceUp={true} selected={false} />
+                    <div
+                      style={
+                        scaleFactor < 1
+                          ? {
+                              transform: `scale(${scaleFactor})`,
+                              transformOrigin: 'top left',
+                            }
+                          : undefined
+                      }
+                    >
+                      <CardComponent card={card} faceUp={true} selected={false} />
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           );
+          if (dropTargetPlayerId) {
+            return (
+              <GroupDropZone
+                key={gi}
+                dropId={`meld:${dropTargetPlayerId}:${gi}`}
+                active={true}
+              >
+                {body}
+              </GroupDropZone>
+            );
+          }
+          return <React.Fragment key={gi}>{body}</React.Fragment>;
         })}
       </div>
     </div>

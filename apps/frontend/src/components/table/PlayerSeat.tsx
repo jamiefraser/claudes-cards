@@ -14,19 +14,31 @@ export interface PlayerSeatProps {
   isSelf: boolean;
   deckType?: DeckType;
   isDealer?: boolean;
+  /**
+   * When true, the opponent hand visual renders each card-back at ~33% of
+   * the local player's hand-card size (16×24 vs 48×72). Used for the rummy
+   * family (rummy / ginrummy / canasta / phase10) to keep opponents' hands
+   * and melds proportional.
+   */
+  compact?: boolean;
 }
 
 function OpponentHandVisual({
   handSize,
   deckType,
+  compact = false,
 }: {
   handSize: number;
   deckType: DeckType;
+  compact?: boolean;
 }) {
   const backUrl = getCardBackUrl(deckType);
   const needsCrop = backImageNeedsLeftCrop(deckType);
   const visible = Math.min(handSize, 7);
   if (visible <= 0) return null;
+
+  const sizeClass = compact ? 'w-4 h-6' : 'w-5 h-7';
+  const overlapMargin = compact ? '-8px' : '-10px';
 
   return (
     <div
@@ -37,8 +49,8 @@ function OpponentHandVisual({
       {Array.from({ length: visible }).map((_, i) => (
         <div
           key={i}
-          className="w-5 h-7 rounded-sm border border-brass/30 bg-night overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.5)]"
-          style={{ marginLeft: i === 0 ? 0 : '-10px', zIndex: i }}
+          className={`${sizeClass} rounded-sm border border-brass/30 bg-night overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.5)]`}
+          style={{ marginLeft: i === 0 ? 0 : overlapMargin, zIndex: i }}
         >
           {backUrl && (
             <img
@@ -70,6 +82,7 @@ export function PlayerSeat({
   isSelf,
   deckType = 'standard',
   isDealer = false,
+  compact = false,
 }: PlayerSeatProps) {
   return (
     <div
@@ -129,6 +142,7 @@ export function PlayerSeat({
           <OpponentHandVisual
             handSize={playerState.hand.length}
             deckType={deckType}
+            compact={compact}
           />
         </>
       )}

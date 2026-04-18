@@ -220,6 +220,14 @@ jobs:
           npm run build --workspace=packages/shared-types
           npm run build --workspace=packages/cards-engine
 
+      # api-service imports @prisma/client types; other apps transitively
+      # reference its generated models. Generate before build so tsc finds
+      # the types. No-op when node_modules/.prisma is already warm from
+      # prior steps in the same job.
+      - name: Generate Prisma client
+        if: matrix.workspace == 'apps/api-service' || matrix.workspace == 'apps/worker-service' || matrix.workspace == 'apps/socket-service'
+        run: npx prisma generate --schema=apps/api-service/prisma/schema.prisma
+
       - name: Build workspace
         run: npm run build --workspace=${{ matrix.workspace }}
         env:
@@ -227,10 +235,16 @@ jobs:
           VITE_SOCKET_URL: https://platform.example.com
           VITE_AUTH_MODE: production
 
+      # GitHub Actions rejects artifact names containing "/", so the matrix
+      # value apps/frontend becomes apps-frontend here.
+      - name: Derive artifact name
+        id: artifact
+        run: echo "name=build-$(echo '${{ matrix.workspace }}' | tr '/' '-')" >> "$GITHUB_OUTPUT"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build-${{ matrix.workspace }}
+          name: ${{ steps.artifact.outputs.name }}
           path: |
             ${{ matrix.workspace }}/dist/
           if-no-files-found: ignore

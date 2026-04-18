@@ -42,6 +42,9 @@ import { TableChat } from '../chat/TableChat';
 import type { Card } from '@shared/cards';
 import type { GameActionPayload } from '@shared/socket';
 import en from '@/i18n/en.json';
+import { getRoom, deleteRoom } from '@/api/rooms.api';
+import { useNavigate } from 'react-router-dom';
+import { useToast } from '../shared/Toast';
 
 interface GameTableProps {
   roomId: string;
@@ -65,6 +68,37 @@ export function GameTable({ roomId }: GameTableProps) {
   const setHandOrder = useGameStore(s => s.setHandOrder);
 
   const { player } = useAuth();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+
+  // Host resolution — cribbage/etc don't expose hostId in publicData, so fetch
+  // the room metadata once on mount. Used to gate the "End game" button.
+  const [hostId, setHostId] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getRoom(roomId)
+      .then((r) => { if (!cancelled) setHostId(r.hostId); })
+      .catch((err) => logger.debug('GameTable: getRoom failed', { err }));
+    return () => { cancelled = true; };
+  }, [roomId]);
+
+  const [endingGame, setEndingGame] = useState(false);
+  const handleEndGame = useCallback(async () => {
+    if (endingGame) return;
+    const ok = window.confirm(
+      'End and delete this game? All progress will be lost. This cannot be undone.',
+    );
+    if (!ok) return;
+    setEndingGame(true);
+    try {
+      await deleteRoom(roomId);
+      navigate('/lobby', { replace: true });
+    } catch (err) {
+      logger.warn('GameTable: deleteRoom failed', { err });
+      toast('Could not end the game. Try again.', 'error');
+      setEndingGame(false);
+    }
+  }, [endingGame, roomId, navigate, toast]);
 
   // Bot activation announcer
   const [botAnnouncement, setBotAnnouncement] = useState('');
@@ -455,12 +489,64 @@ export function GameTable({ roomId }: GameTableProps) {
                 </span>
               </div>
             )}
+            {gameState.gameId === 'canasta' && player && (() => {
+              // Initial-meld minimum is driven by the side's *pre-hand* score:
+              //   < 0    → 15
+              //   < 1500 → 50
+              //   < 3000 → 90
+              //   ≥ 3000 → 120
+              // Already-melded sides see a "✓ melded" chip instead.
+              const pd = gameState.publicData as Record<string, unknown>;
+              const variant = pd['variant'] as '2p' | '3p' | '4p' | undefined;
+              const meldKeys = (pd['meldKeys'] as string[] | undefined) ?? [];
+              const initialMeldDone =
+                (pd['initialMeldDone'] as Record<string, boolean> | undefined) ?? {};
+              const scoresPriorHand =
+                (pd['scoresPriorHand'] as Record<string, number> | undefined) ?? {};
+              let mySide: string | undefined;
+              if (variant === '4p') {
+                const idx = gameState.players.findIndex(p => p.playerId === player.id);
+                mySide = idx === 0 || idx === 2 ? 'A' : 'B';
+              } else {
+                mySide = player.id;
+              }
+              if (!mySide || !meldKeys.includes(mySide)) return null;
+              if (initialMeldDone[mySide]) {
+                return (
+                  <div className="inline-flex items-center gap-2 self-start px-3 py-1 rounded-full bg-night-raised/60 border border-brass/15 text-xs text-emerald-300/90">
+                    <span aria-hidden>✓</span>
+                    <span>Initial meld complete</span>
+                  </div>
+                );
+              }
+              const prior = scoresPriorHand[mySide] ?? 0;
+              const required = prior < 0 ? 15 : prior < 1500 ? 50 : prior < 3000 ? 90 : 120;
+              return (
+                <div className="inline-flex items-center gap-2 self-start px-3 py-1 rounded-full bg-night-raised/60 border border-brass/15 text-xs text-brand-secondary/90">
+                  <span aria-hidden>⚖</span>
+                  <span>Initial meld needs {required} pts</span>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Floating chrome — top-right: settings + leave */}
-          <div className="absolute top-5 right-6 z-20">
-            <SettingsPopover />
-          </div>
+          {(() => {
+            // Host can end the game when they're the only human in the room
+            // (every other seat is either a bot or marked isBot). This avoids
+            // a host nuking an active game other humans are still playing.
+            const amHost = !!player && !!hostId && player.id === hostId;
+            const activeBotIds = new Set(activeBots.map((b) => b.playerId));
+            const otherHumans = gameState.players.filter((p) =>
+              p.playerId !== player?.id && !p.isBot && !activeBotIds.has(p.playerId),
+            );
+            const canEnd = amHost && otherHumans.length === 0;
+            return (
+              <div className="absolute top-5 right-6 z-20">
+                <SettingsPopover onEndGame={canEnd ? handleEndGame : undefined} />
+              </div>
+            );
+          })()}
 
           {/* Rules drawer — per-game rules sourced from i18n (localizable). */}
           {(() => {

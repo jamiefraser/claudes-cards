@@ -4,9 +4,15 @@ import en from '@/i18n/en.json';
 
 export interface SettingsPopoverProps {
   readonly onLeave?: () => void;
+  /**
+   * When provided, renders a destructive "End game" button next to settings.
+   * Intended for the host when every other seat is a bot — it tears down the
+   * room via DELETE /api/v1/rooms/:id.
+   */
+  readonly onEndGame?: () => void;
 }
 
-export function SettingsPopover({ onLeave }: SettingsPopoverProps) {
+export function SettingsPopover({ onLeave, onEndGame }: SettingsPopoverProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
 
@@ -35,8 +41,28 @@ export function SettingsPopover({ onLeave }: SettingsPopoverProps) {
     'transition-colors',
   ].join(' ');
 
+  const endPillBase = [
+    'w-10 h-10 rounded-full flex items-center justify-center',
+    'bg-rose-600/80 text-white',
+    'border border-rose-400/40',
+    'hover:bg-rose-500 hover:border-rose-300/60',
+    'focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400',
+    'transition-colors',
+  ].join(' ');
+
   return (
     <div ref={ref} className="relative inline-flex items-center gap-2">
+      {onEndGame && (
+        <button
+          type="button"
+          onClick={onEndGame}
+          aria-label="End and delete this game"
+          title="End and delete this game"
+          className={endPillBase}
+        >
+          <span aria-hidden className="text-lg leading-none">⏻</span>
+        </button>
+      )}
       {onLeave && (
         <button
           type="button"

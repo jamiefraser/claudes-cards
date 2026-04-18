@@ -19,6 +19,7 @@ import { BotController } from './bots/BotController';
 import { BotPlayer } from './bots/BotPlayer';
 import { BotSweeper } from './bots/BotSweeper';
 import { GenericBotStrategy } from './bots/strategies/generic.strategy';
+import { CanastaBotStrategy } from './bots/strategies/canasta.strategy';
 
 // Game engines
 import { Phase10Engine } from './games/phase10/engine';
@@ -86,7 +87,7 @@ registry.register(new Phase10Engine(), new Phase10BotStrategy());
 // Unit 15 — Priority 1
 registry.register(new RummyEngine(), new RummyBotStrategy());
 registry.register(new GinRummyEngine(), new GinRummyBotStrategy());
-registry.register(new CanastaEngine(), new GenericBotStrategy('canasta')); // no async, no bot needed
+registry.register(new CanastaEngine(), new CanastaBotStrategy());
 
 // Unit 16 — Cribbage
 registry.register(new CribbageEngine(), new CribbageBotStrategy());

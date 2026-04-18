@@ -55,14 +55,15 @@ describe('CribbageBoard', () => {
     expect(screen.getByText('Bob: 0 points')).toBeInTheDocument();
   });
 
-  it('renders 121 holes per lane for 2-player game', () => {
+  it('renders 121 holes per lane (3 physical lanes, 363 holes total)', () => {
+    // Physical cribbage boards always have 3 lanes; 2-player games leave one
+    // visually empty but the DOM still contains all three lanes so the layout
+    // stays stable.
     const { container } = render(
       <CribbageBoard boardState={twoPlayerBoardState} playerNames={playerNames} />,
     );
-    // Each hole is a circle with data-hole attribute
     const holes = container.querySelectorAll('circle[data-hole]');
-    // 2 lanes × 121 holes = 242 holes
-    expect(holes).toHaveLength(242);
+    expect(holes).toHaveLength(363);
   });
 
   it('renders 121 holes per lane for 3-player game', () => {
@@ -115,18 +116,21 @@ describe('CribbageBoard', () => {
     expect(container.querySelector('[data-peg="player-1-back"]')).toBeInTheDocument();
   });
 
-  it('renders two lanes for 2-player game', () => {
+  it('renders two active + one empty lane for 2-player game', () => {
     const { container } = render(
       <CribbageBoard boardState={twoPlayerBoardState} playerNames={playerNames} />,
     );
-    expect(container.querySelectorAll('[data-lane]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-lane]')).toHaveLength(3);
+    const active = container.querySelectorAll('[data-lane]:not([data-lane-empty])');
+    expect(active).toHaveLength(2);
   });
 
-  it('renders three lanes for 3-player game', () => {
+  it('renders three active lanes for 3-player game', () => {
     const { container } = render(
       <CribbageBoard boardState={threePlayerBoardState} playerNames={threePlayerNames} />,
     );
-    expect(container.querySelectorAll('[data-lane]')).toHaveLength(3);
+    const active = container.querySelectorAll('[data-lane]:not([data-lane-empty])');
+    expect(active).toHaveLength(3);
   });
 
   it('renders score text with updated frontPeg value', () => {

@@ -15,11 +15,12 @@ vi.mock('../src/api/leaderboard.api', () => ({
 }));
 
 // Mock socket
+const socketStub = { on: vi.fn(), off: vi.fn(), emit: vi.fn() };
 vi.mock('../src/hooks/useSocket', () => ({
-  getGameSocket: vi.fn(() => ({
-    on: vi.fn(),
-    off: vi.fn(),
-  })),
+  getGameSocket: vi.fn(() => socketStub),
+  getLobbySocket: vi.fn(() => socketStub),
+  useLobbySocket: vi.fn(),
+  useGameSocket: vi.fn(),
 }));
 
 import { getLeaderboard } from '../src/api/leaderboard.api';

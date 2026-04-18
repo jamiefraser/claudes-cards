@@ -82,7 +82,7 @@ export function PileComponent({
     <button
       type="button"
       onClick={onClick}
-      aria-label={topCard ? 'Top of pile' : 'Empty pile'}
+      aria-label={topCard ? 'Discard pile' : 'Empty discard pile'}
       aria-dropeffect={isDropTarget ? 'move' : 'none'}
       className={[
         'relative w-16 h-24 rounded-md border-2 cursor-pointer overflow-hidden',

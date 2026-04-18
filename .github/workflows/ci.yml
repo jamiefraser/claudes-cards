@@ -160,7 +160,9 @@ jobs:
           TEST_MODE: "true"
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/card_platform_test?schema=public
           REDIS_URL: redis://localhost:6379
-          JWT_SECRET: test-jwt-secret
+          # Must match the TEST_SECRET hardcoded in apps/socket-service/__tests__/*.test.ts;
+          # test-signed JWTs are verified against this value at runtime.
+          JWT_SECRET: test-secret
           VAPID_PUBLIC_KEY: ""
           VAPID_PRIVATE_KEY: ""
           VAPID_SUBJECT: "mailto:test@platform.example.com"

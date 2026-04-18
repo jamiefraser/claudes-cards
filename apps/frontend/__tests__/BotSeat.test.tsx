@@ -25,7 +25,11 @@ describe('BotSeat', () => {
         isCurrentTurn={false}
       />,
     );
-    expect(screen.getByText('TestPlayer2 (Bot)')).toBeInTheDocument();
+    // Name + "(Bot)" suffix live in sibling spans for styling; use the
+    // accessible aria-label composed by the component to verify.
+    expect(
+      screen.getByLabelText(/TestPlayer2 \(Bot\) seat/),
+    ).toBeInTheDocument();
   });
 
   it('shows the BOT badge', () => {

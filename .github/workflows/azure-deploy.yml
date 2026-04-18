@@ -300,12 +300,31 @@ jobs:
           done
 
           echo "Step 4/4: issuing managed cert + SNI binding for $CUSTOM_FQDN."
-          az containerapp hostname bind \
-            -n "$WEB_APP" -g "$RESOURCE_GROUP" \
-            --hostname "$CUSTOM_FQDN" \
-            --environment "$CAE_NAME" \
-            --validation-method CNAME \
-            --output none
+          # Azure's cert validator has its own DNS cache; even after public
+          # resolvers see the TXT, the validator may take a minute or two.
+          # Retry the bind call up to 5 times with a 60s backoff instead of
+          # adding a fixed sleep that is either too short or wasteful.
+          bind_ok=0
+          for attempt in 1 2 3 4 5; do
+            if az containerapp hostname bind \
+                 -n "$WEB_APP" -g "$RESOURCE_GROUP" \
+                 --hostname "$CUSTOM_FQDN" \
+                 --environment "$CAE_NAME" \
+                 --validation-method CNAME \
+                 --output none; then
+              bind_ok=1
+              echo "  bind succeeded on attempt $attempt"
+              break
+            fi
+            echo "  attempt $attempt failed, waiting 60s before retry"
+            sleep 60
+          done
+          if [ "$bind_ok" -ne 1 ]; then
+            echo "Cert bind did not succeed after 5 attempts. DNS records are in"
+            echo "place; the cert may still issue asynchronously. Check with:"
+            echo "  az containerapp env certificate list -g $RESOURCE_GROUP -n $CAE_NAME --managed-certificates-only -o table"
+            exit 1
+          fi
 
           az containerapp hostname list -n "$WEB_APP" -g "$RESOURCE_GROUP" -o table
 

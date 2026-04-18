@@ -36,6 +36,8 @@
     "roots": ["<rootDir>/__tests__"],
     "setupFiles": ["<rootDir>/__tests__/setup.ts"],
     "testMatch": ["**/*.test.ts"],
+    "testTimeout": 15000,
+    "forceExit": true,
     "moduleNameMapper": {
       "^@shared/(.*)$": "<rootDir>/../../packages/shared-types/src/$1",
       "^@/(.*)$": "<rootDir>/src/$1",

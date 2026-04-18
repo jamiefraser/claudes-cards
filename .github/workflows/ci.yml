@@ -152,6 +152,17 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/card_platform_test?schema=public
 
+      # The test suite expects seed users (test-player-1, test-moderator,
+      # test-admin) to exist. /api/v1/test/reset clears other rows but keeps
+      # these, so they must be present before the first test runs.
+      - name: Seed test users (API only)
+        if: matrix.workspace == 'apps/api-service'
+        run: |
+          cd apps/api-service
+          npx prisma db seed
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/card_platform_test?schema=public
+
       - name: Run tests
         run: npm run test --workspace=${{ matrix.workspace }}
         env:

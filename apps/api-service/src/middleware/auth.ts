@@ -25,6 +25,15 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     return;
   }
 
+  // In production mode, refuse synchronously when B2C isn't configured. Going
+  // into the async JWKS path would fail anyway, but async failure breaks tests
+  // that assert status synchronously and hides config mistakes behind an
+  // ambiguous "Invalid or expired token" response.
+  if (!process.env.B2C_AUTHORITY || !process.env.B2C_CLIENT_ID) {
+    res.status(401).json({ error: 'Production auth not configured' });
+    return;
+  }
+
   void handleB2CAuth(req, res, next);
 }
 

@@ -5,7 +5,7 @@
 # Automates everything that the GitHub Actions workflow can't do itself:
 #   - creates the resource group
 #   - creates the deploy service principal + OIDC federated credentials
-#   - grants the SP Contributor + AcrPush + DNS Zone Contributor roles
+#   - grants the SP Owner + AcrPush roles on the app resource group
 #   - pushes secrets and variables into the GitHub repo (via `gh`)
 #   - registers the custom-domain redirect URI on the B2C app registration
 #
@@ -24,8 +24,6 @@
 #   RESOURCE_GROUP       claudes-cards-rg
 #   LOCATION             canadacentral
 #   PROJECT_SLUG         claudescards
-#   DNS_ZONE             relevanttechnologyservices.com
-#   DNS_ZONE_RG          (auto-detected; override if multiple zones match)
 #   GITHUB_REPO          jamiefraser/claudes-cards
 #   SP_DISPLAY_NAME      claudes-cards-deploy
 #   B2C_TENANT           cards.onmicrosoft.com
@@ -41,7 +39,6 @@ set -euo pipefail
 RESOURCE_GROUP="${RESOURCE_GROUP:-claudes-cards-rg}"
 LOCATION="${LOCATION:-canadacentral}"
 PROJECT_SLUG="${PROJECT_SLUG:-claudescards}"
-DNS_ZONE="${DNS_ZONE:-relevanttechnologyservices.com}"
 GITHUB_REPO="${GITHUB_REPO:-jamiefraser/claudes-cards}"
 SP_DISPLAY_NAME="${SP_DISPLAY_NAME:-claudes-cards-deploy}"
 B2C_TENANT="${B2C_TENANT:-cards.onmicrosoft.com}"
@@ -83,16 +80,7 @@ log "GitHub repo: $GITHUB_REPO"
 log "Ensuring resource group $RESOURCE_GROUP in $LOCATION…"
 az group create -n "$RESOURCE_GROUP" -l "$LOCATION" -o none
 
-# ── 2 · DNS zone location (may live in a different RG) ──────────────────────
-if [ -z "${DNS_ZONE_RG:-}" ]; then
-  log "Locating DNS zone $DNS_ZONE…"
-  ZONE_ID=$(az_tsv network dns zone list --query "[?name=='$DNS_ZONE'].id | [0]")
-  [ -n "$ZONE_ID" ] || die "DNS zone $DNS_ZONE not found in subscription $SUBSCRIPTION_ID."
-  DNS_ZONE_RG=$(echo "$ZONE_ID" | awk -F/ '{print $5}')
-fi
-log "DNS zone $DNS_ZONE lives in resource group: $DNS_ZONE_RG"
-
-# ── 3 · Service principal + federated credentials ───────────────────────────
+# ── 2 · Service principal + federated credentials ───────────────────────────
 log "Ensuring app registration '$SP_DISPLAY_NAME'…"
 APP_ID=$(az_tsv ad app list --display-name "$SP_DISPLAY_NAME" --query '[0].appId')
 APP_OBJECT_ID=$(az_tsv ad app list --display-name "$SP_DISPLAY_NAME" --query '[0].id')
@@ -140,7 +128,6 @@ ensure_federated_cred "gha-master" "repo:${GITHUB_REPO}:ref:refs/heads/master"
 ROLE_READER=acdd72a7-3385-48ef-bd42-f606fba81ae7
 ROLE_OWNER=8e3af657-a8ff-443c-a75c-2fe8c4bcb635
 ROLE_ACRPUSH=8311e382-0749-4cb8-b61a-304f252e45ec
-ROLE_DNSZONECONTRIB=befefa01-2a29-4197-83a8-272ff33ce314
 
 # Random UUID via the portable path (uuidgen isn't in Git Bash by default).
 new_guid() {
@@ -182,7 +169,6 @@ assign_role "$ROLE_READER"          "Reader"               "/subscriptions/$SUBS
 # User Access Administrator. Scope is only this one RG.
 assign_role "$ROLE_OWNER"           "Owner"                "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
 assign_role "$ROLE_ACRPUSH"         "AcrPush"              "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
-assign_role "$ROLE_DNSZONECONTRIB"  "DNS Zone Contributor" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$DNS_ZONE_RG/providers/Microsoft.Network/dnszones/$DNS_ZONE"
 
 # ── 5 · GitHub secrets + variables ──────────────────────────────────────────
 # Generate a strong Postgres admin password + JWT secret if not supplied.
@@ -210,7 +196,6 @@ set_secret JWT_SECRET            "$JWT_SECRET"
 set_var    B2C_CLIENT_ID         "$B2C_APP_CLIENT_ID"
 set_var    B2C_AUTHORITY         "$B2C_AUTHORITY"
 set_var    B2C_KNOWN_AUTHORITIES "$B2C_KNOWN_AUTHORITIES"
-set_var    DNS_ZONE_RG           "$DNS_ZONE_RG"
 
 # ── 6 · B2C redirect URI ────────────────────────────────────────────────────
 # The B2C app registration lives in a separate directory (the B2C tenant),
@@ -266,7 +251,6 @@ cat <<SUMMARY
 
    Deploy SP         : $APP_ID
    Resource group    : $RESOURCE_GROUP ($LOCATION)
-   DNS zone RG       : $DNS_ZONE_RG
    GitHub repo       : $GITHUB_REPO
 
    Secrets written   : AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID,

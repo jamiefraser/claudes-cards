@@ -17,12 +17,6 @@
 @description('Azure region. All resources land in the same region.')
 param location string = 'canadacentral'
 
-@description('DNS zone that already hosts relevanttechnologyservices.com.')
-param dnsZoneName string = 'relevanttechnologyservices.com'
-
-@description('Subdomain (relative to the zone) that fronts the web app.')
-param frontendSubdomain string = 'cardgames'
-
 @description('Short project slug used in resource names.')
 param projectSlug string = 'claudescards'
 
@@ -70,7 +64,6 @@ var apiAppName       = '${projectSlug}-api'
 var socketAppName    = '${projectSlug}-socket'
 var workerAppName    = '${projectSlug}-worker'
 var frontendAppName  = '${projectSlug}-web'
-var customFqdn       = '${frontendSubdomain}.${dnsZoneName}'
 
 // ── Log Analytics (workspace for Container Apps logs) ────────────────────────
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
@@ -208,7 +201,7 @@ var redisUrl    = 'rediss://:${redis.listKeys().primaryKey}@${redis.properties.h
 var apiFqdn      = '${apiAppName}.${cae.properties.defaultDomain}'
 var socketFqdn   = '${socketAppName}.${cae.properties.defaultDomain}'
 var webFqdn      = '${frontendAppName}.${cae.properties.defaultDomain}'
-var corsOrigin   = 'https://${customFqdn},https://${webFqdn}'
+var corsOrigin   = 'https://${webFqdn}'
 
 // ── API service ──────────────────────────────────────────────────────────────
 resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
@@ -230,7 +223,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
         transport: 'auto'
         allowInsecure: false
         corsPolicy: {
-          allowedOrigins: [ 'https://${customFqdn}', 'https://${webFqdn}' ]
+          allowedOrigins: [ 'https://${webFqdn}' ]
           allowedMethods: [ 'GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS' ]
           allowedHeaders: [ '*' ]
           allowCredentials: true
@@ -299,7 +292,7 @@ resource socketApp 'Microsoft.App/containerApps@2024-03-01' = {
           affinity: 'sticky'
         }
         corsPolicy: {
-          allowedOrigins: [ 'https://${customFqdn}', 'https://${webFqdn}' ]
+          allowedOrigins: [ 'https://${webFqdn}' ]
           allowedMethods: [ 'GET', 'POST', 'OPTIONS' ]
           allowedHeaders: [ '*' ]
           allowCredentials: true
@@ -454,5 +447,4 @@ output frontendAppName string = frontendApp.name
 output apiFqdn         string = apiFqdn
 output socketFqdn      string = socketFqdn
 output webFqdn         string = webFqdn
-output customFqdn      string = customFqdn
 output caeDefaultDomain string = cae.properties.defaultDomain

@@ -33,11 +33,11 @@ env:
   AZURE_LOCATION: canadacentral
   RESOURCE_GROUP: claudes-cards-rg
   PROJECT_SLUG: claudescards
-  FRONTEND_SUBDOMAIN: cardgames
-  DNS_ZONE: relevanttechnologyservices.com
-  # DNS zone's resource group. Bootstrap writes this as a GitHub variable
-  # after auto-detecting the zone's RG; fall back to RESOURCE_GROUP if unset.
-  DNS_ZONE_RG: ${{ vars.DNS_ZONE_RG || 'claudes-cards-rg' }}
+  # Custom domain binding is NOT performed by this workflow. The frontend is
+  # reachable at its default *.azurecontainerapps.io URL. If you want a
+  # custom domain, set it up once in the portal — it never works reliably
+  # from an automation standpoint because Azure's cert validator uses its
+  # own DNS cache that lags public resolvers.
 
 jobs:
   deploy:
@@ -78,8 +78,6 @@ jobs:
             --parameters \
                 location="$AZURE_LOCATION" \
                 projectSlug="$PROJECT_SLUG" \
-                dnsZoneName="$DNS_ZONE" \
-                frontendSubdomain="$FRONTEND_SUBDOMAIN" \
                 imageTag="${{ steps.tag.outputs.tag }}" \
                 pgAdminPassword="${{ secrets.PG_ADMIN_PASSWORD }}" \
                 jwtSecret="${{ secrets.JWT_SECRET }}" \
@@ -93,7 +91,6 @@ jobs:
             echo "api_fqdn=$(az deployment group show -g "$RESOURCE_GROUP" -n "$DEPLOY_NAME" --query 'properties.outputs.apiFqdn.value' -o tsv)"
             echo "socket_fqdn=$(az deployment group show -g "$RESOURCE_GROUP" -n "$DEPLOY_NAME" --query 'properties.outputs.socketFqdn.value' -o tsv)"
             echo "web_fqdn=$(az deployment group show -g "$RESOURCE_GROUP" -n "$DEPLOY_NAME" --query 'properties.outputs.webFqdn.value' -o tsv)"
-            echo "custom_fqdn=$(az deployment group show -g "$RESOURCE_GROUP" -n "$DEPLOY_NAME" --query 'properties.outputs.customFqdn.value' -o tsv)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Resolve outputs (skip_infra path)
@@ -110,7 +107,6 @@ jobs:
             echo "api_fqdn=${PROJECT_SLUG}-api.$CAE_DOMAIN"
             echo "socket_fqdn=${PROJECT_SLUG}-socket.$CAE_DOMAIN"
             echo "web_fqdn=${PROJECT_SLUG}-web.$CAE_DOMAIN"
-            echo "custom_fqdn=$FRONTEND_SUBDOMAIN.$DNS_ZONE"
           } >> "$GITHUB_OUTPUT"
 
       - name: Consolidate endpoints
@@ -121,18 +117,16 @@ jobs:
           API_FQDN="${{ steps.bicep.outputs.api_fqdn || steps.outputs.outputs.api_fqdn }}"
           SOCKET_FQDN="${{ steps.bicep.outputs.socket_fqdn || steps.outputs.outputs.socket_fqdn }}"
           WEB_FQDN="${{ steps.bicep.outputs.web_fqdn || steps.outputs.outputs.web_fqdn }}"
-          CUSTOM_FQDN="${{ steps.bicep.outputs.custom_fqdn || steps.outputs.outputs.custom_fqdn }}"
           {
             echo "acr_name=$ACR_NAME"
             echo "acr_login=$ACR_LOGIN"
             echo "api_fqdn=$API_FQDN"
             echo "socket_fqdn=$SOCKET_FQDN"
             echo "web_fqdn=$WEB_FQDN"
-            echo "custom_fqdn=$CUSTOM_FQDN"
           } >> "$GITHUB_OUTPUT"
           echo "::notice::API=https://$API_FQDN"
           echo "::notice::Socket=https://$SOCKET_FQDN"
-          echo "::notice::Web=https://$CUSTOM_FQDN (default: https://$WEB_FQDN)"
+          echo "::notice::Web=https://$WEB_FQDN"
 
       - name: Build backend images in ACR (api, socket, worker)
         env:
@@ -152,7 +146,7 @@ jobs:
           ACR: ${{ steps.ep.outputs.acr_name }}
           API_FQDN: ${{ steps.ep.outputs.api_fqdn }}
           SOCKET_FQDN: ${{ steps.ep.outputs.socket_fqdn }}
-          CUSTOM_FQDN: ${{ steps.ep.outputs.custom_fqdn }}
+          WEB_FQDN: ${{ steps.ep.outputs.web_fqdn }}
         run: |
           set -euo pipefail
           az acr build --registry "$ACR" \
@@ -165,7 +159,7 @@ jobs:
             --build-arg VITE_B2C_CLIENT_ID="${{ vars.B2C_CLIENT_ID }}" \
             --build-arg VITE_B2C_AUTHORITY="${{ vars.B2C_AUTHORITY }}" \
             --build-arg VITE_B2C_KNOWN_AUTHORITIES="${{ vars.B2C_KNOWN_AUTHORITIES }}" \
-            --build-arg VITE_B2C_REDIRECT_URI="https://$CUSTOM_FQDN" \
+            --build-arg VITE_B2C_REDIRECT_URI="https://$WEB_FQDN" \
             --build-arg VITE_LOG_LEVEL=info \
             .
 
@@ -212,127 +206,16 @@ jobs:
           az containerapp job start -n "$JOB_NAME" -g "$RESOURCE_GROUP" --output none
           echo "Prisma migrate job started. Follow: az containerapp job execution list -n $JOB_NAME -g $RESOURCE_GROUP"
 
-      - name: Ensure DNS records (CNAME + asuid TXT)
-        env:
-          CUSTOM_FQDN: ${{ steps.ep.outputs.custom_fqdn }}
-        run: |
-          set -euo pipefail
-          WEB_APP="${PROJECT_SLUG}-web"
-          WEB_INGRESS_FQDN=$(az containerapp show -n "$WEB_APP" -g "$RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)
-          VERIFICATION_ID=$(az containerapp show -n "$WEB_APP" -g "$RESOURCE_GROUP" --query properties.customDomainVerificationId -o tsv)
-
-          echo "CNAME $FRONTEND_SUBDOMAIN.$DNS_ZONE → $WEB_INGRESS_FQDN"
-          az network dns record-set cname set-record \
-            -g "$DNS_ZONE_RG" -z "$DNS_ZONE" \
-            -n "$FRONTEND_SUBDOMAIN" -c "$WEB_INGRESS_FQDN" \
-            --ttl 3600 --output none
-
-          echo "TXT asuid.$FRONTEND_SUBDOMAIN.$DNS_ZONE → $VERIFICATION_ID"
-          # record-set add-record is additive; clear first so the value reflects
-          # the *current* app's verification id (which never changes for a given
-          # app but may differ if the app was recreated).
-          az network dns record-set txt delete \
-            -g "$DNS_ZONE_RG" -z "$DNS_ZONE" \
-            -n "asuid.$FRONTEND_SUBDOMAIN" --yes --output none 2>/dev/null || true
-          az network dns record-set txt add-record \
-            -g "$DNS_ZONE_RG" -z "$DNS_ZONE" \
-            -n "asuid.$FRONTEND_SUBDOMAIN" -v "$VERIFICATION_ID" --output none
-          az network dns record-set txt update \
-            -g "$DNS_ZONE_RG" -z "$DNS_ZONE" \
-            -n "asuid.$FRONTEND_SUBDOMAIN" --set ttl=3600 --output none
-
-      - name: Bind custom domain + managed TLS cert
-        env:
-          CUSTOM_FQDN: ${{ steps.ep.outputs.custom_fqdn }}
-        run: |
-          set -euo pipefail
-          WEB_APP="${PROJECT_SLUG}-web"
-          CAE_NAME="${PROJECT_SLUG}-cae"
-
-          # Already bound? exit fast.
-          if az containerapp hostname list -n "$WEB_APP" -g "$RESOURCE_GROUP" --query "[?name=='$CUSTOM_FQDN']" -o tsv | grep -q .; then
-            echo "Custom domain $CUSTOM_FQDN already bound; checking cert status."
-            az containerapp hostname list -n "$WEB_APP" -g "$RESOURCE_GROUP" --query "[?name=='$CUSTOM_FQDN']" -o table
-            exit 0
-          fi
-
-          # Managed-cert issuance requires the hostname to already be known to
-          # the container app, so the order is:
-          #   (1) add hostname without a cert binding (--validation-method none
-          #       means "just attach the hostname, don't validate a cert yet")
-          #   (2) wait briefly for DNS propagation
-          #   (3) bind again with --validation-method CNAME, which triggers
-          #       the managed-cert issuance against the CNAME we already
-          #       published.
-          echo "Step 1/4: adding $CUSTOM_FQDN as hostname (no cert yet)."
-          az containerapp hostname add \
-            -n "$WEB_APP" -g "$RESOURCE_GROUP" \
-            --hostname "$CUSTOM_FQDN" \
-            --output none || true
-
-          # Re-read the verification id after the hostname is attached — it
-          # can differ from the pre-add value on first bind. Publish the
-          # (possibly updated) TXT record so the CNAME validation call can
-          # find it.
-          VERIFICATION_ID=$(az containerapp show -n "$WEB_APP" -g "$RESOURCE_GROUP" --query properties.customDomainVerificationId -o tsv)
-          echo "Step 2/4: refreshing asuid TXT to $VERIFICATION_ID"
-          az network dns record-set txt delete \
-            -g "$DNS_ZONE_RG" -z "$DNS_ZONE" \
-            -n "asuid.$FRONTEND_SUBDOMAIN" --yes --output none 2>/dev/null || true
-          az network dns record-set txt add-record \
-            -g "$DNS_ZONE_RG" -z "$DNS_ZONE" \
-            -n "asuid.$FRONTEND_SUBDOMAIN" -v "$VERIFICATION_ID" --output none
-          az network dns record-set txt update \
-            -g "$DNS_ZONE_RG" -z "$DNS_ZONE" \
-            -n "asuid.$FRONTEND_SUBDOMAIN" --set ttl=300 --output none
-
-          echo "Step 3/4: polling public DNS for the TXT record (up to 5 min)."
-          EXPECTED_TXT="$VERIFICATION_ID"
-          for i in $(seq 1 30); do
-            if getent hosts asuid.${FRONTEND_SUBDOMAIN}.${DNS_ZONE} >/dev/null 2>&1; then :; fi
-            FOUND=$(dig +short TXT "asuid.${FRONTEND_SUBDOMAIN}.${DNS_ZONE}" @8.8.8.8 | tr -d '"' | head -1)
-            if [ "$FOUND" = "$EXPECTED_TXT" ]; then
-              echo "  TXT resolved at attempt $i: $FOUND"
-              break
-            fi
-            echo "  [$i/30] got '${FOUND:-nothing}', expecting '$EXPECTED_TXT' — sleeping 10s"
-            sleep 10
-          done
-
-          echo "Step 4/4: issuing managed cert + SNI binding for $CUSTOM_FQDN."
-          # Azure's cert validator has its own DNS cache; even after public
-          # resolvers see the TXT, the validator may take a minute or two.
-          # Retry the bind call up to 5 times with a 60s backoff instead of
-          # adding a fixed sleep that is either too short or wasteful.
-          bind_ok=0
-          for attempt in 1 2 3 4 5; do
-            if az containerapp hostname bind \
-                 -n "$WEB_APP" -g "$RESOURCE_GROUP" \
-                 --hostname "$CUSTOM_FQDN" \
-                 --environment "$CAE_NAME" \
-                 --validation-method CNAME \
-                 --output none; then
-              bind_ok=1
-              echo "  bind succeeded on attempt $attempt"
-              break
-            fi
-            echo "  attempt $attempt failed, waiting 60s before retry"
-            sleep 60
-          done
-          if [ "$bind_ok" -ne 1 ]; then
-            echo "Cert bind did not succeed after 5 attempts. DNS records are in"
-            echo "place; the cert may still issue asynchronously. Check with:"
-            echo "  az containerapp env certificate list -g $RESOURCE_GROUP -n $CAE_NAME --managed-certificates-only -o table"
-            exit 1
-          fi
-
-          az containerapp hostname list -n "$WEB_APP" -g "$RESOURCE_GROUP" -o table
+      # Custom-domain binding and managed TLS cert issuance are deliberately
+      # NOT handled here. Azure's managed-cert validator uses an internal DNS
+      # cache that lags public resolvers, making this step flaky in ways no
+      # amount of retry/backoff reliably unsticks. If you want a custom
+      # domain, add it once in the portal — it's a one-time operation.
 
       - name: Smoke test
         env:
           API_FQDN: ${{ steps.ep.outputs.api_fqdn }}
           WEB_FQDN: ${{ steps.ep.outputs.web_fqdn }}
-          CUSTOM_FQDN: ${{ steps.ep.outputs.custom_fqdn }}
         run: |
           set -euo pipefail
           echo "Waiting for api /health …"
@@ -341,22 +224,19 @@ jobs:
             if [ "$code" = "200" ]; then echo "api healthy"; break; fi
             echo "attempt $i: got $code, retrying in 10s"; sleep 10
           done
-          curl -sS -o /dev/null -w 'default web %{http_code}\n' "https://$WEB_FQDN/" || true
-          curl -sS -o /dev/null -w 'custom  web %{http_code}\n' "https://$CUSTOM_FQDN/" || true
+          curl -sS -o /dev/null -w 'web %{http_code}\n' "https://$WEB_FQDN/" || true
 
       - name: Summary
         env:
           API_FQDN: ${{ steps.ep.outputs.api_fqdn }}
           SOCKET_FQDN: ${{ steps.ep.outputs.socket_fqdn }}
           WEB_FQDN: ${{ steps.ep.outputs.web_fqdn }}
-          CUSTOM_FQDN: ${{ steps.ep.outputs.custom_fqdn }}
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           cat <<EOF >> "$GITHUB_STEP_SUMMARY"
           ## Deployed
           - **Image tag:** \`$TAG\`
-          - **Web (custom):** https://$CUSTOM_FQDN
-          - **Web (default):** https://$WEB_FQDN
+          - **Web:** https://$WEB_FQDN
           - **API:** https://$API_FQDN
           - **Socket:** https://$SOCKET_FQDN
 

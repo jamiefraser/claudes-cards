@@ -42,9 +42,9 @@ describe('GET /api/v1/games', () => {
       .set('Authorization', `Bearer ${playerToken}`)
       .expect(200);
 
-    expect(Array.isArray(res.body.games)).toBe(true);
-    if (res.body.games.length > 0) {
-      const game = res.body.games[0];
+    expect(Array.isArray(res.body)).toBe(true);
+    if (res.body.length > 0) {
+      const game = res.body[0];
       expect(game.id).toBeDefined();
       expect(game.name).toBeDefined();
       expect(game.enabled).toBeDefined();
@@ -63,8 +63,8 @@ describe('GET /api/v1/games/:id', () => {
       .get('/api/v1/games')
       .set('Authorization', `Bearer ${playerToken}`);
 
-    if (listRes.body.games.length > 0) {
-      const gameId = listRes.body.games[0].id;
+    if (listRes.body.length > 0) {
+      const gameId = listRes.body[0].id;
 
       const res = await request(app)
         .get(`/api/v1/games/${gameId}`)

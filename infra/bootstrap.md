@@ -16,8 +16,6 @@ Set any of these env vars before running if you want to override defaults:
 | `RESOURCE_GROUP` | `claudes-cards-rg` |
 | `LOCATION` | `canadacentral` |
 | `PROJECT_SLUG` | `claudescards` |
-| `DNS_ZONE` | `relevanttechnologyservices.com` |
-| `DNS_ZONE_RG` | auto-detected |
 | `GITHUB_REPO` | `jamiefraser/claudes-cards` |
 | `SP_DISPLAY_NAME` | `claudes-cards-deploy` |
 | `B2C_TENANT` | `cards.onmicrosoft.com` |
@@ -29,14 +27,27 @@ Set any of these env vars before running if you want to override defaults:
 ## What it does
 
 1. Creates the resource group if missing.
-2. Auto-detects the RG that holds `relevanttechnologyservices.com`.
-3. Creates the deploy service principal + OIDC federated credentials for the GitHub repo (main branch + workflow_dispatch).
-4. Grants the SP `Contributor` + `AcrPush` on the app RG, plus `DNS Zone Contributor` on the zone's RG.
-5. Writes these GitHub **secrets**: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `PG_ADMIN_PASSWORD`, `JWT_SECRET`.
-6. Writes these GitHub **variables**: `B2C_CLIENT_ID`, `B2C_AUTHORITY`, `B2C_KNOWN_AUTHORITIES`.
-7. Prompts for sign-in to the B2C tenant and adds `https://cardgames.relevanttechnologyservices.com` as a redirect URI on the SPA app registration.
+2. Creates the deploy service principal + OIDC federated credentials for the GitHub repo (main + master branches).
+3. Grants the SP `Reader` on the subscription, `Owner` + `AcrPush` on the app RG.
+4. Writes these GitHub **secrets**: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `PG_ADMIN_PASSWORD`, `JWT_SECRET`.
+5. Writes these GitHub **variables**: `B2C_CLIENT_ID`, `B2C_AUTHORITY`, `B2C_KNOWN_AUTHORITIES`.
+6. Prompts for sign-in to the B2C tenant and adds the frontend redirect URI on the SPA app registration.
 
 It's idempotent — every step checks for existing state, so you can safely re-run.
+
+## Custom domain (optional, manual)
+
+The workflow deploys the frontend at its default Container Apps URL
+(`claudescards-web.<env>.canadacentral.azurecontainerapps.io`). If you want a
+custom domain, set it up **once** in the portal:
+
+1. Azure portal → Container Apps → `claudescards-web` → Custom domains → **Add custom domain**.
+2. Copy the verification id and create the CNAME + `asuid.` TXT records it shows.
+3. Let Azure issue the managed certificate (1–5 minutes).
+
+This isn't automated because Azure's managed-cert validator uses an internal
+DNS cache that lags public resolvers, so scripting it is unreliable. Doing it
+once by hand is fast.
 
 ## After bootstrap
 
@@ -45,7 +56,7 @@ gh workflow run "Azure deploy" --repo jamiefraser/claudes-cards
 gh run watch --repo jamiefraser/claudes-cards
 ```
 
-First run: ~20 min (Postgres + Redis + image builds + DNS cert issuance). Subsequent runs: ~5 min.
+First run: ~10 min (Postgres + Redis + image builds). Subsequent runs: ~5 min.
 
 On-demand redeploys from the Actions tab → **Azure deploy** → Run workflow. Inputs:
 
@@ -56,5 +67,4 @@ On-demand redeploys from the Actions tab → **Azure deploy** → Run workflow. 
 
 ```bash
 az group delete --name claudes-cards-rg --yes --no-wait
-# Also remove the cardgames CNAME + asuid TXT records from the DNS zone.
 ```

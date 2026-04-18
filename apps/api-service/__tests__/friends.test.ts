@@ -56,7 +56,7 @@ describe('GET /api/v1/friends', () => {
       .set('Authorization', `Bearer ${player1Token}`)
       .expect(200);
 
-    expect(Array.isArray(res.body.friends)).toBe(true);
+    expect(Array.isArray(res.body)).toBe(true);
   });
 
   it('returns 401 when not authenticated', async () => {

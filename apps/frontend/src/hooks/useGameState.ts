@@ -31,8 +31,27 @@ export function useGameState(roomId: string | null): void {
 
     const onDelta = (payload: GameStateDeltaPayload) => {
       if (!payload.delta || payload.delta.roomId !== roomId) return;
-      logger.debug('useGameState: game_state_delta', { version: payload.delta.version });
-      applyDelta(payload.delta);
+      const delta = payload.delta;
+      const local = useGameStore.getState().gameState;
+      // Detect a dropped earlier delta before applyDelta silently skips.
+      // We compare here (not only in the store) because we need to emit
+      // request_resync — the store is pure state, it doesn't own the
+      // socket. SPEC.md §22.
+      if (
+        local &&
+        typeof delta.prevVersion === 'number' &&
+        delta.prevVersion !== local.version
+      ) {
+        logger.warn('useGameState: delta version gap — requesting resync', {
+          localVersion: local.version,
+          deltaPrevVersion: delta.prevVersion,
+          deltaVersion: delta.version,
+        });
+        socket.emit('request_resync', { roomId, currentVersion: local.version });
+        return;
+      }
+      logger.debug('useGameState: game_state_delta', { version: delta.version });
+      applyDelta(delta);
     };
 
     // NOTE: chat_message is handled by TableChat's own useEffect.

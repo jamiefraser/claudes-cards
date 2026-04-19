@@ -13,6 +13,7 @@ import { redis } from '../redis/client';
 import { logger } from '../utils/logger';
 import type { RejoinRoomPayload, GameStateSyncPayload } from '@card-platform/shared-types';
 import type { BotController } from '../bots/BotController';
+import { redactStateForRecipient } from '../utils/gameStateRedaction';
 
 export async function rejoinRoomHandler(
   socket: Socket,
@@ -54,10 +55,11 @@ export async function rejoinRoomHandler(
       );
     }
 
-    // Fetch current game state
+    // Fetch current game state — redact other hands before replying.
     const stateJson = await redis.get(`game:state:${roomId}`);
+    const rawState = stateJson ? JSON.parse(stateJson) : null;
     const syncPayload: GameStateSyncPayload = {
-      state: stateJson ? JSON.parse(stateJson) : null,
+      state: rawState ? redactStateForRecipient(rawState, playerId) : null,
     };
     socket.emit('game_state_sync', syncPayload);
 

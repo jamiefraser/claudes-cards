@@ -375,11 +375,32 @@ export class Phase10Engine implements IGameEngine {
         : p,
     );
 
+    // Standard Phase 10 rule: a skip card placed on the discard pile (not
+    // played via play-skip) causes the next-in-rotation player to lose
+    // their turn. Mark them as skipped BEFORE computing next turn so
+    // getNextPlayer's existing skip-resolution path picks them up.
+    let skippedForDiscard = pd.skippedPlayers;
+    if (discardedCard.phase10Type === 'skip') {
+      const currentIdx = state.players.findIndex((p) => p.playerId === playerId);
+      if (currentIdx !== -1) {
+        // Walk forward until we land on a player who isn't out — that's the
+        // player whose turn the skip consumes.
+        for (let offset = 1; offset <= state.players.length; offset++) {
+          const idx = (currentIdx + offset) % state.players.length;
+          const candidate = newPlayers[idx]!;
+          if (!candidate.isOut && candidate.playerId !== playerId) {
+            skippedForDiscard = [...skippedForDiscard, candidate.playerId];
+            break;
+          }
+        }
+      }
+    }
+
     // Determine next turn
     const { nextPlayerId, newSkippedPlayers } = getNextPlayer(
       state.players,
       playerId,
-      pd.skippedPlayers,
+      skippedForDiscard,
     );
 
     // Check if round ends

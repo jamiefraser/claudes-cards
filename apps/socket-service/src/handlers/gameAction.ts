@@ -18,6 +18,7 @@ import type { GameActionPayload, GameState, GameAction, GameStateDelta } from '@
 import type { GameRegistry } from '../games/registry';
 import type { BotController } from '../bots/BotController';
 import { scheduleBotsAfterAction } from '../bots/schedulingHelpers';
+import { emitFilteredDelta } from '../utils/gameStateRedaction';
 
 const LOCK_TTL_SECONDS = 5;
 const SERVER_ID = randomUUID();
@@ -112,9 +113,12 @@ export async function gameActionHandler(
     await redis.rpush(`game:actions:${roomId}`, JSON.stringify(gameAction));
     await redis.rpush(`replay:actions:${roomId}`, JSON.stringify(gameAction));
 
-    // Build delta
+    // Build delta. `prevVersion` lets each client detect gaps — if a delta
+    // arrives where prevVersion !== currentlyAppliedVersion, the client has
+    // missed an intermediate update and should request_resync.
     const delta: GameStateDelta = {
       version: nextState.version,
+      prevVersion: state.version,
       roomId,
       playerUpdates: buildPlayerUpdates(state, nextState),
       currentTurn: nextState.currentTurn,
@@ -124,8 +128,9 @@ export async function gameActionHandler(
       ...(nextState.cribbageBoardState ? { cribbageBoardState: nextState.cribbageBoardState } : {}),
     };
 
-    // Broadcast delta to room
-    socket.nsp.to(roomId).emit('game_state_delta', { delta });
+    // Fan out per-recipient redacted copies so opponents never see each
+    // other's hand cards. SPEC.md §22.
+    await emitFilteredDelta(socket.nsp, roomId, delta);
 
     logger.info('gameAction applied', { roomId, playerId, action: action.type, version: nextState.version });
 

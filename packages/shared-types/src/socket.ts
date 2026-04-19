@@ -59,6 +59,17 @@ export interface SpectatorJoinPayload {
   roomId: string;
 }
 
+/**
+ * request_resync — client detected a delta version gap and needs a full
+ * state snapshot. Namespace: /game. Server replies with `game_state_sync`.
+ * See SPEC.md §22.
+ */
+export interface RequestResyncPayload {
+  roomId: string;
+  /** The version the client currently has applied (for server-side logging). */
+  currentVersion: number;
+}
+
 /** report_message — player reports a chat message. Namespace: /lobby */
 export interface ReportMessagePayload {
   messageId: string;
@@ -72,7 +83,8 @@ export interface ReportMessagePayload {
 
 /** game_state_sync — full state sent on join or rejoin. Namespace: /game */
 export interface GameStateSyncPayload {
-  state: GameState;
+  /** Null if the game hasn't been started yet (lobby / waiting room state). */
+  state: GameState | null;
 }
 
 /** game_state_delta — partial state update after each action. Namespace: /game */

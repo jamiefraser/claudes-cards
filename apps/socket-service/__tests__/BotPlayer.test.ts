@@ -30,12 +30,22 @@ jest.mock('../src/redis/pubsub', () => ({
   },
 }));
 
+// emitFilteredDelta walks `nsp.in(roomId).fetchSockets()` and calls
+// `s.emit(...)` per recipient. Expose a one-socket fan-out so these
+// tests can still assert the bot emitted a delta. `mockEmit` stays wired
+// to that one fake socket.
 const mockEmit = jest.fn();
 const mockTo = jest.fn().mockReturnValue({ emit: mockEmit });
+const fakeSocket = {
+  data: { user: { playerId: 'observer' } },
+  emit: mockEmit,
+};
+const mockFetchSockets = jest.fn().mockResolvedValue([fakeSocket]);
+const mockIn = jest.fn().mockReturnValue({ fetchSockets: mockFetchSockets });
 
 jest.mock('../src/index', () => ({
   getIO: jest.fn().mockReturnValue({
-    of: jest.fn().mockReturnValue({ to: mockTo }),
+    of: jest.fn().mockReturnValue({ to: mockTo, in: mockIn }),
   }),
 }));
 

@@ -74,6 +74,21 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       return;
     }
 
+    // Sequence check: the server stamps `prevVersion` so the client can
+    // detect a dropped earlier delta. A strict equality check catches both
+    // skipped updates (prevVersion ahead of local) and duplicate/out-of-
+    // order deliveries (prevVersion behind). On mismatch we bail; the
+    // useGameState hook fires request_resync and the server replies with
+    // a fresh snapshot.
+    if (typeof delta.prevVersion === 'number' && delta.prevVersion !== current.version) {
+      logger.warn('gameStore: applyDelta skipped — version gap', {
+        localVersion: current.version,
+        deltaPrevVersion: delta.prevVersion,
+        deltaVersion: delta.version,
+      });
+      return;
+    }
+
     // Merge player updates
     let updatedPlayers = current.players;
     if (delta.playerUpdates) {

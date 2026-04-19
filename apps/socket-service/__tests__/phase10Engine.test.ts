@@ -198,7 +198,11 @@ describe('Phase10Engine', () => {
     const playerId = state.currentTurn!;
 
     let s = engine.applyAction(state, playerId, { type: 'draw', payload: { source: 'deck' } });
-    const cardToDiscard = s.players.find((p) => p.playerId === playerId)!.hand[0]!;
+    // Pick a non-skip card — a discarded skip skips the next player by design,
+    // which would send turn back to us in a 2-player game. This test is
+    // asserting vanilla discard behaviour, so pick something safe.
+    const hand = s.players.find((p) => p.playerId === playerId)!.hand;
+    const cardToDiscard = hand.find((c) => c.phase10Type !== 'skip') ?? hand[0]!;
     s = engine.applyAction(s, playerId, { type: 'discard', cardIds: [cardToDiscard.id] });
 
     expect(s.currentTurn).not.toBe(playerId);
@@ -607,6 +611,77 @@ describe('Phase10Engine', () => {
     // The skipped player's state should reflect being skipped
     const skippedPublicData = s.publicData.skippedPlayers as string[];
     expect(skippedPublicData).toContain(targetId);
+  });
+
+  it('discarding a skip card causes the next player to lose their turn (2p: discarder goes again)', () => {
+    // Standard Phase 10: a skip placed on the discard pile (not played via
+    // play-skip) causes the next-in-rotation player to lose their turn.
+    // In a 2-player game, that means the discarder takes the next turn.
+    const state = engine.startGame(makeConfig(2));
+    const playerId = state.currentTurn!;
+
+    const skipCard = {
+      id: 'phase10:skip:disc1',
+      deckType: 'phase10' as const,
+      phase10Type: 'skip' as const,
+      value: 15,
+      faceUp: false,
+    };
+
+    const withSkip: GameState = {
+      ...state,
+      players: state.players.map((p) =>
+        p.playerId === playerId
+          ? { ...p, hand: [skipCard, ...p.hand.slice(0, 9)] }
+          : p,
+      ),
+    };
+
+    // Draw so we're in the discard sub-phase
+    let s = engine.applyAction(withSkip, playerId, { type: 'draw', payload: { source: 'deck' } });
+
+    // Discard the skip (not play-skip — a bare discard)
+    s = engine.applyAction(s, playerId, {
+      type: 'discard',
+      cardIds: [skipCard.id],
+    });
+
+    // 2-player: the would-be-next player is skipped, so turn returns to us.
+    expect(s.currentTurn).toBe(playerId);
+    // Discard pile top is the skip we dumped
+    const top = (s.publicData as Record<string, unknown>).discardTop as { phase10Type?: string };
+    expect(top.phase10Type).toBe('skip');
+  });
+
+  it('discarding a skip card in a 3p game skips the immediate next player', () => {
+    const state = engine.startGame(makeConfig(3));
+    const playerId = state.currentTurn!;
+    const [, p2, p3] = state.players;
+
+    const skipCard = {
+      id: 'phase10:skip:disc3p',
+      deckType: 'phase10' as const,
+      phase10Type: 'skip' as const,
+      value: 15,
+      faceUp: false,
+    };
+
+    const withSkip: GameState = {
+      ...state,
+      players: state.players.map((p) =>
+        p.playerId === playerId
+          ? { ...p, hand: [skipCard, ...p.hand.slice(0, 9)] }
+          : p,
+      ),
+    };
+
+    let s = engine.applyAction(withSkip, playerId, { type: 'draw', payload: { source: 'deck' } });
+    s = engine.applyAction(s, playerId, { type: 'discard', cardIds: [skipCard.id] });
+
+    // player-1 → player-2 is skipped → player-3 plays next
+    expect(p2!.playerId).toBe('player-2');
+    expect(p3!.playerId).toBe('player-3');
+    expect(s.currentTurn).toBe(p3!.playerId);
   });
 
   it('skip card: skipped player automatically loses their turn', () => {

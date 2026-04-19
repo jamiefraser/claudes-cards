@@ -692,6 +692,15 @@ interface BotActivationPolicy {
   // Think time (ms) — randomised per action to feel human
   thinkTimeMin: 800;
   thinkTimeMax: 2500;
+
+  // Hard ceiling — a bot MUST play within 20s of being scheduled. The
+  // primary path (BullMQ delayed job → pub/sub → BotPlayer) delivers
+  // within ~3s; BotSweeper re-fires stuck turns within `staleMs +
+  // intervalMs` (currently 3s + 2s = 5s) if the pub/sub message is
+  // dropped. A strategy that can't produce a legal action must fall
+  // back (never 'pass' mid-turn), because 'pass' clears the schedule
+  // keys and will loop the sweeper forever otherwise.
+  maxPlayLatencyMs: 20_000;
 }
 ```
 
@@ -723,14 +732,19 @@ export interface IBotStrategy {
 
 ### 9.5 Bot Strategy — Phase 10 (reference implementation)
 
-The Phase 10 bot uses a priority-ordered rule set:
+The Phase 10 bot uses a priority-ordered rule set on its turn:
 
-1. **If the bot can lay down its current phase this turn** — lay it down
-2. **If the phase is already laid and the bot can hit a meld** — hit the highest-value card it can legally hit
-3. **Draw**: prefer the discard pile top card if it advances the current phase; otherwise draw from the pile
-4. **Discard**: discard the card with the highest point value that is not part of any potential phase combination
+1. **Play a skip (if one is in hand and a valid target exists)** — target the opponent holding the most cards
+2. **If the bot can lay down its current phase this turn** — lay it down
+3. **If the phase is already laid** — hit the highest-value non-wild card onto any laid meld (including opponents'); if no non-wild hit fits, allow hitting with a wild so the bot sheds it instead of hoarding
+4. **Draw**: prefer the discard pile top card if it advances the current phase; otherwise draw from the deck
+5. **Discard** — must always produce a legal discard when the hand is non-empty. Preference: skip (if no play-skip target) → highest-value non-phase number → lowest-value phase number → wild (last resort only)
 
-Wild cards are never discarded. Skip cards are played immediately when drawn, targeting the opponent with the most cards in hand.
+**Rule hooks that apply regardless of strategy:**
+
+- **Skip card on the discard pile** — whether placed there via `play-skip` (targeting a specific player) or by a bare `discard` of a skip, the next-in-rotation non-out player loses their turn. In a 2-player game, this means the discarder plays the next turn.
+- **Cross-player melds** — once a player has laid down, they may add cards to *any* laid-down meld (their own or an opponent's), not just their own.
+- **Never return `pass` mid-turn.** If the strategy can find no legal action, fall back through `fallbackAction` → rightmost discard. `pass` is reserved for "it isn't my turn" signals (e.g. cribbage parallel-discard already complete); using it during your own turn will strand the schedule keys and hang the bot.
 
 ### 9.6 Bot UI Representation
 
@@ -1628,6 +1642,23 @@ enum ReportStatus { PENDING ACTIONED DISMISSED }
 |---|---|---|
 | `bot_activated` | `BotActivatedPayload` | Bot has taken a seat |
 | `bot_yielded` | `BotYieldedPayload` | Human has reclaimed their seat from bot |
+
+**Client → Server (additions)**
+
+| Event | Payload Type | Description |
+|---|---|---|
+| `request_resync` | `RequestResyncPayload` | Client detected a `game_state_delta` gap (delta.prevVersion != locally applied version) and needs a fresh snapshot. Server replies with `game_state_sync`. |
+
+### 24.3 Messaging Reliability Contract
+
+The `/game` namespace makes the following guarantees:
+
+1. **Per-recipient redaction.** Every `game_state_sync` and `game_state_delta` is filtered per socket before emit. A player's `hand` array is private to that player; opponents' cards are replaced with face-down placeholders (id preserved for stable React keys, `value: 0`, `faceUp: false`, type/colour fields stripped). Spectators are treated as "every hand is an opponent's." Laid-down / face-up data lives in `publicData` and is always visible. Implementation: `apps/socket-service/src/utils/gameStateRedaction.ts`.
+2. **Sequence tracking.** Every delta carries `version` (new state) and `prevVersion` (the version it was computed from). Clients validate `prevVersion === currentlyAppliedVersion` before applying. On mismatch — a dropped or reordered delta — the client emits `request_resync` and applies the server's fresh snapshot instead of merging a diverging partial update.
+3. **At-least-once bot turn delivery.** The worker publishes bot turns to `bot:action:{roomId}` after the BullMQ delay. Pub/sub is fire-and-forget, so `BotSweeper` scans `bot:schedule:*` every 2s and re-fires any turn that's >3s past its fire time. `BotPlayer.executeAction` uses the `version` field to reject stale replays idempotently (see `scheduledForVersion` guard).
+4. **Turn progress invariant.** A bot strategy must never return `{type: 'pass'}` during its own active turn. `pass` is reserved for "nothing to do" signals (e.g. cribbage parallel-discard already complete). Violating this strands the schedule keys and sends the sweeper into a re-fire loop visible to the user as "Thinking…" indefinitely. The Phase 10 strategy's step-4 (`decideDiscard`) is the reference implementation: it ranks legal discards and falls back to a wild card as a last resort rather than passing.
+
+These rules apply to every game engine, not just Phase 10.
 
 ### 24.2 New Events — Namespace `/lobby`
 

@@ -14,9 +14,9 @@
 
 import type { IBotStrategy, GameState, PlayerAction, Card } from '@card-platform/shared-types';
 import {
-  canCompletePhase,
   findPhaseArrangement,
   canHitMeld,
+  type PhaseGroup,
 } from '../../games/phase10/engine';
 import { logger } from '../../utils/logger';
 
@@ -123,7 +123,7 @@ export class Phase10BotStrategy implements IBotStrategy {
     // Check if taking the discard top would help complete the phase
     if (discardTop && discardTop.phase10Type !== 'skip' && req) {
       const hypotheticalHand = [...player.hand, discardTop];
-      if (canCompletePhase(hypotheticalHand, req)) {
+      if (findPhaseArrangement(hypotheticalHand, req) !== null) {
         return { type: 'draw', payload: { source: 'discard' } };
       }
 
@@ -145,7 +145,10 @@ export class Phase10BotStrategy implements IBotStrategy {
     const phaseNum = player.currentPhase ?? 1;
     const req = PHASE_REQUIREMENTS[phaseNum];
 
-    // 1. Check for skip card — play immediately targeting most-cards player
+    // 1. Check for skip card — play immediately targeting most-cards player.
+    //    If no valid target exists (e.g. all opponents already out), the
+    //    skip will fall through to step 4 where decideDiscard prefers to
+    //    dump it rather than keep dead weight.
     const skipCard = hand.find((c) => c.phase10Type === 'skip');
     if (skipCard) {
       const target = this.findTargetForSkip(state, player.playerId);
@@ -157,9 +160,11 @@ export class Phase10BotStrategy implements IBotStrategy {
       }
     }
 
-    // 2. If bot can lay down phase → lay it down
-    if (!player.phaseLaidDown && req && canCompletePhase(hand, req)) {
-      const arrangement = findPhaseArrangement(hand, req);
+    // 2. If bot can lay down phase → lay it down.
+    //    findPhaseArrangement is O(rank-diversity × hand-size) and
+    //    canCompletePhase wraps the same search, so call it only once.
+    if (req && !player.phaseLaidDown) {
+      const arrangement: PhaseGroup[] | null = findPhaseArrangement(hand, req);
       if (arrangement) {
         return {
           type: 'lay-down',
@@ -171,14 +176,24 @@ export class Phase10BotStrategy implements IBotStrategy {
       }
     }
 
-    // 3. If phase already laid → try to hit a meld with highest-value card
+    // 3. If phase already laid → try to hit a meld.
+    //    First pass: highest-value non-wild card (wilds are valuable, save them).
+    //    Second pass: allow wilds to dump them so the bot can go out sooner,
+    //    and so it never gets stuck with a hand of only wilds after lay-down.
     if (player.phaseLaidDown && pd.laidDownPhases) {
-      const hitAction = this.findBestHitMeld(hand, pd.laidDownPhases);
-      if (hitAction) return hitAction;
+      const hitNonWild = this.findBestHitMeld(hand, pd.laidDownPhases, { allowWilds: false });
+      if (hitNonWild) return hitNonWild;
+      const hitWild = this.findBestHitMeld(hand, pd.laidDownPhases, { allowWilds: true });
+      if (hitWild) return hitWild;
     }
 
-    // 4. Discard: highest-value card not part of potential phase combination
-    return this.decideDiscard(hand, phaseNum, req);
+    // 4. Discard. Guaranteed to produce a legal discard when hand is non-empty;
+    //    critically this must never return 'pass', otherwise BotPlayer DELs
+    //    the schedule keys and the sweeper re-fires the same 'pass' forever,
+    //    leaving the bot stuck in "Thinking…". By this point findPhaseArrangement
+    //    returned null (or phase is already laid), so there is no "safe" set
+    //    of phase cards to protect — decideDiscard just picks the best dump.
+    return this.decideDiscard(hand, new Set<string>());
   }
 
   private discardAdvancesPhase(
@@ -243,8 +258,8 @@ export class Phase10BotStrategy implements IBotStrategy {
   private findBestHitMeld(
     hand: Card[],
     laidDownPhases: Record<string, Array<{ type: string; cardIds: string[] }>>,
+    opts: { allowWilds: boolean } = { allowWilds: false },
   ): PlayerAction | null {
-    let bestCard: Card | null = null;
     let bestAction: PlayerAction | null = null;
     let bestScore = -1;
 
@@ -254,13 +269,12 @@ export class Phase10BotStrategy implements IBotStrategy {
         const phaseGroup = { type: group.type as 'set' | 'run' | 'color', cardIds: group.cardIds };
 
         for (const card of hand) {
-          if (card.phase10Type === 'wild') continue; // never hit with wild — save it
           if (card.phase10Type === 'skip') continue;
+          if (card.phase10Type === 'wild' && !opts.allowWilds) continue;
           if (canHitMeld(card, phaseGroup)) {
             const score = scoreCard(card);
             if (score > bestScore) {
               bestScore = score;
-              bestCard = card;
               bestAction = {
                 type: 'hit-meld',
                 payload: {
@@ -278,55 +292,46 @@ export class Phase10BotStrategy implements IBotStrategy {
     return bestAction;
   }
 
-  private decideDiscard(
-    hand: Card[],
-    phaseNum: number,
-    req: PhaseRequirement | undefined,
-  ): PlayerAction {
-    if (hand.length === 0) {
-      return { type: 'pass' };
+  /**
+   * Pick a discard. Must always return a legal `discard` when the hand is
+   * non-empty — see decideDiscardPhaseAction step 4 for why 'pass' is
+   * poisonous at this point in the turn.
+   *
+   * Preference order:
+   *   1. Skip card (no point hoarding once it can't be played).
+   *   2. Non-phase number card with highest point value.
+   *   3. Phase-useful number card with lowest point value.
+   *   4. Wild card (truly last resort — only happens when hand is all wilds).
+   */
+  private decideDiscard(hand: Card[], phaseCardIds: Set<string>): PlayerAction {
+    if (hand.length === 0) return { type: 'pass' };
+
+    const skips = hand.filter((c) => c.phase10Type === 'skip');
+    if (skips.length > 0) {
+      return { type: 'discard', cardIds: [skips[0]!.id] };
     }
 
-    // Never discard wilds
-    const discardable = hand.filter((c) => c.phase10Type !== 'wild');
-    if (discardable.length === 0) {
-      // All wilds — this shouldn't normally happen, but discard the rightmost non-wild or pass
-      return { type: 'pass' };
-    }
-
-    // Find cards that are part of potential phase combination
-    const phaseCardIds = req
-      ? this.getPhaseCardIds(hand, req)
-      : new Set<string>();
-
-    // Prefer to discard non-phase cards with highest value
-    const nonPhaseCards = discardable.filter((c) => !phaseCardIds.has(c.id));
-    if (nonPhaseCards.length > 0) {
-      const toDiscard = nonPhaseCards.reduce(
-        (max, card) => (scoreCard(card) > scoreCard(max) ? card : max),
-        nonPhaseCards[0]!,
+    const numbers = hand.filter((c) => c.phase10Type === 'number');
+    if (numbers.length > 0) {
+      const nonPhase = numbers.filter((c) => !phaseCardIds.has(c.id));
+      if (nonPhase.length > 0) {
+        const toDiscard = nonPhase.reduce(
+          (max, card) => (scoreCard(card) > scoreCard(max) ? card : max),
+          nonPhase[0]!,
+        );
+        return { type: 'discard', cardIds: [toDiscard.id] };
+      }
+      // All number cards are phase-useful — dump the cheapest.
+      const toDiscard = numbers.reduce(
+        (min, card) => (scoreCard(card) < scoreCard(min) ? card : min),
+        numbers[0]!,
       );
       return { type: 'discard', cardIds: [toDiscard.id] };
     }
 
-    // All non-wild cards are phase cards — discard the least valuable phase card
-    const toDiscard = discardable.reduce(
-      (min, card) => (scoreCard(card) < scoreCard(min) ? card : min),
-      discardable[0]!,
-    );
-    return { type: 'discard', cardIds: [toDiscard.id] };
-  }
-
-  private getPhaseCardIds(hand: Card[], req: PhaseRequirement): Set<string> {
-    try {
-      const arrangement = findPhaseArrangement(hand, req);
-      if (arrangement) {
-        const ids = new Set<string>(arrangement.flatMap((g: { cardIds: string[] }) => g.cardIds));
-        return ids;
-      }
-    } catch {
-      // ignore
-    }
-    return new Set<string>();
+    // Nothing but wilds left. Discard one to avoid stalling the game —
+    // keeping the rest is still worth 25 points each next round.
+    const wild = hand[hand.length - 1]!;
+    return { type: 'discard', cardIds: [wild.id] };
   }
 }

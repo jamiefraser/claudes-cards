@@ -526,10 +526,13 @@ describe('Phase10BotStrategy', () => {
   });
 
   // -------------------------------------------------------------------
-  // decideDiscard: all wilds — returns pass
+  // Progress guarantee: bot must always advance its own turn
+  // (regression: bot used to return 'pass' with all-wild hand, which
+  // caused it to get stuck in "Thinking…" after lay-down because the
+  // scheduler won't advance turn on a pass.)
   // -------------------------------------------------------------------
 
-  it('decideDiscard: returns pass when hand has only wilds', () => {
+  it('discards a wild as last resort when hand has only wilds (never pass)', () => {
     const hand = [
       makeCard('w1', 25, 'wild'),
       makeCard('w2', 25, 'wild'),
@@ -547,7 +550,84 @@ describe('Phase10BotStrategy', () => {
     };
 
     const action = strategy.chooseAction(state, 'bot-1');
-    expect(action.type).toBe('pass');
+    expect(action.type).toBe('discard');
+    expect(action.cardIds).toHaveLength(1);
+    expect(['w1', 'w2', 'w3']).toContain(action.cardIds![0]);
+  });
+
+  it('hits own meld with a wild before discarding one (phase laid)', () => {
+    // After lay-down, only wilds remain; the bot has a laid meld it can extend.
+    const hand = [makeCard('w1', 25, 'wild'), makeCard('w2', 25, 'wild')];
+    const state: GameState = {
+      ...makeState({ botHand: hand, phaseLaidDown: true, currentPhase: 1 }),
+      publicData: {
+        discardTop: makeCard('d1', 2),
+        drawPileSize: 20,
+        turnPhase: 'discard',
+        skippedPlayers: [],
+        laidDownPhases: {
+          'bot-1': [
+            { type: 'set', cardIds: ['s1', 's2', 's3'] },
+            { type: 'set', cardIds: ['s4', 's5', 's6'] },
+          ],
+        },
+      },
+    };
+
+    const action = strategy.chooseAction(state, 'bot-1');
+    // Prefers hit-meld with a wild over discarding a wild.
+    expect(['hit-meld', 'discard']).toContain(action.type);
+    expect(action.type).not.toBe('pass');
+  });
+
+  it('discards the skip card when there is no valid play-skip target', () => {
+    // All opponents are out → no play-skip target. Discarding the skip is
+    // still the right move (skip on top of pile passes the rule to the
+    // next non-skipped player).
+    const skipCard = makeCard('skip:solo', 15, 'skip');
+    const hand = [
+      skipCard,
+      makeCard('c2', 5),
+      makeCard('c3', 7),
+    ];
+    const state: GameState = {
+      ...makeState({ botHand: hand, currentPhase: 1 }),
+      players: [
+        {
+          playerId: 'bot-1',
+          displayName: 'Bot',
+          hand,
+          score: 0,
+          isOut: false,
+          isBot: true,
+          currentPhase: 1,
+          phaseLaidDown: false,
+        },
+        {
+          playerId: 'player-2',
+          displayName: 'Player 2',
+          hand: [],
+          score: 0,
+          isOut: true,
+          isBot: false,
+          currentPhase: 1,
+          phaseLaidDown: false,
+        },
+      ],
+      publicData: {
+        discardTop: makeCard('d1', 2),
+        drawPileSize: 20,
+        turnPhase: 'discard',
+        skippedPlayers: [],
+        laidDownPhases: {},
+      },
+    };
+
+    const action = strategy.chooseAction(state, 'bot-1');
+    expect(action.type).toBe('discard');
+    // Skip (15 pts) outranks any remaining non-phase number card, so the
+    // bot should dump it rather than keep it as dead weight.
+    expect(action.cardIds).toEqual([skipCard.id]);
   });
 
   // -------------------------------------------------------------------

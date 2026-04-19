@@ -10,6 +10,7 @@ import { socketAuthMiddleware } from '../middleware/socketAuth';
 import { joinRoomHandler } from '../handlers/joinRoom';
 import { rejoinRoomHandler } from '../handlers/rejoinRoom';
 import { gameActionHandler } from '../handlers/gameAction';
+import { requestResyncHandler } from '../handlers/requestResync';
 import { tableChatHandler } from '../handlers/tableChat';
 import { startGameHandler } from '../handlers/startGame';
 import { setPresence, startPresenceHeartbeat, clearPresence } from '../handlers/presence';
@@ -21,6 +22,7 @@ import type {
   GameActionPayload,
   ChatMessagePayload,
   SpectatorJoinPayload,
+  RequestResyncPayload,
 } from '@card-platform/shared-types';
 import type { GameRegistry } from '../games/registry';
 import type { BotController } from '../bots/BotController';
@@ -62,6 +64,12 @@ export function setupGameNamespace(
     socket.on('rejoin_room', (payload: RejoinRoomPayload) => {
       rejoinRoomHandler(socket, payload, botController).catch((err: Error) => {
         logger.error('rejoin_room error', { err: err.message, playerId });
+      });
+    });
+
+    socket.on('request_resync', (payload: RequestResyncPayload) => {
+      requestResyncHandler(socket, payload).catch((err: Error) => {
+        logger.error('request_resync error', { err: err.message, playerId });
       });
     });
 

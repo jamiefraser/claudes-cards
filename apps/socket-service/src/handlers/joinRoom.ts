@@ -12,6 +12,7 @@ import type { Socket } from 'socket.io';
 import { redis } from '../redis/client';
 import { logger } from '../utils/logger';
 import type { JoinRoomPayload, GameStateSyncPayload } from '@card-platform/shared-types';
+import { redactStateForRecipient } from '../utils/gameStateRedaction';
 
 export async function joinRoomHandler(socket: Socket, payload: JoinRoomPayload): Promise<void> {
   const { roomId, password: _password } = payload;
@@ -43,8 +44,10 @@ export async function joinRoomHandler(socket: Socket, payload: JoinRoomPayload):
 
     // Fetch current game state
     const stateJson = await redis.get(`game:state:${roomId}`);
+    const rawState = stateJson ? JSON.parse(stateJson) : null;
+    // Redact other players' hands before this client ever sees them.
     const syncPayload: GameStateSyncPayload = {
-      state: stateJson ? JSON.parse(stateJson) : null,
+      state: rawState ? redactStateForRecipient(rawState, playerId) : null,
     };
 
     // Send full state to the joining player

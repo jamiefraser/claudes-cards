@@ -23,6 +23,7 @@ import type { GameRegistry } from '../games/registry';
 import type { BotController } from './BotController';
 import { GenericBotStrategy } from './strategies/generic.strategy';
 import { scheduleBotsAfterAction } from './schedulingHelpers';
+import { emitFilteredDelta } from '../utils/gameStateRedaction';
 import type { Server } from 'socket.io';
 
 /**
@@ -137,7 +138,13 @@ export class BotPlayer {
 
       const strategy = this.registry.getStrategy(state.gameId) ?? new GenericBotStrategy(state.gameId);
 
-      // 6. Choose action (triple fallback chain)
+      // 6. Choose action (triple fallback chain).
+      //    We log slow strategy calls so any future hot-path regression shows
+      //    up in telemetry before it can blow the per-turn 20s budget
+      //    (SPEC.md §9.3). The lock TTL (5s) is the hard ceiling for sync
+      //    strategies — anything approaching it is a bug.
+      const STRATEGY_SLOW_MS = 250;
+      const t0 = Date.now();
       let action: PlayerAction;
       try {
         action = strategy.chooseAction(state, botPlayerId);
@@ -153,6 +160,15 @@ export class BotPlayer {
           });
           action = this.rightmostDiscard(state, botPlayerId);
         }
+      }
+      const strategyMs = Date.now() - t0;
+      if (strategyMs > STRATEGY_SLOW_MS) {
+        logger.warn('BotPlayer: slow strategy', {
+          roomId,
+          botPlayerId,
+          gameId: state.gameId,
+          strategyMs,
+        });
       }
 
       // 7. Apply action via engine.
@@ -229,9 +245,12 @@ export class BotPlayer {
       await redis.del(`bot:queue:${roomId}:${botPlayerId}`);
       await redis.del(`bot:schedule:${roomId}:${botPlayerId}`);
 
-      // 11. Emit game_state_delta to room
+      // 11. Emit game_state_delta to room (per-recipient, SPEC.md §22).
+      //     prevVersion ties this delta to the state it was computed from,
+      //     letting clients detect a dropped earlier delta and resync.
       const delta = {
         version: nextState.version,
+        prevVersion: state.version,
         roomId,
         playerUpdates: buildPlayerUpdates(state, nextState),
         currentTurn: nextState.currentTurn,
@@ -243,7 +262,7 @@ export class BotPlayer {
 
       const io = tryGetIO();
       if (io) {
-        io.of('/game').to(roomId).emit('game_state_delta', { delta });
+        await emitFilteredDelta(io.of('/game'), roomId, delta);
       } else {
         logger.warn('BotPlayer: IO unavailable (likely test context)');
       }

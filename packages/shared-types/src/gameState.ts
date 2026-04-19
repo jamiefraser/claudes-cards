@@ -77,6 +77,15 @@ export interface GameState {
  */
 export interface GameStateDelta {
   version: number;
+  /**
+   * The version this delta was computed FROM. Clients must validate
+   * `prevVersion === currentlyAppliedVersion` before applying; on
+   * mismatch (a dropped earlier delta) they emit `request_resync` and
+   * apply the server's full state snapshot instead. See SPEC.md §22.
+   * Optional for back-compat with older recorded payloads; new server
+   * code always populates it.
+   */
+  prevVersion?: number;
   roomId: string;
   /** Partial player state updates keyed by playerId. */
   playerUpdates?: Partial<Record<string, Partial<PlayerState>>>;

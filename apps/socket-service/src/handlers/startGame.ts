@@ -25,6 +25,7 @@ import { logger } from '../utils/logger';
 import type { GameRegistry } from '../games/registry';
 import type { BotController } from '../bots/BotController';
 import type { GameState, GameConfig } from '@card-platform/shared-types';
+import { emitFilteredSync } from '../utils/gameStateRedaction';
 
 interface StartGamePayload {
   roomId: string;
@@ -197,7 +198,8 @@ export async function startGameHandler(
       await botController.scheduleAction(roomId, state.currentTurn, state.version);
     }
 
-    socket.nsp.to(roomId).emit('game_state_sync', { state });
+    // Per-recipient redacted sync — each client gets only its own hand.
+    await emitFilteredSync(socket.nsp, roomId, state);
     logger.info('Game started', {
       roomId,
       gameId: resolvedGameId,

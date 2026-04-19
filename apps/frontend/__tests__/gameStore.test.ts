@@ -114,6 +114,36 @@ describe('gameStore', () => {
     expect(useGameStore.getState().gameState).toBeNull();
   });
 
+  it('applyDelta skips when prevVersion does not match current version (gap detected)', () => {
+    const { applySync, applyDelta } = useGameStore.getState();
+    applySync(mockState); // version = 1
+    // A delta claiming to build off version 3 when we're at 1 → gap.
+    applyDelta({
+      version: 4,
+      prevVersion: 3,
+      roomId: 'room-1',
+      currentTurn: 'player-2',
+      updatedAt: new Date().toISOString(),
+    });
+    // Local state untouched — waiting for a resync snapshot.
+    expect(useGameStore.getState().gameState?.version).toBe(1);
+    expect(useGameStore.getState().gameState?.currentTurn).toBe('player-1');
+  });
+
+  it('applyDelta applies when prevVersion matches current version', () => {
+    const { applySync, applyDelta } = useGameStore.getState();
+    applySync(mockState); // version = 1
+    applyDelta({
+      version: 2,
+      prevVersion: 1,
+      roomId: 'room-1',
+      currentTurn: 'player-2',
+      updatedAt: new Date().toISOString(),
+    });
+    expect(useGameStore.getState().gameState?.version).toBe(2);
+    expect(useGameStore.getState().gameState?.currentTurn).toBe('player-2');
+  });
+
   it('selectCard / deselectCard / clearSelection manage selectedCardIds', () => {
     const { selectCard, deselectCard, clearSelection } = useGameStore.getState();
     selectCard('card-1');

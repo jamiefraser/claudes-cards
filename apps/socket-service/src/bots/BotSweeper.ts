@@ -38,9 +38,15 @@ export interface BotSweeperOptions {
 }
 
 const DEFAULTS = {
-  intervalMs: 5_000,
-  staleMs: 7_500, // max think time (2.5s) + 5s grace
-  refireIntervalMs: 10_000,
+  // Bots must always play within 20s of scheduling (SPEC.md §9.3).
+  // Worst-case recovery from a dropped pub/sub message is roughly
+  // `thinkTimeMs + staleMs + intervalMs`. With the BullMQ job giving
+  // the normal path up to ~2.5s to fire, and the sweeper scanning every
+  // 2s and treating anything >3s past its fire time as stuck, the total
+  // ceiling for a lost message is ≈ 2.5 + 3 + 2 = 7.5s — well under 20s.
+  intervalMs: 2_000,
+  staleMs: 3_000,
+  refireIntervalMs: 5_000,
 };
 
 export class BotSweeper {

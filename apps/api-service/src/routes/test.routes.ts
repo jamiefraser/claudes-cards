@@ -62,6 +62,23 @@ function buildPhase10TestState(
     phaseLaidDown: false,
   }));
 
+  // Field names MUST match what Phase10Engine.handleDraw/handleDiscard
+  // read from `pd`. Earlier versions of this seed used `drawPileCount`
+  // and `topDiscard` (neither of which the engine recognises), leaving
+  // `turnPhase` undefined and making every bot action bounce off the
+  // phase guard. See SPEC.md §9.5 for the canonical Phase10PublicData
+  // shape.
+  const discardTop = makeCard('discard-top', 'red', 10);
+  // Populate the draw pile with deterministic filler so bots can actually
+  // draw without forcing a reshuffle. 30 cards is plenty for a
+  // multi-turn smoke test.
+  const drawPile = Array.from({ length: 30 }, (_, i) =>
+    makeCard(
+      `dp-card-${i}`,
+      (['red', 'blue', 'green', 'yellow'] as const)[i % 4]!,
+      ((i * 7) % 12) + 1,
+    ),
+  );
   return {
     version: 1,
     roomId,
@@ -72,8 +89,13 @@ function buildPhase10TestState(
     turnNumber: 1,
     roundNumber: 1,
     publicData: {
-      drawPileCount: 35,
-      topDiscard: makeCard('discard-top', 'red', 10),
+      drawPile,
+      discardPile: [discardTop],
+      drawPileSize: drawPile.length,
+      discardTop,
+      turnPhase: 'draw',
+      skippedPlayers: [],
+      laidDownPhases: {},
     },
     updatedAt: new Date().toISOString(),
   };
@@ -248,6 +270,30 @@ function buildCribbagePeggingState(roomId: string, players: Array<{ id: string; 
 }
 
 export const testRouter = Router();
+
+/**
+ * Read the raw game state JSON from Redis. Used by E2E tests to assert
+ * that the scheduler is advancing the state without needing a browser
+ * client to be connected. Returns `null` if no state exists yet.
+ */
+testRouter.get('/game-state/:roomId', async (req: Request, res: Response): Promise<void> => {
+  const { roomId } = req.params;
+  if (!roomId) {
+    res.status(400).json({ error: 'roomId is required' });
+    return;
+  }
+  try {
+    const raw = await redis.get(`game:state:${roomId}`);
+    if (!raw) {
+      res.json(null);
+      return;
+    }
+    res.json(JSON.parse(raw));
+  } catch (err) {
+    logger.error('TEST: game-state read failed', { err });
+    res.status(500).json({ error: 'game-state read failed' });
+  }
+});
 
 /**
  * Force-activate a bot for a given seat, bypassing the 90-second timer.

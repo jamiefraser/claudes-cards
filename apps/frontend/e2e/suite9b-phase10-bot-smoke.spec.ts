@@ -85,18 +85,23 @@ test.describe('Suite 9b — Phase 10 bot scheduler stays live', () => {
     let maxGapMs = 0;
     let lastChangeAt = start;
 
+    let finalPhase: string | undefined;
     while (Date.now() < deadline) {
       const gs = await readServerState();
       const v = gs?.version ?? null;
+      finalPhase = gs?.phase;
       samples.push({ t: Date.now() - start, version: v });
       if (v !== null && v > lastVersion) {
         const gap = Date.now() - lastChangeAt;
         maxGapMs = Math.max(maxGapMs, gap);
         lastVersion = v;
         lastChangeAt = Date.now();
-        // If we got to end-of-round fast enough, stop early.
-        if (gs?.phase === 'ended' || gs?.phase === 'scoring') break;
       }
+      // Stop early at end-of-round — the hit-meld depletion fix means
+      // a seeded game with two phase-1 sets in hand finishes a round in
+      // ~8 versions (draw → lay-down → hit×N → discard → go-out), which
+      // is well short of the 60s deadline.
+      if (gs?.phase === 'ended' || gs?.phase === 'scoring') break;
       await page.waitForTimeout(500);
     }
 
@@ -106,17 +111,22 @@ test.describe('Suite 9b — Phase 10 bot scheduler stays live', () => {
       samples: samples.length,
       peakVersion: lastVersion,
       maxGapMs,
+      finalPhase,
       durationMs: Date.now() - start,
     });
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/02-after-60s.png` });
 
-    // Assertions:
-    //  1. The scheduler advanced the game — at least 12 actions in 60s
-    //     (bots play roughly every 2-3s; 12 covers several full turns
-    //     including at least one lay-down-then-discard sequence).
-    //  2. No single turn took more than the SPEC.md §9.3 ceiling.
-    expect(lastVersion, 'scheduler produced some progress').toBeGreaterThanOrEqual(12);
+    // Success criteria:
+    //  1. The scheduler advanced the game. Either (a) version reached
+    //     the round-end threshold (~8 versions with the seeded hand) OR
+    //     (b) the round explicitly ended (phase == scoring/ended).
+    //  2. No single turn took more than SPEC.md §9.3's 20s ceiling.
+    const ended = finalPhase === 'scoring' || finalPhase === 'ended';
+    expect(
+      lastVersion >= 8 || ended,
+      'scheduler reached ~round-end without stalling',
+    ).toBeTruthy();
     expect(maxGapMs, 'no single bot turn exceeded the 20s ceiling').toBeLessThan(20_000);
   });
 });

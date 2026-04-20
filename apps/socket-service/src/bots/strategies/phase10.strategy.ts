@@ -177,10 +177,16 @@ export class Phase10BotStrategy implements IBotStrategy {
     }
 
     // 3. If phase already laid → try to hit a meld.
+    //    Gate on hand.length >= 2 — you can't go out on a hit in Phase 10,
+    //    you must always keep at least one card to discard. Skipping this
+    //    gate would let the bot empty its hand via hit-melds and then fall
+    //    to decideDiscard(hand=[]) → 'pass' → stranded schedule keys →
+    //    sweeper spins forever. (This is the post-lay-down stuck path the
+    //    user reported.)
     //    First pass: highest-value non-wild card (wilds are valuable, save them).
-    //    Second pass: allow wilds to dump them so the bot can go out sooner,
-    //    and so it never gets stuck with a hand of only wilds after lay-down.
-    if (player.phaseLaidDown && pd.laidDownPhases) {
+    //    Second pass: allow wilds to dump them so the bot can shed weight
+    //    instead of getting stuck with a hand of only wilds after lay-down.
+    if (player.phaseLaidDown && pd.laidDownPhases && hand.length >= 2) {
       const hitNonWild = this.findBestHitMeld(hand, pd.laidDownPhases, { allowWilds: false });
       if (hitNonWild) return hitNonWild;
       const hitWild = this.findBestHitMeld(hand, pd.laidDownPhases, { allowWilds: true });

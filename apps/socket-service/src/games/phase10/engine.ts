@@ -376,22 +376,22 @@ export class Phase10Engine implements IGameEngine {
     );
 
     // Standard Phase 10 rule: a skip card placed on the discard pile (not
-    // played via play-skip) causes the next-in-rotation player to lose
-    // their turn. Mark them as skipped BEFORE computing next turn so
-    // getNextPlayer's existing skip-resolution path picks them up.
-    let skippedForDiscard = pd.skippedPlayers;
+    // played via play-skip) makes the physically-next non-out player
+    // lose their next turn. We model skippedPlayers as a multiset of
+    // tokens — one token per miss — so if that seat is ALREADY skipped
+    // (e.g. a prior play-skip just landed on them) we simply add a
+    // second token and they miss two consecutive turns. getNextPlayer
+    // consumes one token per rotation.
+    const skippedForDiscard = [...pd.skippedPlayers];
     if (discardedCard.phase10Type === 'skip') {
       const currentIdx = state.players.findIndex((p) => p.playerId === playerId);
       if (currentIdx !== -1) {
-        // Walk forward until we land on a player who isn't out — that's the
-        // player whose turn the skip consumes.
         for (let offset = 1; offset <= state.players.length; offset++) {
           const idx = (currentIdx + offset) % state.players.length;
           const candidate = newPlayers[idx]!;
-          if (!candidate.isOut && candidate.playerId !== playerId) {
-            skippedForDiscard = [...skippedForDiscard, candidate.playerId];
-            break;
-          }
+          if (candidate.isOut || candidate.playerId === playerId) continue;
+          skippedForDiscard.push(candidate.playerId);
+          break;
         }
       }
     }
@@ -689,12 +689,29 @@ function getNextPlayer(
 
   const newSkippedPlayers = [...skippedPlayers];
 
-  // Skip players who are in skippedPlayers list
-  if (newSkippedPlayers.includes(players[nextIdx]!.playerId)) {
-    // Remove from skipped list (they were skipped)
-    const skipIdx = newSkippedPlayers.indexOf(players[nextIdx]!.playerId);
-    newSkippedPlayers.splice(skipIdx, 1);
-    nextIdx = (nextIdx + 1) % players.length;
+  // Loop past any chain of skipped-or-out players. Previously this
+  // stepped just once, which broke when two skips stacked (e.g. a
+  // play-skip targeting B followed by a discarded skip that also
+  // consumes B's turn, or skip chains in 4+ player games). Each iteration
+  // consumes at most one skip-token from the list so each token applies
+  // to exactly one rotation slot.
+  // Safety guard: bail after `players.length * 2` steps. In practice the
+  // loop terminates in at most `players.length` steps, but the guard
+  // prevents any tokenisation bug from turning into an infinite loop.
+  let guard = players.length * 2;
+  while (guard-- > 0) {
+    const candidate = players[nextIdx]!;
+    const skipIdx = newSkippedPlayers.indexOf(candidate.playerId);
+    if (skipIdx !== -1) {
+      newSkippedPlayers.splice(skipIdx, 1);
+      nextIdx = (nextIdx + 1) % players.length;
+      continue;
+    }
+    if (candidate.isOut) {
+      nextIdx = (nextIdx + 1) % players.length;
+      continue;
+    }
+    break;
   }
 
   return {

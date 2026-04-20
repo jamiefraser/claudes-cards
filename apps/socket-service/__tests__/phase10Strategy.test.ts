@@ -555,6 +555,59 @@ describe('Phase10BotStrategy', () => {
     expect(['w1', 'w2', 'w3']).toContain(action.cardIds![0]);
   });
 
+  it('does NOT hit with its last card (Phase 10 rule: must keep one to discard)', () => {
+    // Regression: the bot used to hit-meld its way down to an empty hand,
+    // then decideDiscard(hand=[]) returned 'pass', stranding the schedule
+    // keys. The rule is "always keep at least one card to discard."
+    const hand = [makeCard('solo', 5, 'number', 'red')];
+    const state: GameState = {
+      ...makeState({ botHand: hand, phaseLaidDown: true, currentPhase: 1 }),
+      publicData: {
+        discardTop: makeCard('d1', 2),
+        drawPileSize: 20,
+        turnPhase: 'discard',
+        skippedPlayers: [],
+        laidDownPhases: {
+          'bot-1': [
+            { type: 'set', cardIds: ['s1', 's2', 's3'] },
+          ],
+        },
+      },
+    };
+
+    const action = strategy.chooseAction(state, 'bot-1');
+    expect(action.type).toBe('discard');
+    expect(action.cardIds).toEqual(['solo']);
+  });
+
+  it('post-lay-down: continues to discard instead of hit-melding into an empty hand', () => {
+    // After laying down phase 1 (6 cards) the bot has a small remaining
+    // hand. Even if every remaining card COULD hit the meld, the strategy
+    // must stop hit-melding when hand is down to 1 so it can discard it
+    // and go out.
+    const hand = [makeCard('last', 7, 'number', 'red')];
+    const state: GameState = {
+      ...makeState({ botHand: hand, phaseLaidDown: true, currentPhase: 1 }),
+      publicData: {
+        discardTop: makeCard('d1', 2),
+        drawPileSize: 20,
+        turnPhase: 'discard',
+        skippedPlayers: [],
+        laidDownPhases: {
+          'bot-1': [
+            { type: 'set', cardIds: ['s1', 's2', 's3'] },
+            { type: 'set', cardIds: ['s4', 's5', 's6'] },
+          ],
+        },
+      },
+    };
+
+    const action = strategy.chooseAction(state, 'bot-1');
+    // With one card left the only progress-making action is discard.
+    expect(action.type).toBe('discard');
+    expect(action.type).not.toBe('pass');
+  });
+
   it('hits own meld with a wild before discarding one (phase laid)', () => {
     // After lay-down, only wilds remain; the bot has a laid meld it can extend.
     const hand = [makeCard('w1', 25, 'wild'), makeCard('w2', 25, 'wild')];

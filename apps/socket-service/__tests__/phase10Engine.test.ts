@@ -653,6 +653,49 @@ describe('Phase10Engine', () => {
     expect(top.phase10Type).toBe('skip');
   });
 
+  it('skip-discard stacks a second skip token on an already-skipped seat', () => {
+    // Scenario: p1 already has a play-skip targeting p2 in skippedPlayers.
+    // p1 now also discards a skip card. skippedPlayers becomes a multiset
+    // of TWO tokens for p2. getNextPlayer consumes one token this turn
+    // (advance past p2, land on p3) and leaves the second token in the
+    // list — so p2 also misses their NEXT turn. That is, in effect, p2
+    // loses two consecutive turns.
+    const state = engine.startGame(makeConfig(4));
+    const playerId = state.currentTurn!; // player-1
+
+    const skipCard = {
+      id: 'phase10:skip:chain',
+      deckType: 'phase10' as const,
+      phase10Type: 'skip' as const,
+      value: 15,
+      faceUp: false,
+    };
+
+    // Pre-populate skippedPlayers[player-2] to simulate a prior play-skip.
+    const pd = state.publicData as Record<string, unknown>;
+    const withSkip: GameState = {
+      ...state,
+      players: state.players.map((p) =>
+        p.playerId === playerId
+          ? { ...p, hand: [skipCard, ...p.hand.slice(0, 9)] }
+          : p,
+      ),
+      publicData: {
+        ...pd,
+        skippedPlayers: ['player-2'],
+      },
+    };
+
+    let s = engine.applyAction(withSkip, playerId, { type: 'draw', payload: { source: 'deck' } });
+    s = engine.applyAction(s, playerId, { type: 'discard', cardIds: [skipCard.id] });
+
+    // One of p2's two tokens gets consumed this rotation — turn lands on p3.
+    expect(s.currentTurn).toBe('player-3');
+    const updated = s.publicData as { skippedPlayers?: string[] };
+    // The remaining token keeps p2 skipped for one more rotation.
+    expect(updated.skippedPlayers).toEqual(['player-2']);
+  });
+
   it('discarding a skip card in a 3p game skips the immediate next player', () => {
     const state = engine.startGame(makeConfig(3));
     const playerId = state.currentTurn!;

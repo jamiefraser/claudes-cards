@@ -34,27 +34,40 @@ function buildPhase10TestState(
     faceUp: true,
   });
 
-  // Player 1 hand: 3 red-5s (valid Phase 1 set) + 7 varied cards
+  // Player 1 hand: two complete sets of 3 (3x red-5, 3x blue-8) so Phase 1
+  // can be laid down in the very first turn. Remaining 4 cards are
+  // mismatched filler so no accidental hit-meld opportunities sit in the
+  // hand pre-lay-down. This makes the lay-down → hit-meld → discard →
+  // go-out chain deterministically reachable from a seeded game and is
+  // the regression fixture for the stuck-bot-after-lay-down bug.
   const player1Hand = [
     makeCard('p1-card-0', 'red', 5),
     makeCard('p1-card-1', 'red', 5),
     makeCard('p1-card-2', 'red', 5),
-    makeCard('p1-card-3', 'blue', 3),
-    makeCard('p1-card-4', 'blue', 7),
-    makeCard('p1-card-5', 'green', 2),
-    makeCard('p1-card-6', 'green', 9),
+    makeCard('p1-card-3', 'blue', 8),
+    makeCard('p1-card-4', 'blue', 8),
+    makeCard('p1-card-5', 'blue', 8),
+    makeCard('p1-card-6', 'green', 2),
     makeCard('p1-card-7', 'yellow', 4),
     makeCard('p1-card-8', 'yellow', 11),
     makeCard('p1-card-9', 'blue', 12),
   ];
-  const player2Hand = Array.from({ length: 10 }, (_, i) =>
-    makeCard(`p2-card-${i}`, ['red', 'blue', 'green', 'yellow'][i % 4], (i % 12) + 1),
-  );
+  // Deal every OTHER seat a deterministic 10-card hand. Each seat gets
+  // cards keyed by its index so 3p/4p seeds produce distinct hands
+  // without colliding on card ids.
+  const buildGenericHand = (seatIdx: number) =>
+    Array.from({ length: 10 }, (_, i) =>
+      makeCard(
+        `p${seatIdx + 1}-card-${i}`,
+        (['red', 'blue', 'green', 'yellow'] as const)[(i + seatIdx) % 4]!,
+        ((i + seatIdx * 3) % 12) + 1,
+      ),
+    );
 
   const playerStates = players.map((p, i) => ({
     playerId: p.id,
     displayName: p.username,
-    hand: i === 0 ? player1Hand : i === 1 ? player2Hand : [],
+    hand: i === 0 ? player1Hand : buildGenericHand(i),
     score: 0,
     isOut: false,
     isBot: false,
@@ -407,6 +420,17 @@ testRouter.post('/seed-game', async (req: Request, res: Response): Promise<void>
     const gameId = body.gameId ?? 'phase10';
     const usernames = body.players ?? ['test-player-1', 'test-player-2'];
     const hostUsername = body.hostUsername ?? usernames[0];
+
+    // Upsert players so tests can reference usernames that haven't been
+    // touched by /dev/token yet (otherwise 3p/4p seeds silently create
+    // short rosters when only the first two usernames happen to exist).
+    for (const username of usernames) {
+      await prisma.player.upsert({
+        where: { username },
+        update: {},
+        create: { username, displayName: username, role: 'player' },
+      });
+    }
 
     const playerRecords = await prisma.player.findMany({
       where: { username: { in: usernames } },

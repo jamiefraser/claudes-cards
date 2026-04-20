@@ -735,11 +735,70 @@ export function GameTable({ roomId }: GameTableProps) {
             );
           })()}
 
+          {/*
+            Mobile opponent strip.
+            Radial seating doesn't work below the lg breakpoint — the seats
+            get pinned to `felt-center ± 536px`, which overflows any viewport
+            narrower than ~1080px. Below lg we render the same roster as a
+            horizontally-scrolling strip so every opponent is still reachable
+            on a phone without cropping the felt.
+          */}
+          <div
+            className="lg:hidden absolute left-0 right-0 z-10 overflow-x-auto overflow-y-hidden"
+            style={{
+              top: 'calc(var(--mobile-chrome-h, 88px))',
+              WebkitOverflowScrolling: 'touch',
+              scrollbarWidth: 'none',
+            }}
+            aria-label="Other players"
+          >
+            <div className="flex flex-row gap-2 px-3 pb-2 snap-x snap-mandatory">
+              {radialItems
+                .filter((i) => i.kind === 'opponent')
+                .map((item) => {
+                  const p = item.player;
+                  const isBot = activeBots.some(b => b.playerId === p.playerId) || p.isBot;
+                  const isCurrentTurn = gameState.currentTurn === p.playerId;
+                  return (
+                    <div
+                      key={p.playerId}
+                      className="flex-none snap-start"
+                      style={{ minWidth: 140 }}
+                    >
+                      {isBot ? (
+                        <BotSeat
+                          playerState={p}
+                          originalDisplayName={p.displayName}
+                          isCurrentTurn={isCurrentTurn}
+                          deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
+                          isDealer={dealerId === p.playerId}
+                          compact
+                        />
+                      ) : (
+                        <PlayerSeat
+                          playerState={p}
+                          isCurrentTurn={isCurrentTurn}
+                          isSelf={false}
+                          deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
+                          isDealer={dealerId === p.playerId}
+                          compact
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+
           {/* Main stage — felt + radial opponent seats */}
-          <div className="absolute inset-0 flex items-center justify-center pt-24 pb-80 px-6 pointer-events-none">
+          <div className="absolute inset-0 flex items-center justify-center pt-40 pb-72 sm:pt-24 sm:pb-80 px-3 sm:px-6 pointer-events-none">
             <div
-              className="relative pointer-events-auto"
-              style={{ width: FELT_W, height: FELT_H }}
+              className="relative pointer-events-auto w-full max-w-[880px]"
+              style={{
+                // Fluid at mobile/tablet, pinned to 880×520 at lg+.
+                // aspect-ratio keeps the felt shape identical across sizes.
+                aspectRatio: `${FELT_W} / ${FELT_H}`,
+              }}
             >
               <TableFelt width={FELT_W} height={FELT_H}>
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 py-6 overflow-hidden">
@@ -850,9 +909,12 @@ export function GameTable({ roomId }: GameTableProps) {
                 </div>
               </TableFelt>
 
-              {/* Radial opponent seats pinned to the felt's geometric centre */}
+              {/* Radial opponent seats pinned to the felt's geometric centre.
+                  Desktop only — below lg the opponents render as the mobile
+                  strip above the felt instead, because the radial positions
+                  overflow viewports narrower than ~1080px. */}
               <div
-                className="absolute pointer-events-auto"
+                className="hidden lg:block absolute pointer-events-auto"
                 style={{ left: FELT_W / 2, top: FELT_H / 2, width: 0, height: 0 }}
               >
                 <RadialSeats
@@ -939,9 +1001,11 @@ export function GameTable({ roomId }: GameTableProps) {
             </div>
           )}
 
-          {/* Bottom dock — floating action bar + player hand + self identity */}
+          {/* Bottom dock — floating action bar + player hand + self identity.
+              Gap/padding tighten on mobile so the dock doesn't collide with
+              the felt above it; desktop keeps the original rhythm. */}
           {myPlayer && (
-            <div className="absolute bottom-0 left-0 right-0 pb-6 pt-2 z-10 flex flex-col items-center gap-3">
+            <div className="absolute bottom-0 left-0 right-0 pb-3 sm:pb-6 pt-2 z-10 flex flex-col items-center gap-2 sm:gap-3 px-2 sm:px-0">
               {actionBarProps && <ActionBar {...actionBarProps} />}
 
               {gameState.gameId === 'phase10' && (

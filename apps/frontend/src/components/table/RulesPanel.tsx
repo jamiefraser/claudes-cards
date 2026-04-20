@@ -48,9 +48,16 @@ export function RulesPanel({
         onClick={onToggle}
         aria-label={en.table.rulesOpen}
         className={[
-          'group absolute left-0 top-1/2 -translate-y-1/2 z-20',
+          'group absolute left-0 z-20',
+          // On desktop: the vertical pill floats at the middle of the left
+          // edge of the felt. On mobile: there isn't room for a tab at the
+          // middle without covering the felt / action bar, so we drop it
+          // into the lower-left corner where it still reads as "pull to
+          // open rules" but stays out of the way.
+          'top-auto bottom-2 translate-y-0',
+          'lg:top-1/2 lg:bottom-auto lg:-translate-y-1/2',
           'flex items-center justify-center',
-          'w-10 h-32 pl-1 rounded-r-2xl',
+          'w-10 h-20 lg:h-32 pl-1 rounded-r-2xl',
           'bg-night-raised/90 backdrop-blur',
           'border border-l-0 border-brass/30',
           'shadow-[6px_0_24px_-12px_rgba(0,0,0,0.7)]',

@@ -230,15 +230,22 @@ export function ActionBar({
   const handleAckShow = () => emitAction('ack-show');
 
   const barBase = [
-    'inline-flex flex-row flex-wrap gap-2 items-center',
-    'px-3 sm:px-4 py-2 min-h-[56px] rounded-full',
+    // On mobile the bar is the full width of the viewport (minus 12px each
+    // side) and buttons share the available space; on tablet+ it reverts to
+    // the original pill. Without this, five turn buttons wrap to three rows
+    // on a 360px phone and push the felt off-screen.
+    'inline-flex flex-row flex-wrap justify-center gap-1.5 sm:gap-2 items-center',
+    'px-2 sm:px-4 py-1.5 sm:py-2 min-h-[52px] sm:min-h-[56px] rounded-3xl sm:rounded-full',
+    'w-[calc(100vw-16px)] sm:w-auto max-w-full',
     'bg-night-raised/85 backdrop-blur',
     'border border-brass/25 shadow-float',
     'animate-[seat-in_260ms_ease-out_both]',
   ].join(' ');
 
   const btnBase = [
-    'px-5 py-2.5 min-h-[44px] rounded-full text-sm font-semibold tracking-wide',
+    // Compact on mobile (still 44px tap target), full-size on tablet+.
+    'px-3 sm:px-5 py-2 sm:py-2.5 min-h-[44px] rounded-full',
+    'text-xs sm:text-sm font-semibold tracking-wide whitespace-nowrap',
     'transition-all duration-150',
     'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-secondary',
   ].join(' ');

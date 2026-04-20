@@ -93,7 +93,7 @@ export function TableChat({ mutedPlayerIds = new Set(), roomId }: TableChatProps
 
   return (
     <aside
-      className="flex flex-col bg-slate-800 border-t lg:border-t-0 lg:border-l border-slate-700 w-full lg:w-72 lg:h-full max-h-60 lg:max-h-none"
+      className="flex flex-col bg-slate-800 border-t lg:border-t-0 lg:border-l border-slate-700 w-full lg:w-72 lg:h-full max-h-40 sm:max-h-60 lg:max-h-none"
       aria-label="Chat"
     >
       {/* Message list */}

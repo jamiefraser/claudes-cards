@@ -1203,6 +1203,345 @@ describe('Phase10Engine', () => {
 
     expect(() => engine.applyAction(s, playerId, hitAction)).not.toThrow();
   });
+
+  // ------------------------------------------------------------------
+  // Hit-meld RULE validation — sets / runs / colours
+  // ------------------------------------------------------------------
+
+  it('hit-meld REJECTS a 4 on a set of 5s (set requires matching rank)', () => {
+    const make = (id: string, value: number, color: 'red' | 'blue' | 'green' | 'yellow' = 'red') => ({
+      id,
+      deckType: 'phase10' as const,
+      phase10Type: 'number' as const,
+      phase10Color: color,
+      value,
+      faceUp: false,
+    });
+    const fives = [make('5a', 5, 'red'), make('5b', 5, 'blue'), make('5c', 5, 'green')];
+    const eights = [make('8a', 8, 'red'), make('8b', 8, 'blue'), make('8c', 8, 'green')];
+    const bad = make('4', 4, 'yellow');
+
+    const seeded: GameState = {
+      version: 1,
+      roomId: 'r', gameId: 'phase10', phase: 'playing',
+      players: [
+        {
+          playerId: 'p1', displayName: 'P1',
+          hand: [bad, make('11', 11, 'red')],
+          score: 0, isOut: false, isBot: false, currentPhase: 1, phaseLaidDown: true,
+        },
+        {
+          playerId: 'p2', displayName: 'P2',
+          hand: [make('1', 1, 'red')],
+          score: 0, isOut: false, isBot: false, currentPhase: 1, phaseLaidDown: false,
+        },
+      ],
+      currentTurn: 'p1', turnNumber: 1, roundNumber: 1,
+      publicData: {
+        drawPile: [], discardPile: [], discardTop: null, drawPileSize: 0,
+        turnPhase: 'discard', skippedPlayers: [],
+        laidDownPhases: {
+          p1: [
+            { type: 'set', cardIds: fives.map(c => c.id), cards: fives.map(c => ({ ...c, faceUp: true })) },
+            { type: 'set', cardIds: eights.map(c => c.id), cards: eights.map(c => ({ ...c, faceUp: true })) },
+          ],
+        },
+      },
+      updatedAt: new Date().toISOString(),
+    };
+
+    expect(() =>
+      engine.applyAction(seeded, 'p1', {
+        type: 'hit-meld',
+        payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['4'] },
+      }),
+    ).toThrow();
+  });
+
+  it('hit-meld ACCEPTS a 5 on a set of 5s', () => {
+    const make = (id: string, value: number, color: 'red' | 'blue' | 'green' | 'yellow' = 'red') => ({
+      id, deckType: 'phase10' as const, phase10Type: 'number' as const,
+      phase10Color: color, value, faceUp: false,
+    });
+    const fives = [make('5a', 5, 'red'), make('5b', 5, 'blue'), make('5c', 5, 'green')];
+    const hit = make('5d', 5, 'yellow');
+
+    const seeded: GameState = {
+      version: 1, roomId: 'r', gameId: 'phase10', phase: 'playing',
+      players: [
+        { playerId: 'p1', displayName: 'P1', hand: [hit, make('11', 11, 'red')], score: 0, isOut: false, isBot: false, currentPhase: 1, phaseLaidDown: true },
+        { playerId: 'p2', displayName: 'P2', hand: [make('1', 1, 'red')], score: 0, isOut: false, isBot: false, currentPhase: 1, phaseLaidDown: false },
+      ],
+      currentTurn: 'p1', turnNumber: 1, roundNumber: 1,
+      publicData: {
+        drawPile: [], discardPile: [], discardTop: null, drawPileSize: 0,
+        turnPhase: 'discard', skippedPlayers: [],
+        laidDownPhases: { p1: [{ type: 'set', cardIds: fives.map(c => c.id), cards: fives.map(c => ({ ...c, faceUp: true })) }] },
+      },
+      updatedAt: new Date().toISOString(),
+    };
+
+    expect(() =>
+      engine.applyAction(seeded, 'p1', { type: 'hit-meld', payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['5d'] } }),
+    ).not.toThrow();
+  });
+
+  it('hit-meld on a run of 8-9-10-11 accepts 7 and 12 but rejects 6 and 5', () => {
+    const make = (id: string, value: number) => ({
+      id, deckType: 'phase10' as const, phase10Type: 'number' as const,
+      phase10Color: 'red' as const, value, faceUp: false,
+    });
+    const run = [make('8', 8), make('9', 9), make('10', 10), make('11', 11)];
+
+    const build = (hitCards: ReturnType<typeof make>[]): GameState => ({
+      version: 1, roomId: 'r', gameId: 'phase10', phase: 'playing',
+      players: [
+        { playerId: 'p1', displayName: 'P1', hand: hitCards, score: 0, isOut: false, isBot: false, currentPhase: 2, phaseLaidDown: true },
+        { playerId: 'p2', displayName: 'P2', hand: [make('1', 1)], score: 0, isOut: false, isBot: false, currentPhase: 2, phaseLaidDown: false },
+      ],
+      currentTurn: 'p1', turnNumber: 1, roundNumber: 1,
+      publicData: {
+        drawPile: [], discardPile: [], discardTop: null, drawPileSize: 0,
+        turnPhase: 'discard', skippedPlayers: [],
+        laidDownPhases: { p1: [{ type: 'run', cardIds: run.map(c => c.id), cards: run.map(c => ({ ...c, faceUp: true })) }] },
+      },
+      updatedAt: new Date().toISOString(),
+    });
+
+    // 7 extends below — ACCEPT
+    expect(() =>
+      engine.applyAction(build([make('7h', 7)]), 'p1', { type: 'hit-meld', payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['7h'] } }),
+    ).not.toThrow();
+
+    // 12 extends above — ACCEPT
+    expect(() =>
+      engine.applyAction(build([make('12h', 12)]), 'p1', { type: 'hit-meld', payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['12h'] } }),
+    ).not.toThrow();
+
+    // 6 is not adjacent — REJECT
+    expect(() =>
+      engine.applyAction(build([make('6h', 6)]), 'p1', { type: 'hit-meld', payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['6h'] } }),
+    ).toThrow();
+
+    // 5 is definitely not adjacent — REJECT
+    expect(() =>
+      engine.applyAction(build([make('5h', 5)]), 'p1', { type: 'hit-meld', payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['5h'] } }),
+    ).toThrow();
+  });
+
+  it('hit-meld on a run: after a 7 is added, the next hit accepts 6 or 12 (range slides)', () => {
+    const make = (id: string, value: number) => ({
+      id, deckType: 'phase10' as const, phase10Type: 'number' as const,
+      phase10Color: 'red' as const, value, faceUp: false,
+    });
+    const run789WithExisting11 = [
+      make('7', 7), make('8', 8), make('9', 9), make('10', 10), make('11', 11),
+    ];
+
+    const build = (hitCards: ReturnType<typeof make>[]): GameState => ({
+      version: 1, roomId: 'r', gameId: 'phase10', phase: 'playing',
+      players: [
+        { playerId: 'p1', displayName: 'P1', hand: hitCards, score: 0, isOut: false, isBot: false, currentPhase: 2, phaseLaidDown: true },
+        { playerId: 'p2', displayName: 'P2', hand: [make('1', 1)], score: 0, isOut: false, isBot: false, currentPhase: 2, phaseLaidDown: false },
+      ],
+      currentTurn: 'p1', turnNumber: 1, roundNumber: 1,
+      publicData: {
+        drawPile: [], discardPile: [], discardTop: null, drawPileSize: 0,
+        turnPhase: 'discard', skippedPlayers: [],
+        laidDownPhases: { p1: [{ type: 'run', cardIds: run789WithExisting11.map(c => c.id), cards: run789WithExisting11.map(c => ({ ...c, faceUp: true })) }] },
+      },
+      updatedAt: new Date().toISOString(),
+    });
+
+    // 6 extends below the new range [7..11] — ACCEPT
+    expect(() =>
+      engine.applyAction(build([make('6h', 6)]), 'p1', { type: 'hit-meld', payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['6h'] } }),
+    ).not.toThrow();
+
+    // 12 extends above — ACCEPT
+    expect(() =>
+      engine.applyAction(build([make('12h', 12)]), 'p1', { type: 'hit-meld', payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['12h'] } }),
+    ).not.toThrow();
+
+    // 5 is two below — REJECT
+    expect(() =>
+      engine.applyAction(build([make('5h', 5)]), 'p1', { type: 'hit-meld', payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['5h'] } }),
+    ).toThrow();
+  });
+
+  it('hit-meld on a colour group requires matching colour', () => {
+    const make = (id: string, value: number, color: 'red' | 'blue' | 'green' | 'yellow') => ({
+      id, deckType: 'phase10' as const, phase10Type: 'number' as const,
+      phase10Color: color, value, faceUp: false,
+    });
+    const redColorMeld = [
+      make('r1', 1, 'red'), make('r2', 2, 'red'), make('r3', 3, 'red'),
+      make('r4', 4, 'red'), make('r5', 5, 'red'), make('r6', 6, 'red'), make('r7', 7, 'red'),
+    ];
+
+    const build = (hitCards: ReturnType<typeof make>[]): GameState => ({
+      version: 1, roomId: 'r', gameId: 'phase10', phase: 'playing',
+      players: [
+        { playerId: 'p1', displayName: 'P1', hand: hitCards, score: 0, isOut: false, isBot: false, currentPhase: 8, phaseLaidDown: true },
+        { playerId: 'p2', displayName: 'P2', hand: [make('x', 1, 'blue')], score: 0, isOut: false, isBot: false, currentPhase: 8, phaseLaidDown: false },
+      ],
+      currentTurn: 'p1', turnNumber: 1, roundNumber: 1,
+      publicData: {
+        drawPile: [], discardPile: [], discardTop: null, drawPileSize: 0,
+        turnPhase: 'discard', skippedPlayers: [],
+        laidDownPhases: { p1: [{ type: 'color', cardIds: redColorMeld.map(c => c.id), cards: redColorMeld.map(c => ({ ...c, faceUp: true })) }] },
+      },
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Red card — ACCEPT
+    expect(() =>
+      engine.applyAction(build([make('r8', 8, 'red')]), 'p1', { type: 'hit-meld', payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['r8'] } }),
+    ).not.toThrow();
+
+    // Blue card — REJECT
+    expect(() =>
+      engine.applyAction(build([make('b1', 1, 'blue')]), 'p1', { type: 'hit-meld', payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['b1'] } }),
+    ).toThrow();
+  });
+
+  it('hit-meld: wild card is accepted on any group type', () => {
+    const make = (id: string, value: number) => ({
+      id, deckType: 'phase10' as const, phase10Type: 'number' as const,
+      phase10Color: 'red' as const, value, faceUp: false,
+    });
+    const wild = {
+      id: 'W',
+      deckType: 'phase10' as const,
+      phase10Type: 'wild' as const,
+      value: 25,
+      faceUp: false,
+    };
+    const run = [make('8', 8), make('9', 9), make('10', 10), make('11', 11)];
+
+    const state: GameState = {
+      version: 1, roomId: 'r', gameId: 'phase10', phase: 'playing',
+      players: [
+        { playerId: 'p1', displayName: 'P1', hand: [wild, make('x', 1)], score: 0, isOut: false, isBot: false, currentPhase: 2, phaseLaidDown: true },
+        { playerId: 'p2', displayName: 'P2', hand: [make('y', 1)], score: 0, isOut: false, isBot: false, currentPhase: 2, phaseLaidDown: false },
+      ],
+      currentTurn: 'p1', turnNumber: 1, roundNumber: 1,
+      publicData: {
+        drawPile: [], discardPile: [], discardTop: null, drawPileSize: 0,
+        turnPhase: 'discard', skippedPlayers: [],
+        laidDownPhases: { p1: [{ type: 'run', cardIds: run.map(c => c.id), cards: run.map(c => ({ ...c, faceUp: true })) }] },
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    expect(() =>
+      engine.applyAction(state, 'p1', { type: 'hit-meld', payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['W'] } }),
+    ).not.toThrow();
+  });
+
+  it('hit-meld: rejects a duplicate value in a run (can\'t hit 9 onto 8-9-10)', () => {
+    const make = (id: string, value: number) => ({
+      id, deckType: 'phase10' as const, phase10Type: 'number' as const,
+      phase10Color: 'red' as const, value, faceUp: false,
+    });
+    const run = [make('8', 8), make('9', 9), make('10', 10)];
+    const state: GameState = {
+      version: 1, roomId: 'r', gameId: 'phase10', phase: 'playing',
+      players: [
+        { playerId: 'p1', displayName: 'P1', hand: [make('9b', 9)], score: 0, isOut: false, isBot: false, currentPhase: 2, phaseLaidDown: true },
+        { playerId: 'p2', displayName: 'P2', hand: [make('x', 1)], score: 0, isOut: false, isBot: false, currentPhase: 2, phaseLaidDown: false },
+      ],
+      currentTurn: 'p1', turnNumber: 1, roundNumber: 1,
+      publicData: {
+        drawPile: [], discardPile: [], discardTop: null, drawPileSize: 0,
+        turnPhase: 'discard', skippedPlayers: [],
+        laidDownPhases: { p1: [{ type: 'run', cardIds: run.map(c => c.id), cards: run.map(c => ({ ...c, faceUp: true })) }] },
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    expect(() =>
+      engine.applyAction(state, 'p1', { type: 'hit-meld', payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['9b'] } }),
+    ).toThrow();
+  });
+
+  it('hit-meld: appends the hit card to the meld\'s cards array (not just cardIds)', () => {
+    // Regression: the client's card catalogue is built from each meld's
+    // `cards: Card[]` field. handleHitMeld used to only push to `cardIds`,
+    // which meant the new card was invisible client-side after a hit.
+    // Deterministic seed — bypasses the random deck so the assertion
+    // always runs.
+    const make = (id: string, value: number, color: 'red' | 'blue' | 'green' | 'yellow' = 'red') => ({
+      id,
+      deckType: 'phase10' as const,
+      phase10Type: 'number' as const,
+      phase10Color: color,
+      value,
+      faceUp: false,
+    });
+    // Player has phase 1 already laid down, plus one extra "5" still in hand
+    // ready to hit.
+    const fives = [make('5a', 5, 'red'), make('5b', 5, 'blue'), make('5c', 5, 'green')];
+    const eights = [make('8a', 8, 'red'), make('8b', 8, 'blue'), make('8c', 8, 'green')];
+    const hitCard = make('5d', 5, 'yellow');
+
+    const seeded: GameState = {
+      version: 1,
+      roomId: 'r',
+      gameId: 'phase10',
+      phase: 'playing',
+      players: [
+        {
+          playerId: 'p1',
+          displayName: 'P1',
+          hand: [hitCard, make('11a', 11, 'red')],
+          score: 0,
+          isOut: false,
+          isBot: false,
+          currentPhase: 1,
+          phaseLaidDown: true,
+        },
+        {
+          playerId: 'p2',
+          displayName: 'P2',
+          hand: [make('1a', 1, 'red')],
+          score: 0,
+          isOut: false,
+          isBot: false,
+          currentPhase: 1,
+          phaseLaidDown: false,
+        },
+      ],
+      currentTurn: 'p1',
+      turnNumber: 1,
+      roundNumber: 1,
+      publicData: {
+        drawPile: [],
+        discardPile: [],
+        discardTop: null,
+        drawPileSize: 0,
+        turnPhase: 'discard',
+        skippedPlayers: [],
+        laidDownPhases: {
+          p1: [
+            { type: 'set', cardIds: fives.map((c) => c.id), cards: fives.map((c) => ({ ...c, faceUp: true })) },
+            { type: 'set', cardIds: eights.map((c) => c.id), cards: eights.map((c) => ({ ...c, faceUp: true })) },
+          ],
+        },
+      },
+      updatedAt: new Date().toISOString(),
+    };
+
+    const after = engine.applyAction(seeded, 'p1', {
+      type: 'hit-meld',
+      payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['5d'] },
+    });
+
+    const meld = ((after.publicData as Record<string, unknown>)['laidDownPhases'] as Record<string, Array<{ cardIds: string[]; cards?: Array<{ id: string; faceUp?: boolean }> }>>)['p1']![0]!;
+    expect(meld.cardIds).toEqual(['5a', '5b', '5c', '5d']);
+    // The fix: cards array also gets the new card so the frontend catalogue can find it.
+    expect((meld.cards ?? []).map((c) => c.id)).toEqual(['5a', '5b', '5c', '5d']);
+    // Hit card stored face-up so it renders correctly.
+    expect((meld.cards ?? []).find((c) => c.id === '5d')?.faceUp).toBe(true);
+  });
 });
 
 // -------------------------------------------------------------------

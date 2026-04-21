@@ -13,6 +13,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { PlayerProfile } from '@shared/auth';
 import { AuthContext, AuthContextValue } from './AuthProvider';
+import {
+  scheduleRefresh,
+  cancelRefresh,
+  isTokenExpired,
+  refreshToken,
+  subscribeToTokenChanges,
+} from './tokenRefresh';
 
 const TOKEN_KEY = 'auth_token';
 const PLAYER_KEY = 'auth_player';
@@ -36,14 +43,46 @@ export function DevAuthProvider({ children }: { children: React.ReactNode }) {
     const storedPlayer = localStorage.getItem(PLAYER_KEY);
     if (storedToken && storedPlayer) {
       try {
-        setToken(storedToken);
-        setPlayer(JSON.parse(storedPlayer) as PlayerProfile);
+        const parsed = JSON.parse(storedPlayer) as PlayerProfile;
+        setPlayer(parsed);
+        // If the token is already expired (browser was closed past
+        // expiry), refresh BEFORE rendering protected routes — that way
+        // the first authed request after page load doesn't bounce off a
+        // 401. If the refresh succeeds, the token-change listener below
+        // updates state; if it fails, the user lands on the landing page.
+        if (isTokenExpired(storedToken)) {
+          void refreshToken().then((fresh) => {
+            if (fresh) setToken(fresh);
+            else {
+              localStorage.removeItem(TOKEN_KEY);
+              localStorage.removeItem(PLAYER_KEY);
+              setPlayer(null);
+            }
+          });
+        } else {
+          setToken(storedToken);
+          // Arm the proactive timer so the next refresh fires before
+          // the current token expires.
+          scheduleRefresh(storedToken);
+        }
       } catch {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(PLAYER_KEY);
       }
     }
     setIsLoading(false);
+
+    // React to token changes from the refresh path so context stays in
+    // sync with localStorage. Without this, useAuth().token would be
+    // stale after a refresh and components reading it (e.g. socket auth
+    // headers) would still send the old token until next reload.
+    const unsub = subscribeToTokenChanges((newToken) => {
+      setToken(newToken);
+    });
+    return () => {
+      unsub();
+      cancelRefresh();
+    };
   }, []);
 
   const login = useCallback(async (username?: string): Promise<void> => {
@@ -79,12 +118,15 @@ export function DevAuthProvider({ children }: { children: React.ReactNode }) {
 
       setToken(data.token);
       setPlayer(profile);
+      // Arm proactive refresh so the user never sees a 401 mid-session.
+      scheduleRefresh(data.token);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   const logout = useCallback(() => {
+    cancelRefresh();
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(PLAYER_KEY);
     setToken(null);

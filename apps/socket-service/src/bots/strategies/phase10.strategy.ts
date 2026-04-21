@@ -29,7 +29,7 @@ interface Phase10PublicData {
   drawPileSize?: number;
   turnPhase?: 'draw' | 'discard' | string;
   skippedPlayers?: string[];
-  laidDownPhases?: Record<string, Array<{ type: string; cardIds: string[] }>>;
+  laidDownPhases?: Record<string, Array<{ type: string; cardIds: string[]; cards?: Card[] }>>;
   scoringAcks?: string[];
   handWinnerId?: string;
   handScores?: Record<string, number>;
@@ -278,7 +278,7 @@ export class Phase10BotStrategy implements IBotStrategy {
 
   private findBestHitMeld(
     hand: Card[],
-    laidDownPhases: Record<string, Array<{ type: string; cardIds: string[] }>>,
+    laidDownPhases: Record<string, Array<{ type: string; cardIds: string[]; cards?: Card[] }>>,
     opts: { allowWilds: boolean } = { allowWilds: false },
   ): PlayerAction | null {
     let bestAction: PlayerAction | null = null;
@@ -287,7 +287,15 @@ export class Phase10BotStrategy implements IBotStrategy {
     for (const [targetPlayerId, groups] of Object.entries(laidDownPhases)) {
       for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
         const group = groups[groupIndex]!;
-        const phaseGroup = { type: group.type as 'set' | 'run' | 'color', cardIds: group.cardIds };
+        // Pass `cards` through so canHitMeld can do real rank/run/colour
+        // validation. Without this the bot would generate illegal hits
+        // that the engine then rejects, sending the bot into its fallback
+        // chain for every "plausible" card.
+        const phaseGroup = {
+          type: group.type as 'set' | 'run' | 'color',
+          cardIds: group.cardIds,
+          cards: group.cards,
+        };
 
         for (const card of hand) {
           if (card.phase10Type === 'skip') continue;

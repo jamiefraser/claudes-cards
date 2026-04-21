@@ -36,6 +36,7 @@ import { Phase10Objective } from './Phase10Objective';
 import { Phase10HandScore } from './Phase10HandScore';
 import { MeldsArea, type MeldGroup } from './MeldsArea';
 import { Phase10HitTargetModal, type Phase10HitTarget } from './Phase10HitTargetModal';
+import { canPhase10HitMeld } from '@/utils/phase10HitRules';
 import { CribbagePegArea } from './CribbagePegArea';
 import { CribbageBoard } from './cribbage/CribbageBoard';
 import { CribbageCountingDisplay } from './CribbageCountingDisplay';
@@ -254,6 +255,29 @@ export function GameTable({ roomId }: GameTableProps) {
         const targetPlayerId = parts.slice(1, -1).join(':'); // playerIds can contain ':'
         const groupIndex = Number(parts[parts.length - 1]);
         if (!targetPlayerId || Number.isNaN(groupIndex)) return;
+
+        // Pre-validate against Phase 10 rules so an illegal drop doesn't
+        // produce a game_error toast after the round-trip. The engine
+        // still re-validates on its side — this is purely UX.
+        if (gameState) {
+          const pdLaid = (gameState.publicData['laidDownPhases'] as
+            | Record<string, Array<{ type: 'set' | 'run' | 'color'; cardIds: string[]; cards?: Card[] }>>
+            | undefined) ?? {};
+          const targetGroup = pdLaid[targetPlayerId]?.[groupIndex];
+          const draggedCard = myPlayer?.hand.find((c) => c.id === activeId);
+          if (targetGroup && draggedCard) {
+            const existingCards = (targetGroup.cards ?? targetGroup.cardIds
+              .map((id) => cardCatalogue[id])
+              .filter((c): c is Card => !!c));
+            if (!canPhase10HitMeld(draggedCard, targetGroup.type, existingCards)) {
+              logger.debug('GameTable: drag hit-meld rejected by client rules', {
+                cardId: activeId, targetPlayerId, groupIndex, type: targetGroup.type,
+              });
+              return;
+            }
+          }
+        }
+
         const socket = getGameSocket();
         const payload: GameActionPayload = {
           roomId,
@@ -394,8 +418,14 @@ export function GameTable({ roomId }: GameTableProps) {
     : '';
 
   // Build a card catalogue (id → Card) from all visible cards so MeldsArea
-  // can render laid-down groups. The engine attaches `cards` to each
-  // PhaseGroup, so normally we look those up directly.
+  // can render laid-down groups for any rummy-family game. Three sources:
+  //   1. Every player's hand (covers cards not yet melded).
+  //   2. Phase 10's `laidDownPhases[playerId][i].cards` — the engine
+  //      attaches a `cards` array to each meld; we mirror it on hit-meld
+  //      so the catalogue contains every card placed onto a meld
+  //      (including hits — see Phase10Engine.handleHitMeld).
+  //   3. Canasta's `melds[side][i].cards` — same shape, side-keyed.
+  //   4. Rummy's `melds[i].cards` with playerId per meld.
   const laidDownPhases = (gameState.publicData['laidDownPhases'] as
     | Record<string, Array<{ type: MeldGroup['type']; cardIds: string[]; cards?: Card[] }>>
     | undefined) ?? {};
@@ -408,9 +438,66 @@ export function GameTable({ roomId }: GameTableProps) {
       if (g.cards) for (const c of g.cards) cardCatalogue[c.id] = c;
     }
   }
+  // Canasta + Rummy meld card sources (each game keeps its own shape).
+  const canastaSideMelds = gameState.gameId === 'canasta'
+    ? ((gameState.publicData['melds'] as
+        | Record<string, Array<{ rank: string; cards?: Card[] }>>
+        | undefined) ?? {})
+    : {};
+  for (const sideMelds of Object.values(canastaSideMelds)) {
+    for (const m of sideMelds) {
+      if (m.cards) for (const c of m.cards) cardCatalogue[c.id] = c;
+    }
+  }
+  const rummyMelds = gameState.gameId === 'rummy'
+    ? ((gameState.publicData['melds'] as
+        | Array<{ playerId: string; cards: Card[] }>
+        | undefined) ?? [])
+    : [];
+  for (const m of rummyMelds) {
+    for (const c of m.cards) cardCatalogue[c.id] = c;
+  }
+
+  /**
+   * Unified accessor: for any rummy-family game, return the player's
+   * laid-down melds in the MeldGroup shape MeldsArea expects. Each game
+   * owns its own publicData shape, so the mapping happens here.
+   *   - Phase 10: `laidDownPhases[playerId]` of {type, cardIds}
+   *   - Canasta:  `melds[mySide]` of {rank, cards}; we infer side from
+   *               the player's seat index for 4p (A=0/2, B=1/3) and use
+   *               playerId as side for 2p/3p.
+   *   - Rummy:    `melds` array filtered by playerId
+   */
   const meldsByPlayer = (playerId: string): MeldGroup[] => {
-    const groups = laidDownPhases[playerId] ?? [];
-    return groups.map((g) => ({ type: g.type, cardIds: g.cardIds }));
+    if (gameState.gameId === 'phase10') {
+      const groups = laidDownPhases[playerId] ?? [];
+      return groups.map((g) => ({ type: g.type, cardIds: g.cardIds }));
+    }
+    if (gameState.gameId === 'canasta') {
+      const variant = gameState.publicData['variant'] as '2p' | '3p' | '4p' | undefined;
+      let side: string = playerId;
+      if (variant === '4p') {
+        const idx = gameState.players.findIndex((p) => p.playerId === playerId);
+        side = idx === 0 || idx === 2 ? 'A' : 'B';
+      }
+      const sideMelds = canastaSideMelds[side] ?? [];
+      // Canasta melds are sets-only (no runs); render as 'set'.
+      return sideMelds.map((m) => ({
+        type: 'set' as const,
+        cardIds: (m.cards ?? []).map((c) => c.id),
+      }));
+    }
+    if (gameState.gameId === 'rummy') {
+      return rummyMelds
+        .filter((m) => m.playerId === playerId)
+        .map((m) => ({
+          // Rummy melds can be sets or runs — we don't track which on
+          // the wire today, so render as 'set' (the badge is decorative).
+          type: 'set' as const,
+          cardIds: m.cards.map((c) => c.id),
+        }));
+    }
+    return [];
   };
 
   // Rummy family — opponents' melds render at 33% so the felt stays readable.
@@ -419,11 +506,14 @@ export function GameTable({ roomId }: GameTableProps) {
   const RUMMY_FAMILY = new Set(['rummy', 'ginrummy', 'canasta', 'phase10']);
   const isRummyFamily = RUMMY_FAMILY.has(gameState.gameId);
 
-  // Phase 10 hit-meld eligibility. A group accepts:
-  //   - a wild card: any group
-  //   - a skip card: never
-  //   - a number card: any group (engine validates the full rules; the client
-  //     just has to produce a list the server won't flat-reject).
+  // Phase 10 hit-meld eligibility. A group is offered as a drop target
+  // only if EVERY selected card can legally extend it per the Phase 10
+  // rules (sets require matching rank, runs require adjacent value and
+  // no duplicates, colours require matching colour — see
+  // `utils/phase10HitRules.ts` which mirrors the engine). Previously
+  // every group was offered and the engine rejected invalid drops with
+  // a game_error toast; now the UI pre-filters so the user only sees
+  // targets their selection can actually hit.
   // Only players who've already laid down their own phase are allowed to hit,
   // and only targets (including themselves) who have laid down expose melds
   // that can be extended.
@@ -442,6 +532,9 @@ export function GameTable({ roomId }: GameTableProps) {
         const cards = g.cardIds
           .map(id => cardCatalogue[id])
           .filter((c): c is Card => !!c);
+        // Only surface the meld as a target if every selected card can hit.
+        const allCanHit = selectedCards.every((sc) => canPhase10HitMeld(sc, g.type, cards));
+        if (!allCanHit) continue;
         const ownerName =
           targetId === player?.id
             ? 'You'

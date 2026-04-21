@@ -48,7 +48,11 @@ test.describe('Suite 9d — Phase 10 hand-end', () => {
   test('9d.1 two bots: hand-end → scoring → both auto-ack → next hand dealt, winner advanced', async ({
     authedPage: page,
   }) => {
-    test.setTimeout(85_000);
+    // Strict hit-meld validation means rounds run ~3x longer than with
+    // the old "hit anything" bug because the bot can no longer dump
+    // mismatched cards via illegal hits. Round lengths are now
+    // shuffle-dependent and can easily blow past 2 minutes.
+    test.setTimeout(300_000);
     await page.request.post(`${API_URL}/test/reset`);
     const seedResp = await page.request.post(`${API_URL}/test/seed-game`, {
       data: {
@@ -65,13 +69,15 @@ test.describe('Suite 9d — Phase 10 hand-end', () => {
       data: { roomId, playerId: 'test-player-2' },
     });
 
-    // Wait for the first hand to end (phase === 'scoring').
+    // Wait for the first hand to end (phase === 'scoring'). 4-minute
+    // ceiling — shuffle-dependent, but we've observed rounds completing
+    // inside ~90s typically.
     const scoring = await waitUntil(
       () => readState(page, roomId),
       (s) => s.phase === 'scoring',
-      40_000,
+      240_000,
     );
-    expect(scoring, 'scoring phase reached within 40s').not.toBeNull();
+    expect(scoring, 'scoring phase reached within 240s').not.toBeNull();
     expect(scoring!.publicData?.handWinnerId).toBeDefined();
 
     const winnerIdBeforeDeal = scoring!.publicData!.handWinnerId!;

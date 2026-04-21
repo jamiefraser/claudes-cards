@@ -10,6 +10,7 @@ import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { logger } from '@/utils/logger';
 import { useGameStore } from '@/store/gameStore';
+import { subscribeToTokenChanges } from '@/auth/tokenRefresh';
 
 // Empty string = use current origin; nginx proxies /socket.io to socket-service.
 // In dev, vite.config.ts proxy forwards /socket.io to http://localhost:3002.
@@ -118,6 +119,34 @@ export function disconnectAllSockets(): void {
   }
   logger.info('All sockets disconnected');
 }
+
+/**
+ * Force open sockets to reconnect with the latest auth token. Called by
+ * the token-refresh subscription after a successful refresh — the auth
+ * payload is sent in the Socket.io handshake, so the only way to update
+ * it is to drop and reopen the connection. The next call to
+ * getLobbySocket / getGameSocket re-creates the connection lazily and
+ * picks up the new token via getToken() at handshake time.
+ */
+export function reconnectSocketsWithFreshToken(): void {
+  if (lobbySocket) {
+    logger.info('useSocket: reconnecting lobby socket with fresh token');
+    lobbySocket.disconnect();
+    lobbySocket = null;
+  }
+  if (gameSocket) {
+    logger.info('useSocket: reconnecting game socket with fresh token');
+    gameSocket.disconnect();
+    gameSocket = null;
+  }
+}
+
+// Subscribe at module load so any successful refresh — proactive or
+// reactive (apiFetch 401 → refresh) — triggers a socket reconnect. Avoids
+// having to remember to wire this up wherever sockets are used.
+subscribeToTokenChanges(() => {
+  reconnectSocketsWithFreshToken();
+});
 
 /**
  * React hook: ensures the lobby socket is connected for the lifetime of the component.

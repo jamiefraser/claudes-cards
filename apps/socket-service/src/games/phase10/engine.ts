@@ -605,10 +605,15 @@ export class Phase10Engine implements IGameEngine {
       }
     }
 
-    // Add cards to group
+    // Add cards to group. We update BOTH `cardIds` and `cards` — the
+    // client builds its meld card-catalogue from each group's `cards`
+    // array, so failing to mirror the append here used to make every
+    // hit card invisible client-side after the meld was extended.
+    const hitCardsFaceUp = cardsToHit.map((c) => ({ ...c, faceUp: true }));
     const updatedGroup: PhaseGroup = {
       ...group,
       cardIds: [...group.cardIds, ...cardIds],
+      cards: [...(group.cards ?? []), ...hitCardsFaceUp],
     };
     const updatedGroups = [...targetGroups];
     updatedGroups[groupIndex] = updatedGroup;
@@ -1258,21 +1263,96 @@ function findColor(
   return null;
 }
 
+/**
+ * True iff `card` can legally be added to `group` as a hit-meld.
+ *
+ * Phase 10 rules:
+ *   - Skip cards cannot hit any meld.
+ *   - Wild cards hit any meld (subject to the run cap below).
+ *   - Set   hit: value must match the set's rank (or be wild).
+ *   - Run   hit: after adding the card, the run must remain valid
+ *                (non-wild span minus card count ≤ remaining wilds)
+ *                and no duplicate values.
+ *   - Colour hit: colour must match the meld's colour.
+ *
+ * Requires the group's `cards: Card[]` to be populated (the engine
+ * mirrors it on lay-down and hit-meld). Falls back to a permissive
+ * "number-only" check if `cards` is missing so legacy states don't
+ * hard-crash.
+ */
 export function canHitMeld(card: Card, group: PhaseGroup): boolean {
-  if (card.phase10Type === 'wild') return true;
   if (card.phase10Type === 'skip') return false;
 
-  // For set: card must match the value of existing cards in the group
-  // We can't easily reconstruct value here without the full hand,
-  // so for now accept number cards on sets (engine validates fully)
-  if (group.type === 'set') {
-    return card.phase10Type === 'number';
+  const cards = group.cards ?? [];
+  if (cards.length === 0) {
+    return card.phase10Type === 'wild' || card.phase10Type === 'number';
   }
-  if (group.type === 'run') {
-    return card.phase10Type === 'number';
+
+  switch (group.type) {
+    case 'set':   return canHitSet(card, cards);
+    case 'run':   return canHitRun(card, cards);
+    case 'color': return canHitColor(card, cards);
+    default:      return false;
   }
-  if (group.type === 'color') {
-    return card.phase10Type === 'number';
+}
+
+function canHitSet(card: Card, existing: Card[]): boolean {
+  if (card.phase10Type === 'wild') return true;
+  if (card.phase10Type !== 'number') return false;
+  const nonWilds = existing.filter((c) => c.phase10Type === 'number');
+  // All-wild set — we can't determine the rank; accept any number.
+  if (nonWilds.length === 0) return true;
+  return nonWilds[0]!.value === card.value;
+}
+
+function canHitColor(card: Card, existing: Card[]): boolean {
+  if (card.phase10Type === 'wild') return true;
+  if (card.phase10Type !== 'number') return false;
+  const nonWilds = existing.filter((c) => c.phase10Type === 'number');
+  if (nonWilds.length === 0) return true;
+  return nonWilds[0]!.phase10Color === card.phase10Color;
+}
+
+/**
+ * Run-hit validity. The hit must:
+ *   - Not collide with an existing non-wild value (runs have no dups).
+ *   - Land inside the range reachable by the existing wilds. Specifically:
+ *     after the hit, the non-wild span must be coverable by the same
+ *     number of wilds (wilds fill gaps). In practice this means the new
+ *     value is one of the current min-1 or max+1 boundaries, OR falls
+ *     within an already-wild-covered zone extension.
+ */
+function canHitRun(card: Card, existing: Card[]): boolean {
+  if (card.phase10Type === 'wild') {
+    // Wild extends unless the run already covers the full 1-12 range.
+    const nonWilds = existing.filter((c) => c.phase10Type === 'number');
+    if (nonWilds.length === 0) return true;
+    const values = nonWilds.map((c) => c.value);
+    const minV = Math.min(...values);
+    const maxV = Math.max(...values);
+    return minV > 1 || maxV < 12;
   }
-  return false;
+  if (card.phase10Type !== 'number') return false;
+  if (card.value < 1 || card.value > 12) return false;
+
+  const nonWilds = existing.filter((c) => c.phase10Type === 'number');
+  const totalWilds = existing.length - nonWilds.length;
+
+  // All-wild run — any value within bounds works.
+  if (nonWilds.length === 0) return true;
+
+  const values = nonWilds.map((c) => c.value);
+  if (values.includes(card.value)) return false; // runs can't hold duplicates
+
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values);
+  const newMin = Math.min(minV, card.value);
+  const newMax = Math.max(maxV, card.value);
+  const newSpan = newMax - newMin + 1;
+  const newNonWildCount = values.length + 1;
+  const neededGaps = newSpan - newNonWildCount;
+  // After the hit, the non-wilds span `newSpan` positions; `newNonWildCount`
+  // of them are filled by real cards, so `neededGaps` must be filled by
+  // wilds already in the meld. If we have enough wilds, it's legal.
+  return neededGaps >= 0 && neededGaps <= totalWilds;
 }

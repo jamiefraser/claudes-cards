@@ -2,12 +2,14 @@
  * App — root component with React Router and global providers.
  * Routes per SPEC.md §6.
  */
-import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/auth/AuthProvider';
-import { ToastProvider } from '@/components/shared/Toast';
+import { useAuth } from '@/auth/useAuth';
+import { ToastProvider, useToast } from '@/components/shared/Toast';
 import { ConnectionBanner } from '@/components/shared/ConnectionBanner';
+import { logger } from '@/utils/logger';
 
 import { LandingPage } from '@/pages/LandingPage';
 import { LobbyPage } from '@/pages/LobbyPage';
@@ -27,12 +29,41 @@ const queryClient = new QueryClient({
   },
 });
 
+/**
+ * Listens for `auth:reauth-required` (dispatched by tokenRefresh when a
+ * silent refresh fails) and forces a clean logout + redirect to landing
+ * so the user gets a clear path back in. Toasted so they understand why
+ * they were sent back instead of seeing a half-broken protected page.
+ */
+function ReauthListener() {
+  const { logout, isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+
+  useEffect(() => {
+    const handler = () => {
+      logger.warn('App: auth:reauth-required — forcing logout');
+      // Avoid spamming toasts if multiple 401s race in.
+      if (isAuthenticated) {
+        toast('Session expired — please sign in again.', 'warn');
+      }
+      logout();
+      navigate('/', { replace: true });
+    };
+    window.addEventListener('auth:reauth-required', handler);
+    return () => window.removeEventListener('auth:reauth-required', handler);
+  }, [logout, navigate, toast, isAuthenticated]);
+
+  return null;
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
           <ToastProvider>
+            <ReauthListener />
             <ConnectionBanner />
             <Routes>
               {/* Public */}

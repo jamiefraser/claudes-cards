@@ -95,12 +95,18 @@ export function MeldsArea({
   // the target size. Without the explicit wrapper size the scaled card still
   // reserves its full 48×72, producing comically large gaps between melds.
   const scaleFactor = scale === 'tiny' ? 0.33 : scale === 'compact' ? 0.5 : 1;
+  // Negative space-x values overlap each card on top of its left neighbour.
+  // We keep the overlap modest enough that the top-left rank+suit glyph of
+  // every card stays visible — without that, a long meld (especially after
+  // multiple hits) reads as one big card rather than 5/6/7 individual cards.
+  // Tuned per scale: more overlap is acceptable when the cards are tiny
+  // because the corner glyph is a smaller fraction of the card's width.
   const overlapClass =
     scale === 'tiny'
-      ? '-space-x-2'
+      ? '-space-x-1'
       : scale === 'compact'
-        ? '-space-x-3'
-        : '-space-x-4';
+        ? '-space-x-2'
+        : '-space-x-3';
 
   return (
     <div
@@ -125,7 +131,10 @@ export function MeldsArea({
               aria-label={`${group.type} of ${cards.length}`}
             >
               <GroupTypeBadge type={group.type} />
-              <div className={`flex flex-row ${overlapClass}`}>
+              {/* flex-wrap so a long meld (e.g. phase 8 of 7+ cards after a
+                  few hits) wraps to a second row instead of overflowing
+                  the seat horizontally. */}
+              <div className={`flex flex-row flex-wrap ${overlapClass}`}>
                 {cards.map(card => (
                   <div
                     key={card.id}

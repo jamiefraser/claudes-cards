@@ -526,6 +526,50 @@ describe('Phase10BotStrategy', () => {
   });
 
   // -------------------------------------------------------------------
+  // Scoring phase — bot auto-acks the hand-end overlay
+  // -------------------------------------------------------------------
+
+  it('returns ack-scoring when phase=scoring and the bot has not acked yet', () => {
+    const state: GameState = {
+      ...makeState({ currentPhase: 1 }),
+      phase: 'scoring',
+      currentTurn: null,
+      publicData: {
+        discardTop: null,
+        drawPileSize: 0,
+        turnPhase: 'discard',
+        skippedPlayers: [],
+        laidDownPhases: {},
+        handWinnerId: 'player-2',
+        handScores: { 'bot-1': 25, 'player-2': 0 },
+        scoringAcks: [],
+      },
+    };
+    const action = strategy.chooseAction(state, 'bot-1');
+    expect(action.type).toBe('ack-scoring');
+  });
+
+  it('returns pass when phase=scoring and the bot already acked', () => {
+    const state: GameState = {
+      ...makeState({ currentPhase: 1 }),
+      phase: 'scoring',
+      currentTurn: null,
+      publicData: {
+        discardTop: null,
+        drawPileSize: 0,
+        turnPhase: 'discard',
+        skippedPlayers: [],
+        laidDownPhases: {},
+        handWinnerId: 'player-2',
+        handScores: { 'bot-1': 25, 'player-2': 0 },
+        scoringAcks: ['bot-1'],
+      },
+    };
+    const action = strategy.chooseAction(state, 'bot-1');
+    expect(action.type).toBe('pass');
+  });
+
+  // -------------------------------------------------------------------
   // Progress guarantee: bot must always advance its own turn
   // (regression: bot used to return 'pass' with all-wild hand, which
   // caused it to get stuck in "Thinking…" after lay-down because the

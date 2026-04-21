@@ -30,6 +30,9 @@ interface Phase10PublicData {
   turnPhase?: 'draw' | 'discard' | string;
   skippedPlayers?: string[];
   laidDownPhases?: Record<string, Array<{ type: string; cardIds: string[] }>>;
+  scoringAcks?: string[];
+  handWinnerId?: string;
+  handScores?: Record<string, number>;
 }
 
 interface PhaseRequirement {
@@ -101,8 +104,20 @@ export class Phase10BotStrategy implements IBotStrategy {
     if (!player) throw new Error(`Player ${botPlayerId} not found`);
 
     const pd = state.publicData as unknown as Phase10PublicData;
-    const turnPhase = pd.turnPhase ?? 'draw';
 
+    // Scoring overlay between hands — bots acknowledge instantly so they
+    // don't hold up the next deal. Humans get to read the scoreboard at
+    // their own pace; bots skip straight through.
+    if (state.phase === 'scoring') {
+      const acks = pd.scoringAcks ?? [];
+      if (!acks.includes(botPlayerId)) {
+        return { type: 'ack-scoring' };
+      }
+      // Already acked — nothing to do until the round transitions.
+      return { type: 'pass' };
+    }
+
+    const turnPhase = pd.turnPhase ?? 'draw';
     if (turnPhase === 'draw') {
       return this.decideDrawAction(state, player, pd);
     } else {

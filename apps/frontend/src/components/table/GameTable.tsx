@@ -33,6 +33,7 @@ import { RoomInfoPill } from './RoomInfoPill';
 import { GinRummyShowdown, type GinRummyShowdownPlayer } from './GinRummyShowdown';
 import { WinCelebration } from './WinCelebration';
 import { Phase10Objective } from './Phase10Objective';
+import { Phase10HandScore } from './Phase10HandScore';
 import { MeldsArea, type MeldGroup } from './MeldsArea';
 import { Phase10HitTargetModal, type Phase10HitTarget } from './Phase10HitTargetModal';
 import { CribbagePegArea } from './CribbagePegArea';
@@ -985,6 +986,33 @@ export function GameTable({ roomId }: GameTableProps) {
               });
               return <WinCelebration ranked={ranked} selfPlayerId={player?.id} />;
             })()}
+
+          {/* Phase 10 per-hand scoring overlay — distinct from the end-of-
+              game celebration. Shown between hands so players can see the
+              damage before committing to the next deal. Engine stays in
+              `phase === 'scoring'` until every seat acks; bots auto-ack. */}
+          {gameState.gameId === 'phase10' && gameState.phase === 'scoring' && (() => {
+            const pd = gameState.publicData as Record<string, unknown>;
+            const activeBotIds = new Set(activeBots.map((b) => b.playerId));
+            return (
+              <Phase10HandScore
+                roomId={roomId}
+                myPlayerId={player?.id}
+                players={gameState.players.map((p) => ({
+                  playerId: p.playerId,
+                  displayName: p.displayName,
+                  score: p.score,
+                  currentPhase: p.currentPhase,
+                  phaseLaidDown: p.phaseLaidDown,
+                  isBot: p.isBot || activeBotIds.has(p.playerId),
+                }))}
+                activeBotIds={activeBotIds}
+                handWinnerId={pd['handWinnerId'] as string | undefined}
+                handScores={(pd['handScores'] as Record<string, number>) ?? {}}
+                scoringAcks={(pd['scoringAcks'] as string[]) ?? []}
+              />
+            );
+          })()}
 
           {ginrummyShowdownData?.active && (
             <div className="absolute left-1/2 -translate-x-1/2 top-24 w-full max-w-4xl px-4 z-20">

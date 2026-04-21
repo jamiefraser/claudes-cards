@@ -73,6 +73,18 @@ interface Phase10PublicData {
   turnPhase: 'draw' | 'discard';
   skippedPlayers: string[];
   laidDownPhases: Record<string, PhaseGroup[]>;
+  /** Hand-end bookkeeping. Populated when a player goes out and the round
+   *  transitions to `phase === 'scoring'`. Cleared when the next hand deals. */
+  handWinnerId?: string;
+  /** Points each player accrued this hand (hand-card values for losers, 0
+   *  for the winner). Cumulative scores live on PlayerState.score. */
+  handScores?: Record<string, number>;
+  /** Acknowledgements from HUMAN players for the scoring overlay. Bots are
+   *  auto-acked via the strategy so they don't stall the round transition. */
+  scoringAcks?: string[];
+  /** Dealer index for the current hand; rotates each round so the lead
+   *  rotates too. */
+  dealerIndex?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,12 +163,18 @@ export class Phase10Engine implements IGameEngine {
   // -------------------------------------------------------------------------
 
   applyAction(state: GameState, playerId: string, action: PlayerAction): GameState {
-    // Validate it is the player's turn
+    const pd = state.publicData as unknown as Phase10PublicData;
+
+    // ack-scoring is parallel — any player who hasn't yet acked the
+    // hand-end overlay can submit it regardless of currentTurn. All other
+    // actions require the normal turn guard.
+    if (action.type === 'ack-scoring') {
+      return this.handleAckScoring(state, playerId, pd);
+    }
+
     if (state.currentTurn !== playerId) {
       throw new Error(`Not ${playerId}'s turn (current: ${state.currentTurn})`);
     }
-
-    const pd = state.publicData as unknown as Phase10PublicData;
 
     switch (action.type) {
       case 'draw':
@@ -407,29 +425,30 @@ export class Phase10Engine implements IGameEngine {
     const anyoneOut = newPlayers.some((p) => p.isOut);
     let newPhase = state.phase;
 
-    if (anyoneOut) {
-      // Compute scores for this round
-      newPlayers = newPlayers.map((p) => {
-        if (p.isOut) return p;
-        const roundPoints = this.computeHandScore(p.hand);
-        return { ...p, score: p.score + roundPoints };
-      });
+    // Hand-end bookkeeping: populated alongside phase='scoring' so the
+    // client can render a scoring overlay with per-player breakdown.
+    let handWinnerId: string | undefined;
+    let handScores: Record<string, number> | undefined;
 
-      // Check if game is over (someone completed phase 10 and went out)
-      const winner = newPlayers.find((p) => p.isOut && (p.currentPhase ?? 1) > 10);
-      if (winner) {
-        newPhase = 'ended';
-      } else {
-        // Round over — check if anyone has won
-        const phase10Completers = newPlayers.filter(
-          (p) => p.isOut && (p.currentPhase ?? 1) > 10,
-        );
-        if (phase10Completers.length > 0) {
-          newPhase = 'ended';
-        } else {
-          newPhase = 'scoring';
-        }
+    if (anyoneOut) {
+      // Compute per-hand score contributions. Winner contributes 0; every
+      // other player contributes the sum of their remaining card values.
+      handScores = {};
+      for (const p of newPlayers) {
+        handScores[p.playerId] = p.isOut ? 0 : this.computeHandScore(p.hand);
       }
+      newPlayers = newPlayers.map((p) => ({
+        ...p,
+        score: p.score + (handScores![p.playerId] ?? 0),
+      }));
+
+      handWinnerId = newPlayers.find((p) => p.isOut)?.playerId;
+
+      // Check if game is over (someone completed phase 10 and went out).
+      const phase10Completers = newPlayers.filter(
+        (p) => p.isOut && (p.currentPhase ?? 1) >= 10,
+      );
+      newPhase = phase10Completers.length > 0 ? 'ended' : 'scoring';
     }
 
     const newPublicData: Phase10PublicData = {
@@ -438,6 +457,15 @@ export class Phase10Engine implements IGameEngine {
       discardTop: faceUpDiscard,
       turnPhase: 'draw',
       skippedPlayers: newSkippedPlayers,
+      ...(anyoneOut
+        ? {
+            handWinnerId,
+            handScores,
+            // Scoring acknowledgements start empty. handleAckScoring
+            // below is the only path that mutates this list.
+            scoringAcks: [],
+          }
+        : {}),
     };
 
     return {
@@ -649,6 +677,105 @@ export class Phase10Engine implements IGameEngine {
         p.playerId === playerId ? { ...p, hand: newHand } : p,
       ),
       publicData: newPublicData as unknown as Record<string, unknown>,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * ack-scoring — called by a human (or auto-called for a bot by the strategy)
+   * when the hand-end scoring overlay is visible. Appends the player to
+   * `scoringAcks`; once every non-out-except-winner player has acked, deals
+   * the next hand:
+   *   - Players who laid down advance their phase by 1.
+   *   - All hands refilled to 10 cards from a freshly-shuffled deck.
+   *   - Cumulative scores preserved on PlayerState.score.
+   *   - Dealer + turn rotate.
+   *
+   * The round won't advance while any seated player hasn't acked, so humans
+   * get time to read the scoreboard. Bots ack instantly via their strategy.
+   */
+  private handleAckScoring(
+    state: GameState,
+    playerId: string,
+    pd: Phase10PublicData,
+  ): GameState {
+    if (state.phase !== 'scoring') {
+      // No-op in any other phase; a stray ack from a slow client is safe
+      // to ignore rather than throw, so it doesn't spam game_error toasts.
+      return state;
+    }
+    const player = state.players.find((p) => p.playerId === playerId);
+    if (!player) throw new Error(`Player ${playerId} not found`);
+
+    const acks = new Set(pd.scoringAcks ?? []);
+    acks.add(playerId);
+    const newAcks = [...acks];
+
+    // Required acks = every seated player. Bots ack through their strategy,
+    // so the same set-equality check works for human-only and mixed rooms.
+    const allAcked = state.players.every((p) => acks.has(p.playerId));
+
+    if (!allAcked) {
+      // Still waiting on someone — just record the ack.
+      const updatedPD: Phase10PublicData = { ...pd, scoringAcks: newAcks };
+      return {
+        ...state,
+        version: state.version + 1,
+        publicData: updatedPD as unknown as Record<string, unknown>,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    // Everyone has acked → deal the next hand.
+    // Who advances a phase: anyone who laid down their current phase this round.
+    const nextPlayers: PlayerState[] = state.players.map((p) => ({
+      ...p,
+      currentPhase: (p.phaseLaidDown ? (p.currentPhase ?? 1) + 1 : p.currentPhase ?? 1),
+      phaseLaidDown: false,
+      isOut: false,
+      hand: [], // filled below
+    }));
+
+    const deck = createPhase10Deck();
+    const shuffled = [...deck.cards];
+    shuffle(shuffled);
+    for (const p of nextPlayers) {
+      p.hand = shuffled.splice(0, 10);
+    }
+    const discardTopCard = shuffled.splice(0, 1)!;
+    const faceUpDiscard = { ...discardTopCard[0]!, faceUp: true };
+
+    // Rotate dealer & lead. First-hand dealer defaults to player[0], so the
+    // non-dealer leads from player[1] onward.
+    const prevDealerIdx = pd.dealerIndex ?? 0;
+    const nextDealerIdx = (prevDealerIdx + 1) % state.players.length;
+    const leadIdx = (nextDealerIdx + 1) % state.players.length;
+
+    const nextPD: Phase10PublicData = {
+      drawPile: shuffled,
+      discardPile: [faceUpDiscard],
+      discardTop: faceUpDiscard,
+      drawPileSize: shuffled.length,
+      turnPhase: 'draw',
+      skippedPlayers: [],
+      laidDownPhases: {},
+      dealerIndex: nextDealerIdx,
+      // Clear hand-end bookkeeping — no stale scoringAcks linger into the
+      // next round or the client will think it's still scoring.
+      handWinnerId: undefined,
+      handScores: undefined,
+      scoringAcks: undefined,
+    };
+
+    return {
+      ...state,
+      version: state.version + 1,
+      phase: 'playing',
+      players: nextPlayers,
+      currentTurn: state.players[leadIdx]!.playerId,
+      turnNumber: 1,
+      roundNumber: state.roundNumber + 1,
+      publicData: nextPD as unknown as Record<string, unknown>,
       updatedAt: new Date().toISOString(),
     };
   }

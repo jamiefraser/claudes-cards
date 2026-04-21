@@ -137,6 +137,18 @@ services:
     build:
       context: .
       dockerfile: apps/frontend/Dockerfile
+      # Vite bakes env vars at build time, so runtime `environment:` entries
+      # don't affect the frontend bundle. Pipe the same AUTH_MODE/LOG_LEVEL
+      # host-env through as build args so `docker compose up --build` picks
+      # up a local developer's intent (default: dev) without needing to
+      # edit the Dockerfile. Production/CI builds override via --build-arg.
+      args:
+        VITE_AUTH_MODE: ${AUTH_MODE:-dev}
+        VITE_LOG_LEVEL: ${LOG_LEVEL:-info}
+        VITE_B2C_CLIENT_ID: ${VITE_B2C_CLIENT_ID:-}
+        VITE_B2C_AUTHORITY: ${VITE_B2C_AUTHORITY:-}
+        VITE_B2C_KNOWN_AUTHORITIES: ${VITE_B2C_KNOWN_AUTHORITIES:-}
+        VITE_B2C_REDIRECT_URI: ${VITE_B2C_REDIRECT_URI:-}
     restart: unless-stopped
     ports:
       - "80:80"

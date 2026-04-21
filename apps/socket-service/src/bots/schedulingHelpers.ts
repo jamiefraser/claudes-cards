@@ -47,6 +47,26 @@ export async function scheduleBotsAfterAction(
     return;
   }
 
+  // Phase 10 scoring — parallel: currentTurn is null while the hand-end
+  // overlay is shown, so the default turn-based scheduler won't fire. Kick
+  // every bot that still owes an ack-scoring. Humans ack at their own pace
+  // via the client.
+  const isPhase10 = state.gameId === 'phase10';
+  if (isPhase10 && state.phase === 'scoring') {
+    const scoringPD = state.publicData as unknown as { scoringAcks?: string[] } | undefined;
+    const acks = new Set(scoringPD?.scoringAcks ?? []);
+    for (const p of state.players) {
+      if (!botController.isBotActive(roomId, p.playerId)) continue;
+      if (acks.has(p.playerId)) continue;
+      logger.debug('scheduleBotsAfterAction: kicking phase10 bot to ack scoring', {
+        roomId,
+        botPlayerId: p.playerId,
+      });
+      await botController.scheduleAction(roomId, p.playerId, state.version);
+    }
+    return;
+  }
+
   // Default — strictly turn-based.
   if (state.currentTurn && botController.isBotActive(roomId, state.currentTurn)) {
     await botController.scheduleAction(roomId, state.currentTurn, state.version);

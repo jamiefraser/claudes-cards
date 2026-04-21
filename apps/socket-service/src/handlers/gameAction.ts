@@ -71,6 +71,10 @@ export async function gameActionHandler(
       // it must not be gated by the global currentTurn check either.
       'discard-crib',
       'ack-count',
+      // Phase 10: any player can ack the end-of-hand scoring overlay, in
+      // any order, regardless of currentTurn (which is null once someone
+      // went out).
+      'ack-scoring',
     ]);
     if (!PARALLEL_ACTIONS.has(action.type) && state.currentTurn !== playerId) {
       socket.emit('game_error', { code: 'NOT_YOUR_TURN', message: 'It is not your turn' });

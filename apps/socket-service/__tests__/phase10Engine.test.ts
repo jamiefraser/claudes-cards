@@ -772,6 +772,180 @@ describe('Phase10Engine', () => {
   });
 
   // -------------------------------------------------------------------
+  // Hand-end scoring overlay + ack flow
+  // -------------------------------------------------------------------
+
+  it('going out populates handWinnerId, handScores, and scoringAcks=[] on the scoring state', () => {
+    const state = engine.startGame(makeConfig(2));
+    const playerId = state.currentTurn!;
+    const opponentId = state.players.find((p) => p.playerId !== playerId)!.playerId;
+
+    // Seed: current player has 1 card left (phaseLaidDown to avoid the
+    // "can't go out without laying down" constraint implicit in hit-meld).
+    const lastCard = state.players.find((p) => p.playerId === playerId)!.hand[0]!;
+    const primed: GameState = {
+      ...state,
+      players: state.players.map((p) =>
+        p.playerId === playerId
+          ? { ...p, hand: [lastCard], phaseLaidDown: true }
+          : p,
+      ),
+    };
+
+    let s = engine.applyAction(primed, playerId, { type: 'draw', payload: { source: 'deck' } });
+    // Discard the just-drawn card to leave 1 card, then the last original.
+    const h1 = s.players.find((p) => p.playerId === playerId)!.hand;
+    s = engine.applyAction(s, playerId, { type: 'discard', cardIds: [h1[h1.length - 1]!.id] });
+    // Now current turn has rotated away from us. Put it back and go out.
+    const afterOpp: GameState = { ...s, currentTurn: playerId, publicData: { ...s.publicData, turnPhase: 'draw' } };
+    const drawn = engine.applyAction(afterOpp, playerId, { type: 'draw', payload: { source: 'deck' } });
+    const h2 = drawn.players.find((p) => p.playerId === playerId)!.hand;
+    // Discard one card, drop to 1, then discard again to go out.
+    const after1 = engine.applyAction(drawn, playerId, { type: 'discard', cardIds: [h2[0]!.id] });
+    const afterOppTurn: GameState = { ...after1, currentTurn: playerId, publicData: { ...after1.publicData, turnPhase: 'draw' } };
+    const drawn2 = engine.applyAction(afterOppTurn, playerId, { type: 'draw', payload: { source: 'deck' } });
+    const h3 = drawn2.players.find((p) => p.playerId === playerId)!.hand;
+    // Discard one card → 1 card left.
+    const after2 = engine.applyAction(drawn2, playerId, { type: 'discard', cardIds: [h3[0]!.id] });
+    const afterOppTurn2: GameState = { ...after2, currentTurn: playerId, publicData: { ...after2.publicData, turnPhase: 'draw' } };
+    const drawn3 = engine.applyAction(afterOppTurn2, playerId, { type: 'draw', payload: { source: 'deck' } });
+    const h4 = drawn3.players.find((p) => p.playerId === playerId)!.hand;
+    // 2 cards — discard one, leaving 1. That last discard-to-zero test
+    // needs another iteration, but easiest: just bypass and directly drive
+    // state into the "0-card hand just discarded" scenario.
+    const nearOut: GameState = {
+      ...drawn3,
+      players: drawn3.players.map((p) =>
+        p.playerId === playerId ? { ...p, hand: [h4[0]!] } : p,
+      ),
+      currentTurn: playerId,
+      publicData: { ...drawn3.publicData, turnPhase: 'discard' },
+    };
+    const final = engine.applyAction(nearOut, playerId, { type: 'discard', cardIds: [h4[0]!.id] });
+
+    // Expectations: hand ended with our player out.
+    expect(final.phase).toBe('scoring');
+    const pd = final.publicData as {
+      handWinnerId?: string;
+      handScores?: Record<string, number>;
+      scoringAcks?: string[];
+    };
+    expect(pd.handWinnerId).toBe(playerId);
+    expect(pd.scoringAcks).toEqual([]);
+    expect(pd.handScores).toBeDefined();
+    // Winner contributes 0 points for the hand.
+    expect(pd.handScores![playerId]).toBe(0);
+    // Opponent accrued something > 0 (10 cards worth).
+    expect(pd.handScores![opponentId]).toBeGreaterThan(0);
+  });
+
+  it('ack-scoring: one ack does not advance the round', () => {
+    const state = engine.startGame(makeConfig(2));
+    const p1 = state.players[0]!.playerId;
+    const p2 = state.players[1]!.playerId;
+
+    const scoringState: GameState = {
+      ...state,
+      phase: 'scoring',
+      currentTurn: null,
+      players: state.players.map((p) =>
+        p.playerId === p1 ? { ...p, hand: [], isOut: true, phaseLaidDown: true } : p,
+      ),
+      publicData: {
+        ...state.publicData,
+        handWinnerId: p1,
+        handScores: { [p1]: 0, [p2]: 35 },
+        scoringAcks: [],
+      },
+    };
+
+    const afterAck = engine.applyAction(scoringState, p1, { type: 'ack-scoring' });
+    expect(afterAck.phase).toBe('scoring');
+    const pd = afterAck.publicData as { scoringAcks?: string[] };
+    expect(pd.scoringAcks).toEqual([p1]);
+  });
+
+  it('ack-scoring: all acks deal the next hand, advance phase for players who laid down, preserve scores', () => {
+    const state = engine.startGame(makeConfig(2));
+    const p1 = state.players[0]!.playerId;
+    const p2 = state.players[1]!.playerId;
+
+    const scoringState: GameState = {
+      ...state,
+      phase: 'scoring',
+      currentTurn: null,
+      players: state.players.map((p) => {
+        if (p.playerId === p1) {
+          return { ...p, hand: [], isOut: true, phaseLaidDown: true, currentPhase: 1, score: 0 };
+        }
+        return { ...p, phaseLaidDown: false, currentPhase: 1, score: 35 };
+      }),
+      publicData: {
+        ...state.publicData,
+        handWinnerId: p1,
+        handScores: { [p1]: 0, [p2]: 35 },
+        scoringAcks: [],
+      },
+    };
+
+    let s = engine.applyAction(scoringState, p1, { type: 'ack-scoring' });
+    s = engine.applyAction(s, p2, { type: 'ack-scoring' });
+
+    expect(s.phase).toBe('playing');
+    // p1 laid down → phase goes 1 → 2. p2 didn't → stays on 1.
+    expect(s.players.find((p) => p.playerId === p1)!.currentPhase).toBe(2);
+    expect(s.players.find((p) => p.playerId === p2)!.currentPhase).toBe(1);
+    // Cumulative scores preserved (not recomputed).
+    expect(s.players.find((p) => p.playerId === p1)!.score).toBe(0);
+    expect(s.players.find((p) => p.playerId === p2)!.score).toBe(35);
+    // Flags reset
+    s.players.forEach((p) => {
+      expect(p.isOut).toBe(false);
+      expect(p.phaseLaidDown).toBe(false);
+      expect(p.hand).toHaveLength(10);
+    });
+    // Hand-end bookkeeping cleared
+    const pd2 = s.publicData as { scoringAcks?: string[]; handWinnerId?: string; handScores?: Record<string, number> };
+    expect(pd2.scoringAcks).toBeUndefined();
+    expect(pd2.handWinnerId).toBeUndefined();
+    expect(pd2.handScores).toBeUndefined();
+    // Round number bumped
+    expect(s.roundNumber).toBe(state.roundNumber + 1);
+  });
+
+  it('ack-scoring: idempotent — a second ack from the same player is a safe no-op', () => {
+    const state = engine.startGame(makeConfig(2));
+    const p1 = state.players[0]!.playerId;
+    const p2 = state.players[1]!.playerId;
+
+    const scoringState: GameState = {
+      ...state,
+      phase: 'scoring',
+      currentTurn: null,
+      publicData: {
+        ...state.publicData,
+        handWinnerId: p1,
+        handScores: { [p1]: 0, [p2]: 35 },
+        scoringAcks: [p1],
+      },
+    };
+
+    const after = engine.applyAction(scoringState, p1, { type: 'ack-scoring' });
+    // Still scoring (we only have 1/2 acks even after re-ack).
+    expect(after.phase).toBe('scoring');
+    const pd = after.publicData as { scoringAcks?: string[] };
+    expect(pd.scoringAcks).toEqual([p1]);
+  });
+
+  it('ack-scoring: outside of scoring phase is a no-op (does not throw)', () => {
+    const state = engine.startGame(makeConfig(2));
+    const p1 = state.players[0]!.playerId;
+    expect(() => engine.applyAction(state, p1, { type: 'ack-scoring' })).not.toThrow();
+    const after = engine.applyAction(state, p1, { type: 'ack-scoring' });
+    expect(after.phase).toBe(state.phase);
+  });
+
+  // -------------------------------------------------------------------
   // Going out / round end
   // -------------------------------------------------------------------
 

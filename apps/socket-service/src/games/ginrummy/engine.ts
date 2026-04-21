@@ -375,7 +375,7 @@ export class GinRummyEngine implements IGameEngine {
       if (!pd.showdown.players.some(p => p.playerId === playerId)) {
         throw new Error(`${playerId} is not in this round's showdown`);
       }
-      return this.handleAckShow(state, playerId, pd);
+      return this.handleAckShow(state, playerId, pd, action);
     }
 
     if (state.currentTurn !== playerId) throw new Error(`Not ${playerId}'s turn`);
@@ -598,17 +598,26 @@ export class GinRummyEngine implements IGameEngine {
     state: GameState,
     playerId: string,
     pd: GinRummyPublicData,
+    action?: PlayerAction,
   ): GameState {
     const sd = pd.showdown!;
     if (sd.acked.includes(playerId)) return state;
 
     const newAcked = [...sd.acked, playerId];
-    const humansRemaining = sd.players
-      .filter(p => !p.isBot)
-      .some(p => !newAcked.includes(p.playerId));
 
-    // Bots auto-ack the moment any human ack lands. They never need to read
-    // the showdown, but we record their ack for parity / replay.
+    // "is bot" for the rule "bots never participate in ack":
+    //   - sd.players[i].isBot: seats seeded as bots at game start.
+    //   - action.payload._activeBotIds: humans converted mid-game by
+    //     BotController (state.players[i].isBot isn't mutated then).
+    const activeBotIds = new Set(
+      ((action?.payload?._activeBotIds as string[] | undefined) ?? []),
+    );
+    const humansRemaining = sd.players
+      .filter((p) => !p.isBot && !activeBotIds.has(p.playerId))
+      .some((p) => !newAcked.includes(p.playerId));
+
+    // Bots auto-ack the moment any live human ack lands. They never need
+    // to read the showdown, but we record their ack for parity / replay.
     const finalAcked = humansRemaining
       ? newAcked
       : Array.from(new Set([...newAcked, ...sd.players.map(p => p.playerId)]));

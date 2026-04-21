@@ -9,7 +9,9 @@ jest.mock('../src/redis/client', () => ({
   redis: {
     sadd: jest.fn().mockResolvedValue(1),
     sismember: jest.fn().mockResolvedValue(0),
-    smembers: jest.fn().mockResolvedValue([]),
+    smembers: jest.fn().mockResolvedValue(['player-join-test']),
+    srem: jest.fn().mockResolvedValue(1),
+    mget: jest.fn().mockResolvedValue(['player-join-test']),
     get: jest.fn().mockResolvedValue(null),
     set: jest.fn().mockResolvedValue('OK'),
     hexists: jest.fn().mockResolvedValue(0),
@@ -84,7 +86,12 @@ describe('joinRoom handler', () => {
     if (client?.connected) client.disconnect();
   });
 
-  it('receives player_joined broadcast after join_room', (done) => {
+  it('receives room_roster with itself after join_room', (done) => {
+    // The joining socket used to also receive its own `player_joined`,
+    // but that raced with the waiting-room seed-self effect and produced
+    // a duplicate entry. Now the joining socket receives the
+    // authoritative `room_roster` list instead; peers receive
+    // `player_joined`.
     client = ioc(`http://localhost:${TEST_PORT}/game`, {
       auth: { token: makeToken('player-join-test') },
     });
@@ -93,8 +100,8 @@ describe('joinRoom handler', () => {
       client.emit('join_room', { roomId: 'test-room-1' });
     });
 
-    client.on('player_joined', (payload: { playerId: string }) => {
-      expect(payload.playerId).toBe('player-join-test');
+    client.on('room_roster', (payload: { players: Array<{ playerId: string }> }) => {
+      expect(payload.players.map((p) => p.playerId)).toContain('player-join-test');
       done();
     });
 

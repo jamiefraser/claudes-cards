@@ -9,6 +9,7 @@ import type { Server, Socket } from 'socket.io';
 import { socketAuthMiddleware } from '../middleware/socketAuth';
 import { joinRoomHandler } from '../handlers/joinRoom';
 import { rejoinRoomHandler } from '../handlers/rejoinRoom';
+import { leaveRoomHandler, type LeaveRoomPayload } from '../handlers/leaveRoom';
 import { gameActionHandler } from '../handlers/gameAction';
 import { requestResyncHandler } from '../handlers/requestResync';
 import { tableChatHandler } from '../handlers/tableChat';
@@ -67,6 +68,12 @@ export function setupGameNamespace(
       });
     });
 
+    socket.on('leave_room', (payload: LeaveRoomPayload) => {
+      leaveRoomHandler(socket, payload).catch((err: Error) => {
+        logger.error('leave_room error', { err: err.message, playerId });
+      });
+    });
+
     socket.on('request_resync', (payload: RequestResyncPayload) => {
       requestResyncHandler(socket, payload).catch((err: Error) => {
         logger.error('request_resync error', { err: err.message, playerId });
@@ -106,6 +113,19 @@ export function setupGameNamespace(
       clearPresence(playerId).catch((err: Error) => {
         logger.error('clearPresence error on disconnect', { err: err.message });
       });
+      // Run the same leave-room cleanup for every waiting-phase room
+      // this socket was in. Without this, a browser-close leaves the
+      // player in `room:players:{roomId}` forever and the WaitingRoom
+      // for the next arrival shows a ghost entry. `socket.rooms`
+      // includes the socket's personal id alongside actual rooms; the
+      // personal id matches `socket.id` so we filter it out.
+      const rooms = Array.from(socket.rooms ?? []);
+      for (const roomId of rooms) {
+        if (roomId === socket.id) continue;
+        leaveRoomHandler(socket, { roomId }).catch((err: Error) => {
+          logger.error('leaveRoom error on disconnect', { err: err.message, roomId });
+        });
+      }
       logger.info('Player disconnected from /game', { playerId, socketId: socket.id });
     });
   });

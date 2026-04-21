@@ -865,6 +865,115 @@ describe('Phase10Engine', () => {
     expect(pd.scoringAcks).toEqual([p1]);
   });
 
+  it('ack-scoring: bots auto-ack — round advances as soon as every HUMAN has acked', () => {
+    // Rule: bots never participate in the hand-end overlay; the next
+    // hand starts as soon as every live human has acked. This lets the
+    // engine's ack-scoring handler short-circuit without waiting for
+    // bot scheduler round-trips.
+    const state = engine.startGame(makeConfig(3));
+    const p1 = state.players[0]!.playerId; // human
+    const p2 = state.players[1]!.playerId; // bot
+    const p3 = state.players[2]!.playerId; // bot
+
+    const scoringState: GameState = {
+      ...state,
+      phase: 'scoring',
+      currentTurn: null,
+      players: state.players.map((p) => {
+        if (p.playerId === p1) {
+          return { ...p, hand: [], isOut: true, phaseLaidDown: true, currentPhase: 1, score: 0, isBot: false };
+        }
+        // p2 and p3 are bots.
+        return { ...p, phaseLaidDown: false, currentPhase: 1, score: 10, isBot: true };
+      }),
+      publicData: {
+        ...state.publicData,
+        handWinnerId: p1,
+        handScores: { [p1]: 0, [p2]: 10, [p3]: 10 },
+        scoringAcks: [],
+      },
+    };
+
+    // Only the human acks — round should advance immediately.
+    const after = engine.applyAction(scoringState, p1, { type: 'ack-scoring' });
+
+    expect(after.phase).toBe('playing');
+    expect(after.roundNumber).toBe(state.roundNumber + 1);
+    after.players.forEach((p) => {
+      expect(p.hand).toHaveLength(10);
+    });
+  });
+
+  it('ack-scoring: mid-game bot takeover — _activeBotIds payload lets engine auto-ack those bots too', () => {
+    // When a human times out mid-game and gets converted to a bot via
+    // BotController, `state.players[i].isBot` isn't mutated — so the
+    // engine can't tell from state alone. The gameActionHandler
+    // compensates by passing the list of currently-bot-controlled
+    // seats via `action.payload._activeBotIds`. The engine reads it.
+    const state = engine.startGame(makeConfig(3));
+    const p1 = state.players[0]!.playerId; // human acking
+    const p2 = state.players[1]!.playerId; // takeover bot (isBot=false in state)
+    const p3 = state.players[2]!.playerId; // human who already acked
+
+    const scoringState: GameState = {
+      ...state,
+      phase: 'scoring',
+      currentTurn: null,
+      players: state.players.map((p) => ({
+        ...p,
+        hand: p.playerId === p1 ? [] : p.hand,
+        isOut: p.playerId === p1,
+        isBot: false, // all flagged as humans at seat level
+      })),
+      publicData: {
+        ...state.publicData,
+        handWinnerId: p1,
+        handScores: { [p1]: 0, [p2]: 5, [p3]: 5 },
+        scoringAcks: [p3], // p3 already acked
+      },
+    };
+
+    // p1 acks with the handler-injected list of currently-bot-controlled seats.
+    const after = engine.applyAction(scoringState, p1, {
+      type: 'ack-scoring',
+      payload: { _activeBotIds: [p2] },
+    });
+
+    expect(after.phase).toBe('playing');
+    expect(after.roundNumber).toBe(state.roundNumber + 1);
+  });
+
+  it('ack-scoring: does NOT advance while a human still hasn\'t acked', () => {
+    const state = engine.startGame(makeConfig(3));
+    const p1 = state.players[0]!.playerId;
+    const p2 = state.players[1]!.playerId;
+    const p3 = state.players[2]!.playerId;
+
+    const scoringState: GameState = {
+      ...state,
+      phase: 'scoring',
+      currentTurn: null,
+      players: state.players.map((p) => ({
+        ...p,
+        hand: p.playerId === p1 ? [] : p.hand,
+        isOut: p.playerId === p1,
+        isBot: false, // all humans
+      })),
+      publicData: {
+        ...state.publicData,
+        handWinnerId: p1,
+        handScores: { [p1]: 0, [p2]: 5, [p3]: 5 },
+        scoringAcks: [],
+      },
+    };
+
+    // Only p1 acks — p2 and p3 are live humans, round must wait.
+    const after = engine.applyAction(scoringState, p1, { type: 'ack-scoring' });
+    expect(after.phase).toBe('scoring');
+    const pd = after.publicData as { scoringAcks?: string[] };
+    expect(pd.scoringAcks).toEqual([p1]);
+  });
+
   it('ack-scoring: all acks deal the next hand, advance phase for players who laid down, preserve scores', () => {
     const state = engine.startGame(makeConfig(2));
     const p1 = state.players[0]!.playerId;
@@ -1403,6 +1512,91 @@ describe('Phase10Engine', () => {
     expect(() =>
       engine.applyAction(build([make('b1', 1, 'blue')]), 'p1', { type: 'hit-meld', payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['b1'] } }),
     ).toThrow();
+  });
+
+  it('hit-meld: a laid-down player can hit ANOTHER player\'s meld (cross-player), subject to rules', () => {
+    // Rule: once you\'ve laid down your own phase, you can add cards to
+    // any player\'s melds (including your own), provided the card is
+    // legal for that meld. Previously we only had a self-hit test; this
+    // one locks in the cross-player path so a future tightening can\'t
+    // accidentally restrict hits to own melds.
+    const make = (id: string, value: number, color: 'red' | 'blue' | 'green' | 'yellow' = 'red') => ({
+      id, deckType: 'phase10' as const, phase10Type: 'number' as const,
+      phase10Color: color, value, faceUp: false,
+    });
+    const p1Fives = [make('p1-5a', 5, 'red'), make('p1-5b', 5, 'blue'), make('p1-5c', 5, 'green')];
+    const p1Eights = [make('p1-8a', 8, 'red'), make('p1-8b', 8, 'blue'), make('p1-8c', 8, 'green')];
+    const p2Sevens = [make('p2-7a', 7, 'red'), make('p2-7b', 7, 'blue'), make('p2-7c', 7, 'green')];
+    const p2Twos = [make('p2-2a', 2, 'red'), make('p2-2b', 2, 'blue'), make('p2-2c', 2, 'green')];
+    const hitMatchingP2Sevens = make('7-hit', 7, 'yellow');  // legal: matches p2's 7s
+    const hitMatchingP2Twos = make('2-hit', 2, 'yellow');    // legal: matches p2's 2s
+    const hitMismatch = make('9-bad', 9);                    // illegal: matches nothing
+
+    const build = (): GameState => ({
+      version: 1, roomId: 'r', gameId: 'phase10', phase: 'playing',
+      players: [
+        {
+          playerId: 'p1', displayName: 'P1',
+          hand: [hitMatchingP2Sevens, hitMatchingP2Twos, hitMismatch],
+          score: 0, isOut: false, isBot: false, currentPhase: 1, phaseLaidDown: true,
+        },
+        {
+          playerId: 'p2', displayName: 'P2',
+          hand: [make('x', 12)],
+          score: 0, isOut: false, isBot: false, currentPhase: 1, phaseLaidDown: true,
+        },
+      ],
+      currentTurn: 'p1', turnNumber: 1, roundNumber: 1,
+      publicData: {
+        drawPile: [], discardPile: [], discardTop: null, drawPileSize: 0,
+        turnPhase: 'discard', skippedPlayers: [],
+        laidDownPhases: {
+          p1: [
+            { type: 'set', cardIds: p1Fives.map(c => c.id), cards: p1Fives.map(c => ({ ...c, faceUp: true })) },
+            { type: 'set', cardIds: p1Eights.map(c => c.id), cards: p1Eights.map(c => ({ ...c, faceUp: true })) },
+          ],
+          p2: [
+            { type: 'set', cardIds: p2Sevens.map(c => c.id), cards: p2Sevens.map(c => ({ ...c, faceUp: true })) },
+            { type: 'set', cardIds: p2Twos.map(c => c.id), cards: p2Twos.map(c => ({ ...c, faceUp: true })) },
+          ],
+        },
+      },
+      updatedAt: new Date().toISOString(),
+    });
+
+    // p1 hitting p2's set of 7s with a 7 — ACCEPT.
+    expect(() =>
+      engine.applyAction(build(), 'p1', {
+        type: 'hit-meld',
+        payload: { targetPlayerId: 'p2', groupIndex: 0, cardIds: ['7-hit'] },
+      }),
+    ).not.toThrow();
+
+    // p1 hitting p2's set of 2s with a 2 — ACCEPT.
+    expect(() =>
+      engine.applyAction(build(), 'p1', {
+        type: 'hit-meld',
+        payload: { targetPlayerId: 'p2', groupIndex: 1, cardIds: ['2-hit'] },
+      }),
+    ).not.toThrow();
+
+    // p1 hitting p2's set of 7s with a 9 — REJECT (rank mismatch).
+    expect(() =>
+      engine.applyAction(build(), 'p1', {
+        type: 'hit-meld',
+        payload: { targetPlayerId: 'p2', groupIndex: 0, cardIds: ['9-bad'] },
+      }),
+    ).toThrow();
+
+    // Confirm the meld that got hit carries the new card (cross-player
+    // hits must mirror cardIds + cards, same as self-hits).
+    const after = engine.applyAction(build(), 'p1', {
+      type: 'hit-meld',
+      payload: { targetPlayerId: 'p2', groupIndex: 0, cardIds: ['7-hit'] },
+    });
+    const updatedMeld = ((after.publicData as Record<string, unknown>)['laidDownPhases'] as Record<string, Array<{ cardIds: string[]; cards?: Array<{ id: string }> }>>)['p2']![0]!;
+    expect(updatedMeld.cardIds).toContain('7-hit');
+    expect((updatedMeld.cards ?? []).map(c => c.id)).toContain('7-hit');
   });
 
   it('hit-meld: wild card is accepted on any group type', () => {

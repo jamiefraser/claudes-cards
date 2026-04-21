@@ -55,25 +55,63 @@ export function WaitingRoom({ roomId }: WaitingRoomProps) {
     };
   }, [roomId]);
 
-  // Seed the joined list with self (the player just socket-joined in TablePage)
+  // Seed the joined list with self (the player just socket-joined in TablePage).
+  // NOTE: the dedup check MUST live inside the functional updater, not in
+  // the outer `if` condition. The outer condition closes over a stale
+  // `joined` value — if a server-emitted `player_joined` event for self
+  // arrives between render and this effect, its setState runs first, then
+  // our setState appends unconditionally, producing a duplicate. Keeping
+  // the check inside the updater reads the latest state atomically.
   useEffect(() => {
-    if (player && !joined.some((j) => j.playerId === player.id)) {
-      setJoined((prev) => [
-        ...prev,
-        { playerId: player.id, displayName: player.displayName },
-      ]);
-    }
-  }, [player, joined]);
+    if (!player) return;
+    setJoined((prev) => {
+      if (prev.some((j) => j.playerId === player.id)) return prev;
+      return [...prev, { playerId: player.id, displayName: player.displayName }];
+    });
+  }, [player]);
 
-  // Subscribe to player_joined / player_left for real-time updates
+  // Subscribe to roster events. `room_roster` is the authoritative list
+  // delivered by the server on join/rejoin; the others are incremental
+  // deltas. All three paths collapse through the same dedup gate so a
+  // player can never appear twice in the list.
   useEffect(() => {
     const socket = getGameSocket();
 
+    function addOrUpdate(
+      entry: { playerId: string; displayName: string },
+      prev: JoinedPlayer[],
+    ): JoinedPlayer[] {
+      const existing = prev.findIndex((j) => j.playerId === entry.playerId);
+      if (existing === -1) return [...prev, entry];
+      // Already present — update displayName if it changed but never append.
+      if (prev[existing]!.displayName === entry.displayName) return prev;
+      const copy = [...prev];
+      copy[existing] = entry;
+      return copy;
+    }
+
     function onPlayerJoined(payload: { playerId: string; displayName: string }) {
-      setJoined((prev) => {
-        if (prev.some((j) => j.playerId === payload.playerId)) return prev;
-        return [...prev, payload];
-      });
+      setJoined((prev) => addOrUpdate(payload, prev));
+    }
+    function onPlayerRejoined(payload: { playerId: string; displayName: string }) {
+      // A rejoin is semantically "still there" — merge without duplicating.
+      setJoined((prev) => addOrUpdate(payload, prev));
+    }
+    function onPlayerLeft(payload: { playerId: string }) {
+      setJoined((prev) => prev.filter((j) => j.playerId !== payload.playerId));
+    }
+    function onRoster(payload: { players: Array<{ playerId: string; displayName: string }> }) {
+      // Authoritative replacement — drop any stale local state and adopt
+      // the server's current member list. Still dedup defensively in case
+      // the payload itself has dupes from an upstream bug.
+      const seen = new Set<string>();
+      const deduped: JoinedPlayer[] = [];
+      for (const p of payload.players ?? []) {
+        if (seen.has(p.playerId)) continue;
+        seen.add(p.playerId);
+        deduped.push(p);
+      }
+      setJoined(deduped);
     }
 
     function onGameError(payload: { code: string; message: string }) {
@@ -82,10 +120,16 @@ export function WaitingRoom({ roomId }: WaitingRoomProps) {
     }
 
     socket.on('player_joined', onPlayerJoined);
+    socket.on('player_rejoined', onPlayerRejoined);
+    socket.on('player_left', onPlayerLeft);
+    socket.on('room_roster', onRoster);
     socket.on('game_error', onGameError);
 
     return () => {
       socket.off('player_joined', onPlayerJoined);
+      socket.off('player_rejoined', onPlayerRejoined);
+      socket.off('player_left', onPlayerLeft);
+      socket.off('room_roster', onRoster);
       socket.off('game_error', onGameError);
     };
   }, [toast]);

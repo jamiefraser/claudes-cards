@@ -90,10 +90,31 @@ export async function gameActionHandler(
       return;
     }
 
+    // For ack-* actions: inject the set of currently-bot-controlled seats
+    // into the action payload so the engine can treat them as already-
+    // acknowledged. The engine can't see mid-game bot takeovers from
+    // state alone (state.players[i].isBot is only the seat-level flag),
+    // so this keeps the rule "bots never participate in ack" correct
+    // regardless of how a seat became bot-controlled.
+    const ACK_ACTIONS = new Set(['ack-scoring', 'ack-show', 'ack-count']);
+    let effectiveAction = action;
+    if (ACK_ACTIONS.has(action.type)) {
+      const activeBotIds: string[] = [];
+      for (const p of state.players) {
+        if (botController.isBotActive(roomId, p.playerId)) {
+          activeBotIds.push(p.playerId);
+        }
+      }
+      effectiveAction = {
+        ...action,
+        payload: { ...(action.payload ?? {}), _activeBotIds: activeBotIds },
+      };
+    }
+
     // Apply action
     let nextState: GameState;
     try {
-      nextState = engine.applyAction(state, playerId, action);
+      nextState = engine.applyAction(state, playerId, effectiveAction);
     } catch (err) {
       logger.warn('gameAction: applyAction failed', { roomId, playerId, action: action.type, err: String(err) });
       socket.emit('game_error', { code: 'INVALID_ACTION', message: String(err) });

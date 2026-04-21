@@ -169,7 +169,7 @@ export class Phase10Engine implements IGameEngine {
     // hand-end overlay can submit it regardless of currentTurn. All other
     // actions require the normal turn guard.
     if (action.type === 'ack-scoring') {
-      return this.handleAckScoring(state, playerId, pd);
+      return this.handleAckScoring(state, playerId, pd, action);
     }
 
     if (state.currentTurn !== playerId) {
@@ -703,6 +703,7 @@ export class Phase10Engine implements IGameEngine {
     state: GameState,
     playerId: string,
     pd: Phase10PublicData,
+    action?: PlayerAction,
   ): GameState {
     if (state.phase !== 'scoring') {
       // No-op in any other phase; a stray ack from a slow client is safe
@@ -714,14 +715,34 @@ export class Phase10Engine implements IGameEngine {
 
     const acks = new Set(pd.scoringAcks ?? []);
     acks.add(playerId);
+
+    // Bots never participate in hand-end acknowledgement — the next hand
+    // starts as soon as every live human has acked. Two ways a seat can
+    // be a bot:
+    //   1. `state.players[i].isBot` — bots seeded at game start.
+    //   2. `action.payload._activeBotIds` — humans converted mid-game by
+    //      BotController when their async timer fired. The handler
+    //      passes this list through since state.players[i].isBot isn't
+    //      mutated on mid-game takeover.
+    // Auto-ack every bot so downstream logic sees a complete set.
+    const activeBotIds = new Set(
+      ((action?.payload?._activeBotIds as string[] | undefined) ?? []),
+    );
+    for (const p of state.players) {
+      if (p.isBot || activeBotIds.has(p.playerId)) acks.add(p.playerId);
+    }
     const newAcks = [...acks];
 
-    // Required acks = every seated player. Bots ack through their strategy,
-    // so the same set-equality check works for human-only and mixed rooms.
-    const allAcked = state.players.every((p) => acks.has(p.playerId));
+    // A "live" seat is one whose player is neither a seat-level bot nor
+    // currently bot-controlled. Those are the only seats that must have
+    // acked for us to advance.
+    const liveSeats = state.players.filter(
+      (p) => !p.isBot && !activeBotIds.has(p.playerId),
+    );
+    const allHumansAcked = liveSeats.every((p) => acks.has(p.playerId));
 
-    if (!allAcked) {
-      // Still waiting on someone — just record the ack.
+    if (!allHumansAcked) {
+      // Still waiting on a live human — just record the ack.
       const updatedPD: Phase10PublicData = { ...pd, scoringAcks: newAcks };
       return {
         ...state,

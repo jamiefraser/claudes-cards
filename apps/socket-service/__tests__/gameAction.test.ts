@@ -9,6 +9,8 @@ jest.mock('../src/redis/client', () => ({
     sadd: jest.fn().mockResolvedValue(1),
     sismember: jest.fn().mockResolvedValue(1),
     smembers: jest.fn().mockResolvedValue(['player-action-test']),
+    srem: jest.fn().mockResolvedValue(1),
+    mget: jest.fn().mockResolvedValue([]),
     get: jest.fn(),
     set: jest.fn().mockResolvedValue('OK'),
     hexists: jest.fn().mockResolvedValue(0),

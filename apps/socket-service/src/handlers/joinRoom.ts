@@ -24,7 +24,9 @@ export async function joinRoomHandler(socket: Socket, payload: JoinRoomPayload):
   }
 
   try {
-    // Add player to room:players SET
+    // SADD is idempotent — a reconnect or duplicate join_room (e.g. from
+    // a stale client retry) leaves the set unchanged. That's our primary
+    // dedup guarantee.
     await redis.sadd(`room:players:${roomId}`, playerId);
 
     // Cache displayName so startGame can swap in real names instead of the
@@ -53,15 +55,42 @@ export async function joinRoomHandler(socket: Socket, payload: JoinRoomPayload):
     // Send full state to the joining player
     socket.emit('game_state_sync', syncPayload);
 
-    // Broadcast player_joined to everyone else in the room
-    socket.to(roomId).emit('player_joined', { playerId, displayName });
+    // Send the AUTHORITATIVE roster to the joining player so the waiting-
+    // room view doesn't have to reconstruct it from player_joined deltas
+    // (it can't — it only sees events that arrive after it subscribed).
+    // This is the single source of truth; the deltas below are for
+    // already-subscribed peers.
+    const roster = await buildRoster(roomId);
+    socket.emit('room_roster', { players: roster });
 
-    // Also emit to self so tests can confirm the join
-    socket.emit('player_joined', { playerId, displayName });
+    // Broadcast player_joined to peers already in the room. Do NOT emit
+    // it to the joining socket too — that used to race with the waiting-
+    // room's seed effect and produced a double-add. The joining socket
+    // gets its authoritative list via `room_roster` above.
+    socket.to(roomId).emit('player_joined', { playerId, displayName });
 
     logger.info('Player joined room', { roomId, playerId });
   } catch (err) {
     logger.error('joinRoom error', { roomId, playerId, err: String(err) });
     socket.emit('game_error', { code: 'JOIN_FAILED', message: 'Failed to join room' });
   }
+}
+
+/**
+ * Build the current player roster for a room by intersecting the
+ * authoritative `room:players:{roomId}` SET with cached display names.
+ * Returned list is deduped by construction (the SET is). Used by both
+ * joinRoom and leaveRoom to send `room_roster` to interested clients.
+ */
+export async function buildRoster(
+  roomId: string,
+): Promise<Array<{ playerId: string; displayName: string }>> {
+  const playerIds = await redis.smembers(`room:players:${roomId}`);
+  if (playerIds.length === 0) return [];
+  const nameKeys = playerIds.map((id) => `player:displayName:${id}`);
+  const names = await redis.mget(...nameKeys);
+  return playerIds.map((id, i) => ({
+    playerId: id,
+    displayName: names[i] ?? id,
+  }));
 }

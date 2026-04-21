@@ -8,7 +8,11 @@ jest.mock('../src/redis/client', () => ({
   redis: {
     sadd: jest.fn().mockResolvedValue(1),
     sismember: jest.fn().mockResolvedValue(0),
+    smembers: jest.fn().mockResolvedValue([]),
+    srem: jest.fn().mockResolvedValue(1),
+    exists: jest.fn().mockResolvedValue(0),
     get: jest.fn().mockResolvedValue(null),
+    mget: jest.fn().mockResolvedValue([]),
     set: jest.fn().mockResolvedValue('OK'),
     lpush: jest.fn().mockResolvedValue(1),
     ltrim: jest.fn().mockResolvedValue('OK'),
@@ -24,6 +28,7 @@ jest.mock('../src/redis/pubsub', () => ({
 
 import { joinRoomHandler } from '../src/handlers/joinRoom';
 import { rejoinRoomHandler } from '../src/handlers/rejoinRoom';
+import { leaveRoomHandler } from '../src/handlers/leaveRoom';
 import { tableChatHandler } from '../src/handlers/tableChat';
 import type { BotController } from '../src/bots/BotController';
 import { redis } from '../src/redis/client';
@@ -33,13 +38,17 @@ const mockRedis = redis as jest.Mocked<typeof redis>;
 function makeSocket(playerId: string) {
   const emit = jest.fn();
   const join = jest.fn().mockResolvedValue(undefined);
+  const leave = jest.fn().mockResolvedValue(undefined);
+  const toEmit = jest.fn();
   const nsp = { to: jest.fn().mockReturnValue({ emit: jest.fn() }) };
   return {
     data: { user: { playerId, username: playerId, displayName: 'Display', role: 'player' } },
     emit,
     join,
-    to: jest.fn().mockReturnValue({ emit: jest.fn() }),
+    leave,
+    to: jest.fn().mockReturnValue({ emit: toEmit }),
     nsp,
+    _toEmit: toEmit,
   } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 }
 
@@ -84,6 +93,61 @@ describe('joinRoomHandler', () => {
       'game_error',
       expect.objectContaining({ code: 'JOIN_FAILED' }),
     );
+  });
+
+  it('emits room_roster to the joining socket (authoritative initial list)', async () => {
+    (mockRedis.smembers as jest.Mock).mockResolvedValueOnce(['p1', 'p2']);
+    (mockRedis.mget as jest.Mock).mockResolvedValueOnce(['Alice', 'Bob']);
+    const socket = makeSocket('p1');
+    await joinRoomHandler(socket, { roomId: 'r1' });
+    const rosterCall = socket.emit.mock.calls.find(
+      ([e]: string[]) => e === 'room_roster',
+    );
+    expect(rosterCall).toBeDefined();
+    expect(rosterCall[1].players).toEqual([
+      { playerId: 'p1', displayName: 'Alice' },
+      { playerId: 'p2', displayName: 'Bob' },
+    ]);
+  });
+
+  it('does NOT self-emit player_joined (prevents waiting-room double-add race)', async () => {
+    const socket = makeSocket('p1');
+    await joinRoomHandler(socket, { roomId: 'r1' });
+    const selfJoined = socket.emit.mock.calls.find(
+      ([e]: string[]) => e === 'player_joined',
+    );
+    expect(selfJoined).toBeUndefined();
+    // But the broadcast to peers must still happen.
+    expect(socket.to).toHaveBeenCalledWith('r1');
+  });
+});
+
+describe('leaveRoomHandler', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('is a no-op when roomId is missing (doesn\'t throw)', async () => {
+    const socket = makeSocket('p1');
+    await expect(leaveRoomHandler(socket, { roomId: '' })).resolves.toBeUndefined();
+    expect(mockRedis.srem).not.toHaveBeenCalled();
+  });
+
+  it('removes the player from room:players and broadcasts player_left when game has NOT started', async () => {
+    (mockRedis.exists as jest.Mock).mockResolvedValueOnce(0);
+    const socket = makeSocket('p1');
+    await leaveRoomHandler(socket, { roomId: 'r1' });
+    expect(mockRedis.srem).toHaveBeenCalledWith('room:players:r1', 'p1');
+    expect(socket.to).toHaveBeenCalledWith('r1');
+    expect(socket._toEmit).toHaveBeenCalledWith('player_left', { playerId: 'p1' });
+  });
+
+  it('keeps the roster entry when a game is already in progress', async () => {
+    (mockRedis.exists as jest.Mock).mockResolvedValueOnce(1);
+    const socket = makeSocket('p1');
+    await leaveRoomHandler(socket, { roomId: 'r1' });
+    expect(mockRedis.srem).not.toHaveBeenCalled();
+    // No player_left broadcast either — peers in an active game should not
+    // see a leave event for a mid-hand disconnect.
+    expect(socket._toEmit).not.toHaveBeenCalledWith('player_left', expect.anything());
   });
 });
 

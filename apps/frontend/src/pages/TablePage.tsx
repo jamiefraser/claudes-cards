@@ -38,9 +38,19 @@ export function TablePage() {
 
     const socket = getGameSocket();
 
+    // Emit join_room on the FIRST connection only. Subsequent reconnects
+    // use rejoin_room (see onConnect below). Previously this effect
+    // emitted join_room inline AND the onConnect listener re-emitted
+    // join_room on the initial 'connect' event, which produced two
+    // server-side joinRoom runs per mount and a double broadcast of
+    // `player_joined` — that was the "same player twice" bug in the
+    // WaitingRoom (compounded by a stale-closure dedup there).
     const joinPayload: JoinRoomPayload = { roomId };
-    socket.emit('join_room', joinPayload);
-    logger.info('TablePage: join_room emitted', { roomId });
+    if (socket.connected) {
+      socket.emit('join_room', joinPayload);
+      logger.info('TablePage: join_room emitted (already connected)', { roomId });
+    }
+    // If not yet connected, onConnect below will fire first and emit it.
 
     const onSync = (payload: GameStateSyncPayload) => {
       if (!payload.state) {
@@ -63,9 +73,20 @@ export function TablePage() {
       setPhase('playing');
     };
 
+    let hasJoinedOnce = socket.connected;
     const onConnect = () => {
       setConnectionStatus('connected');
-      socket.emit('join_room', { roomId } satisfies JoinRoomPayload);
+      if (!hasJoinedOnce) {
+        // First connect since mount — do a fresh join.
+        socket.emit('join_room', { roomId } satisfies JoinRoomPayload);
+        hasJoinedOnce = true;
+        logger.info('TablePage: join_room emitted on connect', { roomId });
+      } else {
+        // Reconnect — use rejoin_room so the server verifies membership
+        // and sends state without re-broadcasting a join event.
+        socket.emit('rejoin_room', { roomId });
+        logger.info('TablePage: rejoin_room emitted after reconnect', { roomId });
+      }
     };
 
     const onDisconnect = () => {

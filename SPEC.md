@@ -743,7 +743,13 @@ The Phase 10 bot uses a priority-ordered rule set on its turn:
 **Rule hooks that apply regardless of strategy:**
 
 - **Skip card on the discard pile** — whether placed there via `play-skip` (targeting a specific player) or by a bare `discard` of a skip, the next-in-rotation non-out player loses their turn. In a 2-player game, this means the discarder plays the next turn.
-- **Cross-player melds** — once a player has laid down, they may add cards to *any* laid-down meld (their own or an opponent's), not just their own.
+- **Cross-player melds** — once a player has laid down, they may add cards to *any* laid-down meld (their own or an opponent's), not just their own. The meld's **owner doesn't affect validity** — the card just has to be legal for that meld under the rules below.
+- **Hit-meld legality** — the card being added must fit the meld's type:
+  - **Set**: the card's value must equal the set's rank (or be wild).
+  - **Run**: the card's value must extend the run without duplicating an existing value, and the resulting span must still be coverable by the wilds already in the meld. Range slides as cards are added — e.g. after a 7 lands on `8-9-10-11`, the next hit accepts 6 or 12.
+  - **Colour**: the card's colour must match the meld's colour (or be wild).
+  - **Skip cards** may never hit any meld.
+  - Enforced by `canHitMeld` in `apps/socket-service/src/games/phase10/engine.ts` and mirrored client-side in `apps/frontend/src/utils/phase10HitRules.ts`.
 - **Never return `pass` mid-turn.** If the strategy can find no legal action, fall back through `fallbackAction` → rightmost discard. `pass` is reserved for "it isn't my turn" signals (e.g. cribbage parallel-discard already complete); using it during your own turn will strand the schedule keys and hang the bot.
 
 ### 9.6 Bot UI Representation

@@ -31,6 +31,9 @@ const knownAuthorities = (import.meta.env.VITE_B2C_KNOWN_AUTHORITIES as string |
   ?.split(',')
   .map((s) => s.trim())
   .filter(Boolean) ?? [];
+// Login and logout always land on the app root. B2C must have the root URL
+// registered as both a Redirect URI and a Post-logout Redirect URI;
+// otherwise B2C falls back to its own hosted signed-out page.
 const redirectUri =
   (import.meta.env.VITE_B2C_REDIRECT_URI as string | undefined) ??
   (typeof window !== 'undefined' ? window.location.origin : '');
@@ -46,7 +49,10 @@ const msalInstance = missingConfig
         knownAuthorities,
         redirectUri,
         postLogoutRedirectUri: redirectUri,
-        navigateToLoginRequestUrl: true,
+        // Stay at redirectUri (the app root) after login. When true, MSAL
+        // navigates back to whatever deep-link URL initiated loginRedirect,
+        // which is not what we want — the user should always land at /.
+        navigateToLoginRequestUrl: false,
       },
       cache: {
         cacheLocation: BrowserCacheLocation.LocalStorage,
@@ -200,9 +206,14 @@ export function MsalAuthProvider({ children }: { children: React.ReactNode }) {
     setPlayer(null);
     if (msalInstance) {
       const account = msalInstance.getActiveAccount() ?? msalInstance.getAllAccounts()[0];
+      // Send the browser back to the app root after B2C signs the user out.
+      // Fall back to window.location.origin so we never inherit a deep-link
+      // path from VITE_B2C_REDIRECT_URI.
+      const postLogoutRedirectUri =
+        typeof window !== 'undefined' ? window.location.origin : redirectUri;
       void msalInstance.logoutRedirect({
         account,
-        postLogoutRedirectUri: redirectUri,
+        postLogoutRedirectUri,
       });
     }
   }, []);

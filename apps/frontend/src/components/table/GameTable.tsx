@@ -863,7 +863,7 @@ export function GameTable({ roomId }: GameTableProps) {
                     <div
                       key={p.playerId}
                       className="flex-none snap-start flex flex-col items-center gap-1.5"
-                      style={{ minWidth: melds.length > 0 ? 260 : 140 }}
+                      style={{ minWidth: melds.length > 0 ? 200 : 140 }}
                     >
                       {isBot ? (
                         <BotSeat
@@ -889,7 +889,7 @@ export function GameTable({ roomId }: GameTableProps) {
                           groups={melds}
                           cardCatalogue={cardCatalogue}
                           label={`${p.displayName}'s melds`}
-                          scale="full"
+                          scale="medium"
                           dropTargetPlayerId={
                             gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
                               ? p.playerId
@@ -1050,13 +1050,14 @@ export function GameTable({ roomId }: GameTableProps) {
               {/* Radial opponent seats pinned to the felt's geometric centre.
                   Desktop only — below lg the opponents render as the mobile
                   strip above the felt instead.
-                  The seat pill is anchored at the ellipse point (outside or
-                  just inside the felt edge depending on where on the
-                  ellipse the seat sits) and melds always hang DOWN from
-                  the pill at full card size. Overlap with the green felt
-                  is accepted: a tall meld drops onto the felt rather than
-                  floating off the top of the viewport where the previous
-                  layout pushed it out of view. */}
+                  The seat pill and the meld stack are two INDEPENDENTLY
+                  anchored elements at the ellipse point. The seat renders
+                  ABOVE the anchor (bottom edge at the ellipse point — so
+                  top-positioned opponents' pills land fully above the felt
+                  top) while the melds render BELOW (top edge at the
+                  ellipse point, overlapping the upper felt). Splitting the
+                  two stops the stack from growing into a tall vertical
+                  strip that cuts through the felt centre. */}
               <div
                 className="hidden lg:block absolute pointer-events-auto"
                 style={{ left: FELT_W / 2, top: FELT_H / 2, width: 0, height: 0 }}
@@ -1095,27 +1096,54 @@ export function GameTable({ roomId }: GameTableProps) {
                         compact={isRummyFamily}
                       />
                     );
-                    const meldsNode = melds.length > 0 ? (
-                      <MeldsArea
-                        groups={melds}
-                        cardCatalogue={cardCatalogue}
-                        label={`${p.displayName}'s melds`}
-                        scale="full"
-                        dropTargetPlayerId={
-                          gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
-                            ? p.playerId
-                            : undefined
-                        }
-                      />
-                    ) : null;
                     return (
-                      <div
-                        className="flex flex-col items-center gap-1.5"
-                        style={{ transform: 'translate(-50%, 0)' }}
-                      >
-                        {seatNode}
-                        {meldsNode}
-                      </div>
+                      <>
+                        {/* Seat pill — bottom-centre lands AT the ellipse
+                            anchor, so the pill sits entirely above the
+                            anchor point (outside the felt for top
+                            opponents). A 4px gap between pill and anchor
+                            keeps the pill from hugging the felt edge. */}
+                        <div
+                          className="absolute"
+                          style={{
+                            left: 0,
+                            top: 0,
+                            transform: 'translate(-50%, calc(-100% - 4px))',
+                          }}
+                        >
+                          {seatNode}
+                        </div>
+                        {/* Melds — top-centre AT the ellipse anchor, so
+                            the stack grows DOWN from there. Scale=medium
+                            (0.75) keeps the stack short enough that it
+                            overlaps only the upper band of the felt and
+                            doesn't reach the draw/discard area. A
+                            max-height + scroll guard handles extreme
+                            scenarios (e.g. 8-card phase 10 laid down). */}
+                        {melds.length > 0 && (
+                          <div
+                            className="absolute overflow-y-auto no-scrollbar"
+                            style={{
+                              left: 0,
+                              top: 8,
+                              transform: 'translate(-50%, 0)',
+                              maxHeight: 200,
+                            }}
+                          >
+                            <MeldsArea
+                              groups={melds}
+                              cardCatalogue={cardCatalogue}
+                              label={`${p.displayName}'s melds`}
+                              scale="medium"
+                              dropTargetPlayerId={
+                                gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
+                                  ? p.playerId
+                                  : undefined
+                              }
+                            />
+                          </div>
+                        )}
+                      </>
                     );
                   }}
                 />

@@ -20,6 +20,8 @@ jest.mock('../src/redis/client', () => ({
     hset: jest.fn().mockResolvedValue(1),
     hdel: jest.fn().mockResolvedValue(1),
     hgetall: jest.fn().mockResolvedValue(null),
+    incr: jest.fn().mockResolvedValue(1),
+    expire: jest.fn().mockResolvedValue(1),
   },
 }));
 

@@ -1,0 +1,17 @@
+- generic [ref=e2]:
+  - main [ref=e338]:
+    - generic [ref=e339]:
+      - button "← Back to lobby" [ref=e340] [cursor=pointer]
+      - heading "Audit Room" [level=1] [ref=e341]
+      - paragraph [ref=e342]: phase10 — 1 of 2 seats filled
+      - region "Players in room" [ref=e343]:
+        - heading "Players" [level=2] [ref=e344]
+        - list [ref=e345]:
+          - listitem [ref=e346]:
+            - generic [ref=e348]: TestPlayer1
+            - generic [ref=e349]: HOST
+          - listitem [ref=e350]: Empty seat
+      - button "Start Game" [ref=e351] [cursor=pointer]
+  - status [ref=e353]:
+    - generic [ref=e354]: Create
+    - button "Dismiss notification" [ref=e355] [cursor=pointer]: ×

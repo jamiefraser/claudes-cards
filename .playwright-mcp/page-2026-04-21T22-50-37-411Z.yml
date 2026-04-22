@@ -1,0 +1,136 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e5]:
+        - generic [ref=e9]: Room 10D346 · Hand 1/1
+        - generic [ref=e11]:
+          - button "End and delete this game" [ref=e12] [cursor=pointer]:
+            - generic [ref=e13]: ⏻
+          - button "Open settings" [ref=e14] [cursor=pointer]:
+            - generic [ref=e15]: ⚙
+        - button "Open rules" [ref=e16] [cursor=pointer]:
+          - generic [ref=e17]: Rules
+          - generic [ref=e18]: ❦
+        - generic [ref=e19]:
+          - generic [ref=e23]:
+            - button "Draw pile — 23 cards remaining" [ref=e24] [cursor=pointer]:
+              - generic [ref=e25]: "23"
+            - button "Discard pile" [ref=e27] [cursor=pointer]
+          - generic [ref=e30]:
+            - generic "Bot 1 (Bot) seat" [ref=e31]:
+              - generic "Bot is playing for Bot 1 — they may return" [ref=e32]: BOT
+              - img [ref=e33]
+              - generic [ref=e46]: Bot 1(Bot)
+              - generic [ref=e47]: 0 cards
+              - generic [ref=e48]:
+                - generic [ref=e49]: "0"
+                - generic [ref=e50]: pts
+            - generic "Bot 1's melds" [ref=e51]:
+              - generic [ref=e52]: Bot 1's melds
+              - generic [ref=e53]:
+                - generic "set of 6" [ref=e54]:
+                  - generic [ref=e55]: Set
+                  - generic [ref=e56]:
+                    - button "red 2" [ref=e59] [cursor=pointer]:
+                      - img "red 2" [ref=e60]
+                    - button "blue 2" [ref=e63] [cursor=pointer]:
+                      - img "blue 2" [ref=e64]
+                    - button "green 2" [ref=e67] [cursor=pointer]:
+                      - img "green 2" [ref=e68]
+                    - button "Wild card" [ref=e71] [cursor=pointer]:
+                      - img "Wild card" [ref=e72]
+                    - button "Wild card" [ref=e75] [cursor=pointer]:
+                      - img "Wild card" [ref=e76]
+                    - button "Wild card" [ref=e79] [cursor=pointer]:
+                      - img "Wild card" [ref=e80]
+                - generic "set of 4" [ref=e81]:
+                  - generic [ref=e82]: Set
+                  - generic [ref=e83]:
+                    - button "blue 5" [ref=e86] [cursor=pointer]:
+                      - img "blue 5" [ref=e87]
+                    - button "yellow 5" [ref=e90] [cursor=pointer]:
+                      - img "yellow 5" [ref=e91]
+                    - button "Wild card" [ref=e94] [cursor=pointer]:
+                      - img "Wild card" [ref=e95]
+                    - button "green 5" [ref=e98] [cursor=pointer]:
+                      - img "green 5" [ref=e99]
+        - generic [ref=e100]:
+          - toolbar "Game actions" [ref=e101]:
+            - button "Draw from deck" [disabled] [ref=e102]: Draw Deck
+            - button "Take top card" [disabled] [ref=e103]: Take Top
+            - button "Lay down selected cards" [disabled] [ref=e104]: Lay Down
+            - button "Discard selected card" [disabled] [ref=e105]: Discard
+            - button "Skip turn" [disabled] [ref=e106]: Skip Turn
+            - generic [ref=e107]: Waiting for players…
+          - 'generic "Phase 1. Objective: 2 sets of 3" [ref=e109]':
+            - generic [ref=e110]: Phase 1
+            - generic [ref=e111]: "Objective: 2 sets of 3"
+            - button "Show all phases" [ref=e112] [cursor=pointer]
+          - list "Your hand" [ref=e113]:
+            - listitem [ref=e114]:
+              - button "Card 1 of 10" [ref=e115] [cursor=pointer]:
+                - img "red 3" [ref=e116]
+            - listitem [ref=e117]:
+              - button "Card 2 of 10" [ref=e118] [cursor=pointer]:
+                - img "green 12" [ref=e119]
+            - listitem [ref=e120]:
+              - button "Card 3 of 10" [ref=e121] [cursor=pointer]:
+                - img "red 9" [ref=e122]
+            - listitem [ref=e123]:
+              - button "Card 4 of 10" [ref=e124] [cursor=pointer]:
+                - img "yellow 6" [ref=e125]
+            - listitem [ref=e126]:
+              - button "Card 5 of 10" [ref=e127] [cursor=pointer]:
+                - img "blue 6" [ref=e128]
+            - listitem [ref=e129]:
+              - button "Card 6 of 10" [ref=e130] [cursor=pointer]:
+                - img "red 1" [ref=e131]
+            - listitem [ref=e132]:
+              - button "Card 7 of 10" [ref=e133] [cursor=pointer]:
+                - img "red 6" [ref=e134]
+            - listitem [ref=e135]:
+              - button "Card 8 of 10" [ref=e136] [cursor=pointer]:
+                - img "green 9" [ref=e137]
+            - listitem [ref=e138]:
+              - button "Card 9 of 10" [ref=e139] [cursor=pointer]:
+                - img "blue 3" [ref=e140]
+            - listitem [ref=e141]:
+              - button "Card 10 of 10" [ref=e142] [cursor=pointer]:
+                - img "green 11" [ref=e143]
+          - generic [ref=e144]:
+            - generic [ref=e145]:
+              - generic [ref=e146]: TestPlayer1
+              - generic [ref=e147]: ·
+              - generic [ref=e148]: "60"
+            - button "Sort hand by rank" [ref=e149] [cursor=pointer]: Rank
+            - button "Sort hand by suit" [ref=e150] [cursor=pointer]: Suit
+      - complementary "Chat" [ref=e151]:
+        - paragraph [ref=e153]: No messages yet.
+        - generic [ref=e154]:
+          - textbox "Type a message…" [ref=e155]
+          - button "Send" [disabled] [ref=e156]
+    - status [ref=e157]
+  - dialog "Bot 1 went out" [ref=e158]:
+    - generic [ref=e160]:
+      - generic [ref=e161]:
+        - paragraph [ref=e162]: Hand complete
+        - heading "Bot 1 went out" [level=2] [ref=e163]
+      - list [ref=e164]:
+        - listitem [ref=e165]:
+          - generic [ref=e166]:
+            - generic [ref=e168]: Bot 1
+            - generic [ref=e169]: Winner
+            - generic [ref=e170]: Phase 1 ✓
+          - generic [ref=e171]:
+            - 'generic "Points this hand: 0" [ref=e172]': ±0
+            - generic [ref=e173]: "0"
+            - generic [ref=e174]: pts
+        - listitem [ref=e175]:
+          - generic [ref=e176]:
+            - generic [ref=e178]: TestPlayer1
+            - generic [ref=e179]: Phase 1
+          - generic [ref=e180]:
+            - 'generic "Points this hand: 60" [ref=e181]': "+60"
+            - generic [ref=e182]: "60"
+            - generic [ref=e183]: pts
+      - button "Ready for next hand" [active] [ref=e185] [cursor=pointer]

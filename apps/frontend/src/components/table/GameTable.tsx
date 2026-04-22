@@ -720,12 +720,15 @@ export function GameTable({ roomId }: GameTableProps) {
 
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <div className="relative flex flex-col lg:flex-row min-h-screen bg-night overflow-hidden font-sans text-parchment">
+      <div className="relative flex flex-col lg:flex-row min-h-screen bg-paper font-sans text-ink">
         {botAnnouncerEl}
 
         <div className="relative flex-1 min-w-0">
-          {/* Floating chrome — top-left: room info + turn banner */}
-          <div className="absolute top-5 left-6 z-20 flex flex-col gap-2">
+          {/* Floating chrome — top-left: room info + turn banner.
+              On `lg` (1440+) absolutely pinned over the felt. Below `lg`
+              relative at the top of the flow so it doesn't overlap the
+              opponent rail. */}
+          <div className="lg:absolute lg:top-5 lg:left-6 relative px-3 sm:px-6 pt-3 z-raised flex flex-row lg:flex-col items-start gap-2 flex-wrap">
             <RoomInfoPill
               roomCode={roomId.slice(-6).toUpperCase()}
               currentHand={currentHand}
@@ -736,9 +739,9 @@ export function GameTable({ roomId }: GameTableProps) {
                 aria-live="polite"
                 className={[
                   'inline-flex items-center gap-2 self-start px-3 py-1 rounded-full',
-                  'bg-night-raised/70 backdrop-blur border border-brass/20',
+                  'bg-paper-raised/85 backdrop-blur border border-hairline',
                   'font-display italic text-sm',
-                  isMyTurn ? 'text-brand-secondary animate-turn-pulse' : 'text-parchment/70',
+                  isMyTurn ? 'text-ochre animate-turn-pulse' : 'text-ink-soft',
                 ].join(' ')}
               >
                 <span aria-hidden>{isMyTurn ? '◆' : '○'}</span>
@@ -746,7 +749,7 @@ export function GameTable({ roomId }: GameTableProps) {
               </div>
             )}
             {dealerId && (
-              <div className="inline-flex items-center gap-2 self-start px-3 py-1 rounded-full bg-night-raised/60 border border-brass/15 text-xs text-brass-bright/80">
+              <div className="inline-flex items-center gap-2 self-start px-3 py-1 rounded-full bg-paper-raised/75 border border-hairline/70 text-xs text-ochre">
                 <span aria-hidden>♦</span>
                 <span>
                   {dealerId === player?.id
@@ -808,7 +811,7 @@ export function GameTable({ roomId }: GameTableProps) {
             );
             const canEnd = amHost && otherHumans.length === 0;
             return (
-              <div className="absolute top-5 right-6 z-20">
+              <div className="lg:absolute lg:top-5 lg:right-6 absolute top-3 right-3 z-raised">
                 <SettingsPopover onEndGame={canEnd ? handleEndGame : undefined} />
               </div>
             );
@@ -830,23 +833,18 @@ export function GameTable({ roomId }: GameTableProps) {
           })()}
 
           {/*
-            Mobile opponent strip.
-            Radial seating doesn't work below the lg breakpoint — the seats
-            get pinned to `felt-center ± 536px`, which overflows any viewport
-            narrower than ~1080px. Below lg we render the same roster as a
-            horizontally-scrolling strip so every opponent is still reachable
-            on a phone without cropping the felt.
+            Mobile opponent rail.
+            Radial seating only works at `lg` (1440px+) — below that the
+            seats would overflow the felt. The rail sits in its OWN band
+            above the felt (no absolute positioning on top of the green),
+            horizontally-scrollable to reach each opponent, hairline-ruled
+            at the bottom so the seating area reads as a distinct zone.
           */}
           <div
-            className="lg:hidden absolute left-0 right-0 z-10 overflow-x-auto overflow-y-hidden"
-            style={{
-              top: 'calc(var(--mobile-chrome-h, 88px))',
-              WebkitOverflowScrolling: 'touch',
-              scrollbarWidth: 'none',
-            }}
+            className="lg:hidden relative z-raised pt-2 pb-3 px-3 sm:px-5 overflow-hidden border-b border-hairline/50"
             aria-label="Other players"
           >
-            <div className="flex flex-row gap-2 px-3 pb-2 snap-x snap-mandatory">
+            <div className="no-scrollbar flex flex-row gap-2 overflow-x-auto snap-x snap-mandatory">
               {radialItems
                 .filter((i) => i.kind === 'opponent')
                 .map((item) => {
@@ -884,8 +882,12 @@ export function GameTable({ roomId }: GameTableProps) {
             </div>
           </div>
 
-          {/* Main stage — felt + radial opponent seats */}
-          <div className="absolute inset-0 flex items-center justify-center pt-40 pb-72 sm:pt-24 sm:pb-80 px-3 sm:px-6 pointer-events-none">
+          {/* Main stage — felt + radial opponent seats.
+              On `lg` (1440+) the felt takes the classic padded centre and
+              the radial seats surround it. Below `lg` the felt occupies a
+              relative block between the opponent rail (above) and the
+              dock (below); no absolute positioning so there's no overlap. */}
+          <div className="lg:absolute lg:inset-0 flex items-center justify-center lg:pt-24 lg:pb-80 py-4 sm:py-6 px-3 sm:px-6 pointer-events-none">
             <div
               className="relative pointer-events-auto w-full max-w-[880px]"
               style={{
@@ -948,9 +950,9 @@ export function GameTable({ roomId }: GameTableProps) {
                                 'absolute -top-3 -right-3 z-10',
                                 'w-9 h-9 rounded-full',
                                 'flex items-center justify-center text-xl leading-none',
-                                'bg-parchment shadow-[0_4px_10px_-2px_rgba(0,0,0,0.6)]',
-                                'border border-brass/60',
-                                red ? 'text-rose-500' : 'text-night',
+                                'bg-paper shadow-[0_4px_10px_-2px_rgb(var(--ink)_/_0.35)]',
+                                'border border-hairline',
+                                red ? 'text-burgundy' : 'text-ink',
                               ].join(' ')}
                             >
                               {glyph[declared]}
@@ -1122,11 +1124,12 @@ export function GameTable({ roomId }: GameTableProps) {
             </div>
           )}
 
-          {/* Bottom dock — floating action bar + player hand + self identity.
-              Gap/padding tighten on mobile so the dock doesn't collide with
-              the felt above it; desktop keeps the original rhythm. */}
+          {/* Bottom dock — action bar + hand + self identity.
+              On `lg` (1440+) absolutely pinned over the felt. Below `lg`
+              the dock is a relative block that stacks cleanly under the
+              felt, so no overflow, no overlap, no wasted space. */}
           {myPlayer && (
-            <div className="absolute bottom-0 left-0 right-0 pb-3 sm:pb-6 pt-2 z-10 flex flex-col items-center gap-2 sm:gap-3 px-2 sm:px-0">
+            <div className="lg:absolute lg:bottom-0 lg:left-0 lg:right-0 relative pt-3 pb-4 sm:pb-6 z-dock flex flex-col items-center gap-2 sm:gap-3 px-2 sm:px-4">
               {actionBarProps && <ActionBar {...actionBarProps} />}
 
               {gameState.gameId === 'phase10' && (
@@ -1145,17 +1148,17 @@ export function GameTable({ roomId }: GameTableProps) {
                 onReorder={(ids) => setHandOrder(roomId, ids)}
               />
 
-              <div className="flex flex-row items-center gap-3">
-                <div className="inline-flex items-center gap-3 px-4 py-1.5 rounded-full bg-night-raised/70 border border-brass/20 font-display text-sm">
-                  <span className="text-parchment/90">{myPlayer.displayName}</span>
-                  <span className="text-parchment/30">·</span>
-                  <span className="text-brass-bright tabular-nums">
+              <div className="flex flex-row items-center gap-2 sm:gap-3 flex-wrap justify-center max-w-full px-2 min-w-0">
+                <div className="inline-flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-1.5 rounded-full bg-paper-raised/80 border border-hairline/70 font-display text-sm min-w-0">
+                  <span className="text-ink truncate max-w-[10rem] min-w-0" translate="no">{myPlayer.displayName}</span>
+                  <span aria-hidden className="text-whisper">·</span>
+                  <span className="font-mono text-ochre text-xs tabular-nums">
                     {myPlayer.score ?? 0}
                   </span>
                   {dealerId === myPlayer.playerId && (
                     <span
                       title={en.table.dealerBadgeTooltip}
-                      className="w-5 h-5 rounded-full bg-brass text-night font-bold text-[0.7rem] flex items-center justify-center"
+                      className="w-5 h-5 rounded-full bg-ochre text-paper font-bold text-[0.7rem] flex items-center justify-center"
                     >
                       D
                     </span>
@@ -1164,7 +1167,7 @@ export function GameTable({ roomId }: GameTableProps) {
                 <button
                   type="button"
                   onClick={() => setHandOrder(roomId, sortByRank(myPlayer.hand))}
-                  className="text-xs font-medium tracking-wide text-parchment/70 bg-night-raised/60 hover:bg-night-raised border border-brass/15 hover:border-brass/40 rounded-full px-3 py-1.5"
+                  className="min-h-[36px] text-xs font-medium tracking-wide text-ink-soft bg-paper-raised/60 hover:bg-paper-raised border border-hairline/60 hover:border-ochre rounded-full px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi"
                   aria-label="Sort hand by rank"
                 >
                   Rank
@@ -1172,7 +1175,7 @@ export function GameTable({ roomId }: GameTableProps) {
                 <button
                   type="button"
                   onClick={() => setHandOrder(roomId, sortBySuit(myPlayer.hand))}
-                  className="text-xs font-medium tracking-wide text-parchment/70 bg-night-raised/60 hover:bg-night-raised border border-brass/15 hover:border-brass/40 rounded-full px-3 py-1.5"
+                  className="min-h-[36px] text-xs font-medium tracking-wide text-ink-soft bg-paper-raised/60 hover:bg-paper-raised border border-hairline/60 hover:border-ochre rounded-full px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi"
                   aria-label="Sort hand by suit"
                 >
                   Suit

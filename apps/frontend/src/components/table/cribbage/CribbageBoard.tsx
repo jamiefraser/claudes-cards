@@ -115,7 +115,7 @@ export function CribbageBoard({ boardState, playerNames }: CribbageBoardProps) {
           aria-label={en.table.cribbageBoardAriaLabel}
           viewBox={`0 0 ${VIEWBOX_WIDTH} ${boardHeight}`}
           xmlns="http://www.w3.org/2000/svg"
-          className="w-full min-w-[520px] sm:min-w-0"
+          className="w-full max-w-full"
           style={{ maxHeight: '200px' }}
         >
         <defs>

@@ -1,14 +1,18 @@
 /**
- * HandComponent — player's hand of cards, horizontal fan layout.
- * SPEC.md §15
+ * HandComponent — player's hand of cards.
  *
- * Supports drag-to-reorder via @dnd-kit/sortable. Uses the ambient DndContext
- * provided by the parent (GameTable), so drops onto meld groups / discard
- * pile — which are siblings under the same context — are dispatched to the
- * parent's unified drag-end handler. The parent is responsible for calling
- * `onReorder` when a reorder happens (see GameTable.handleDragEnd).
+ * Mobile-first: cards sit in a horizontally-scrolling strip with overlap
+ * (a "fan") so a 10–15 card hand never wraps to a second row at 375px.
+ * Tablet+: strip widens and reveals every card; selected cards lift with
+ * reserved vertical space so there's no overlap of the row above.
+ *
+ * Supports drag-to-reorder via @dnd-kit/sortable. Uses the ambient
+ * DndContext provided by the parent (GameTable), so drops onto meld
+ * groups / discard pile — siblings under the same context — reach the
+ * parent's unified drag-end handler. The parent calls `onReorder`
+ * (see GameTable.handleDragEnd).
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   SortableContext,
   horizontalListSortingStrategy,
@@ -38,7 +42,9 @@ interface SortableCardProps {
   justDrawn: boolean;
   reorderEnabled: boolean;
   discardDraggable: boolean;
+  overlapPx: number;
   onClick: () => void;
+  onActivate: () => void;
 }
 
 function SortableCard({
@@ -49,7 +55,9 @@ function SortableCard({
   justDrawn,
   reorderEnabled,
   discardDraggable,
+  overlapPx,
   onClick,
+  onActivate,
 }: SortableCardProps) {
   const { listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: card.id, disabled: !reorderEnabled });
@@ -59,6 +67,10 @@ function SortableCard({
     transition,
     opacity: isDragging ? 0.5 : 1,
     touchAction: reorderEnabled ? 'none' : undefined,
+    // Negative left margin creates the fan overlap, but never on the
+    // first card. Scroll-snap keeps the active card aligned.
+    marginLeft: index === 0 ? 0 : `-${overlapPx}px`,
+    zIndex: selected ? 30 : 10 + index,
   };
 
   // Note: we deliberately do NOT spread `attributes` from useSortable here.
@@ -70,15 +82,17 @@ function SortableCard({
       ref={setNodeRef}
       style={style}
       {...(reorderEnabled ? listeners : {})}
-      className={`list-none ${justDrawn ? 'card-slide-in' : ''}`}
+      className={[
+        'list-none flex-none snap-start',
+        justDrawn ? 'card-slide-in' : '',
+      ].join(' ')}
     >
       <CardComponent
         card={card}
         faceUp={true}
         selected={selected}
         onClick={onClick}
-        // Discard-pile drag (the original mechanic) only when reorder is off
-        // so the two drag systems don't collide.
+        onActivate={onActivate}
         draggable={discardDraggable && !reorderEnabled}
         ariaLabel={`Card ${index + 1} of ${total}`}
       />
@@ -96,7 +110,7 @@ export function HandComponent({
 }: HandComponentProps) {
   const clearSelection = useGameStore(s => s.clearSelection);
 
-  // Track newly-added card ids so we can animate them sliding into the hand.
+  // Track newly-added card ids so we can animate them into the hand.
   const prevIdsRef = useRef<Set<string>>(new Set(cards.map(c => c.id)));
   const [justDrawn, setJustDrawn] = useState<Set<string>>(new Set());
 
@@ -115,37 +129,67 @@ export function HandComponent({
     prevIdsRef.current = currentIds;
   }, [cards]);
 
-  // Keyboard shortcut: Escape deselects all
-  const handleKeyDown = useCallback(
+  // Global keyboard shortcut: Escape deselects all.
+  const handleGlobalKey = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        clearSelection();
-      }
+      if (e.key === 'Escape') clearSelection();
     },
     [clearSelection],
   );
-
   useEffect(() => {
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+    document.addEventListener('keydown', handleGlobalKey);
+    return () => document.removeEventListener('keydown', handleGlobalKey);
+  }, [handleGlobalKey]);
 
   const handleSelect = useCallback(
     (cardId: string) => {
-      if (!disabled) {
-        onSelect(cardId);
-      }
+      if (!disabled) onSelect(cardId);
+    },
+    [disabled, onSelect],
+  );
+
+  // "Activate" (Enter) is select-or-deselect — same as click, but kept
+  // separate so the CardComponent can distinguish Enter from Space in
+  // case we later want Enter to play instantly. For now both toggle.
+  const handleActivate = useCallback(
+    (cardId: string) => {
+      if (!disabled) onSelect(cardId);
     },
     [disabled, onSelect],
   );
 
   const reorderEnabled = !!onReorder;
 
+  // Fan overlap scales with hand size — tighter overlap for bigger hands
+  // so the whole hand fits on screen without wrapping on mobile. Cards
+  // always lift cleanly from a scroll-snap strip.
+  const overlapPx = useMemo(() => {
+    // CardComponent width: 48px (mobile), 64px (sm+). We overlap up to
+    // ~45% of the width so hands of 15 cards still strap within ~420px
+    // total (fits 375px viewport comfortably).
+    const n = Math.max(cards.length, 1);
+    if (n <= 7)  return 4;        // no overlap, just a gap
+    if (n <= 10) return 14;
+    if (n <= 13) return 22;
+    return 28;
+  }, [cards.length]);
+
   const list = (
     <ul
       role="list"
       aria-label={en.table.yourHand}
-      className="flex flex-row items-end gap-1 flex-wrap justify-center px-2 py-4 max-w-full"
+      className={[
+        // Horizontal scroll strip — the mobile fan.
+        'no-scrollbar flex flex-row items-end',
+        'overflow-x-auto overflow-y-visible overscroll-x-contain',
+        // Padding-y reserves room for lift (-translate-y) without clipping.
+        'pt-5 pb-3 px-6',
+        // Scroll-snap keeps selection crisp.
+        'snap-x snap-mandatory',
+        // Centre the hand horizontally when narrow enough to fit.
+        'justify-center mx-auto',
+        'max-w-full',
+      ].join(' ')}
     >
       {cards.map((card, index) => (
         <SortableCard
@@ -157,7 +201,9 @@ export function HandComponent({
           justDrawn={justDrawn.has(card.id)}
           reorderEnabled={reorderEnabled}
           discardDraggable={draggable}
+          overlapPx={overlapPx}
           onClick={() => handleSelect(card.id)}
+          onActivate={() => handleActivate(card.id)}
         />
       ))}
     </ul>

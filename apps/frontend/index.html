@@ -2,7 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Mobile browser chrome matches the Le Salon parchment base. -->
+    <meta name="theme-color" content="#f4ead8" />
     <title>Card Platform</title>
     <!-- Inline SVG favicon — ace of spades glyph on the brand-night background.
          Saves the extra 404 round-trip when no favicon.ico ships in public/. -->
@@ -13,10 +15,35 @@
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Typography — each theme binds to a different display+body pair.
+         Le Salon:      Fraunces + Commissioner
+         Bodega Riso:   Bricolage Grotesque + Gelasio
+         Obsidian Club: Syne + General Sans (Fontshare CSS below)
+         Mono (shared): JetBrains Mono -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=Manrope:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=Commissioner:wght@300;400;500;600&family=Bricolage+Grotesque:opsz,wdth,wght@10..48,75..125,300..700&family=Gelasio:ital,wght@0,400;0,500;1,400&family=Syne:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
+    <link
+      href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600&display=swap"
+      rel="stylesheet"
+    />
+    <!-- Apply the saved theme before React mounts so first paint isn't
+         in the default palette. Blocking <script> on purpose — tiny and
+         must run before stylesheet binds to :root[data-theme=…]. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('card-platform:theme');
+          if (t === 'salon' || t === 'riso' || t === 'obsidian') {
+            document.documentElement.setAttribute('data-theme', t);
+            var paper = { salon: '#f4ead8', riso: '#f8eed3', obsidian: '#0b0d10' }[t];
+            var meta = document.querySelector('meta[name="theme-color"]');
+            if (meta && paper) meta.setAttribute('content', paper);
+          }
+        } catch (_) { /* localStorage blocked — fall back to default */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

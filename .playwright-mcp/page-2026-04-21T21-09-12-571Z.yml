@@ -1,0 +1,218 @@
+- generic [ref=e1]:
+  - generic [ref=e110]:
+    - banner [ref=e111]:
+      - heading "Card Platform" [level=1] [ref=e112]
+      - generic [ref=e113]:
+        - generic [ref=e114]: test-player-1
+        - button "Leaderboard" [ref=e115] [cursor=pointer]
+        - button "Settings" [ref=e116] [cursor=pointer]
+        - button "Sign Out" [ref=e117] [cursor=pointer]
+    - main [ref=e118]:
+      - region "Choose a Game" [ref=e119]:
+        - complementary "Filter Rooms" [ref=e120]:
+          - heading "Filter Rooms" [level=2] [ref=e121]
+          - generic [ref=e122]:
+            - generic [ref=e123]:
+              - generic [ref=e124]: Game
+              - combobox "Filter by game" [ref=e125]:
+                - option "All Games" [selected]
+                - option "Canasta"
+                - option "Crazy Eights"
+                - option "Cribbage"
+                - option "Euchre"
+                - option "Gin Rummy"
+                - option "Go Fish"
+                - option "Hearts"
+                - option "Idiot/Shithead"
+                - option "Oh Hell!"
+                - option "Phase 10"
+                - option "Rummy"
+                - option "Spades"
+                - option "Spit/Speed"
+                - option "War"
+                - option "Whist"
+            - generic [ref=e126]:
+              - generic [ref=e127]: Status
+              - combobox "Filter by status" [ref=e128]:
+                - option "All" [selected]
+                - option "Waiting"
+                - option "In Progress"
+            - generic [ref=e129] [cursor=pointer]:
+              - checkbox "Open seats" [ref=e130]
+              - text: Open seats
+            - generic [ref=e131] [cursor=pointer]:
+              - checkbox "Async only" [ref=e132]
+              - text: Async only
+        - generic [ref=e133]:
+          - heading "Choose a Game" [level=2] [ref=e134]
+          - generic [ref=e135]:
+            - article "Canasta" [ref=e136]:
+              - generic [ref=e137]:
+                - generic [ref=e138]:
+                  - heading "Canasta" [level=3] [ref=e139]
+                  - paragraph [ref=e140]: rummy
+                - generic [ref=e141]: Async
+              - generic [ref=e143]: 2–4 players
+              - generic [ref=e144]:
+                - button "Browse rooms for Canasta" [ref=e145] [cursor=pointer]: Browse Rooms
+                - button "Create Room" [ref=e146] [cursor=pointer]
+            - article "Crazy Eights" [ref=e147]:
+              - generic [ref=e148]:
+                - generic [ref=e149]:
+                  - heading "Crazy Eights" [level=3] [ref=e150]
+                  - paragraph [ref=e151]: other
+                - generic [ref=e152]: Async
+              - generic [ref=e154]: 2–6 players
+              - generic [ref=e155]:
+                - button "Browse rooms for Crazy Eights" [ref=e156] [cursor=pointer]: Browse Rooms
+                - button "Create Room" [ref=e157] [cursor=pointer]
+            - article "Cribbage" [ref=e158]:
+              - generic [ref=e159]:
+                - generic [ref=e160]:
+                  - heading "Cribbage" [level=3] [ref=e161]
+                  - paragraph [ref=e162]: cribbage
+                - generic [ref=e163]: Async
+              - generic [ref=e165]: 2–4 players
+              - generic [ref=e166]:
+                - button "Browse rooms for Cribbage" [ref=e167] [cursor=pointer]: Browse Rooms
+                - button "Create Room" [ref=e168] [cursor=pointer]
+            - article "Euchre" [ref=e169]:
+              - generic [ref=e171]:
+                - heading "Euchre" [level=3] [ref=e172]
+                - paragraph [ref=e173]: trick-taking
+              - generic [ref=e175]: 4 players
+              - generic [ref=e176]:
+                - button "Browse rooms for Euchre" [ref=e177] [cursor=pointer]: Browse Rooms
+                - button "Create Room" [ref=e178] [cursor=pointer]
+            - article "Gin Rummy" [ref=e179]:
+              - generic [ref=e180]:
+                - generic [ref=e181]:
+                  - heading "Gin Rummy" [level=3] [ref=e182]
+                  - paragraph [ref=e183]: rummy
+                - generic [ref=e184]: Async
+              - generic [ref=e186]: 2–4 players
+              - generic [ref=e187]:
+                - button "Browse rooms for Gin Rummy" [ref=e188] [cursor=pointer]: Browse Rooms
+                - button "Create Room" [ref=e189] [cursor=pointer]
+            - article "Go Fish" [ref=e190]:
+              - generic [ref=e191]:
+                - generic [ref=e192]:
+                  - heading "Go Fish" [level=3] [ref=e193]
+                  - paragraph [ref=e194]: other
+                - generic [ref=e195]: Async
+              - generic [ref=e197]: 2–6 players
+              - generic [ref=e198]:
+                - button "Browse rooms for Go Fish" [ref=e199] [cursor=pointer]: Browse Rooms
+                - button "Create Room" [ref=e200] [cursor=pointer]
+            - article "Hearts" [ref=e201]:
+              - generic [ref=e203]:
+                - heading "Hearts" [level=3] [ref=e204]
+                - paragraph [ref=e205]: trick-taking
+              - generic [ref=e207]: 4 players
+              - generic [ref=e208]:
+                - button "Browse rooms for Hearts" [ref=e209] [cursor=pointer]: Browse Rooms
+                - button "Create Room" [ref=e210] [cursor=pointer]
+            - article "Idiot/Shithead" [ref=e211]:
+              - generic [ref=e213]:
+                - heading "Idiot/Shithead" [level=3] [ref=e214]
+                - paragraph [ref=e215]: other
+              - generic [ref=e217]: 2–6 players
+              - generic [ref=e218]:
+                - button "Browse rooms for Idiot/Shithead" [ref=e219] [cursor=pointer]: Browse Rooms
+                - button "Create Room" [ref=e220] [cursor=pointer]
+            - article "Oh Hell!" [ref=e221]:
+              - generic [ref=e223]:
+                - heading "Oh Hell!" [level=3] [ref=e224]
+                - paragraph [ref=e225]: trick-taking
+              - generic [ref=e227]: 3–6 players
+              - generic [ref=e228]:
+                - button "Browse rooms for Oh Hell!" [ref=e229] [cursor=pointer]: Browse Rooms
+                - button "Create Room" [ref=e230] [cursor=pointer]
+            - article "Phase 10" [ref=e231]:
+              - generic [ref=e232]:
+                - generic [ref=e233]:
+                  - heading "Phase 10" [level=3] [ref=e234]
+                  - paragraph [ref=e235]: rummy
+                - generic [ref=e236]: Async
+              - generic [ref=e237]:
+                - generic [ref=e238]: 2–6 players
+                - generic [ref=e239]: 1 active
+              - generic [ref=e240]:
+                - button "Browse rooms for Phase 10" [ref=e241] [cursor=pointer]: Browse Rooms
+                - button "Create Room" [ref=e242] [cursor=pointer]
+            - article "Rummy" [ref=e243]:
+              - generic [ref=e244]:
+                - generic [ref=e245]:
+                  - heading "Rummy" [level=3] [ref=e246]
+                  - paragraph [ref=e247]: rummy
+                - generic [ref=e248]: Async
+              - generic [ref=e250]: 2–6 players
+              - generic [ref=e251]:
+                - button "Browse rooms for Rummy" [ref=e252] [cursor=pointer]: Browse Rooms
+                - button "Create Room" [ref=e253] [cursor=pointer]
+            - article "Spades" [ref=e254]:
+              - generic [ref=e256]:
+                - heading "Spades" [level=3] [ref=e257]
+                - paragraph [ref=e258]: trick-taking
+              - generic [ref=e260]: 4 players
+              - generic [ref=e261]:
+                - button "Browse rooms for Spades" [ref=e262] [cursor=pointer]: Browse Rooms
+                - button "Create Room" [ref=e263] [cursor=pointer]
+            - article "Spit/Speed" [ref=e264]:
+              - generic [ref=e266]:
+                - heading "Spit/Speed" [level=3] [ref=e267]
+                - paragraph [ref=e268]: other
+              - generic [ref=e270]: 2 players
+              - generic [ref=e271]:
+                - button "Browse rooms for Spit/Speed" [ref=e272] [cursor=pointer]: Browse Rooms
+                - button "Create Room" [ref=e273] [cursor=pointer]
+            - article "War" [ref=e274]:
+              - generic [ref=e276]:
+                - heading "War" [level=3] [ref=e277]
+                - paragraph [ref=e278]: other
+              - generic [ref=e280]: 2 players
+              - generic [ref=e281]:
+                - button "Browse rooms for War" [ref=e282] [cursor=pointer]: Browse Rooms
+                - button "Create Room" [ref=e283] [cursor=pointer]
+            - article "Whist" [ref=e284]:
+              - generic [ref=e286]:
+                - heading "Whist" [level=3] [ref=e287]
+                - paragraph [ref=e288]: trick-taking
+              - generic [ref=e290]: 4 players
+              - generic [ref=e291]:
+                - button "Browse rooms for Whist" [ref=e292] [cursor=pointer]: Browse Rooms
+                - button "Create Room" [ref=e293] [cursor=pointer]
+      - complementary "Friends" [ref=e294]:
+        - generic [ref=e295]:
+          - heading "Friends" [level=2] [ref=e296]
+          - generic [ref=e297]:
+            - button "Add Friend" [ref=e298] [cursor=pointer]
+            - button "Search" [ref=e299] [cursor=pointer]
+        - paragraph [ref=e300]: No friends yet. Add someone!
+  - 'dialog "Create Room: Phase 10" [ref=e313]':
+    - generic [active] [ref=e315]:
+      - generic [ref=e316]:
+        - 'heading "Create Room: Phase 10" [level=2] [ref=e317]'
+        - button "Close dialog" [ref=e318] [cursor=pointer]: ×
+      - generic [ref=e319]:
+        - generic [ref=e320]:
+          - generic [ref=e321]: Room name
+          - textbox "Room name" [ref=e322]:
+            - /placeholder: e.g. Friday Night Game
+        - generic [ref=e323]:
+          - generic [ref=e324]: Max players
+          - combobox "Max players" [ref=e325]:
+            - option "2"
+            - option "3"
+            - option "4"
+            - option "5"
+            - option "6" [selected]
+        - generic [ref=e327] [cursor=pointer]:
+          - checkbox "Async mode" [ref=e328]
+          - text: Async mode
+        - generic [ref=e330] [cursor=pointer]:
+          - checkbox "Private room" [ref=e331]
+          - text: Private room
+        - generic [ref=e332]:
+          - button "Cancel" [ref=e333] [cursor=pointer]
+          - button "Create" [ref=e334] [cursor=pointer]

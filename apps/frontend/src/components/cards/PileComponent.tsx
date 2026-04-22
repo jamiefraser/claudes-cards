@@ -44,16 +44,20 @@ export function PileComponent({
         className={[
           'relative w-16 h-24 rounded-md border-2 cursor-pointer overflow-hidden',
           'flex items-center justify-center',
-          'bg-slate-700 border-slate-600',
-          'hover:border-indigo-400 transition-colors',
-          'focus:outline-none focus:ring-2 focus:ring-indigo-400',
+          'bg-paper-deep border-hairline/80',
+          'hover:border-ochre transition-[border-color,box-shadow]',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi focus-visible:ring-offset-2 focus-visible:ring-offset-paper',
         ].join(' ')}
       >
         {backUrl && (
+          // Image is decorative — the button already carries the count via
+          // aria-label. Empty alt avoids screen-reader double-read.
           <img
             src={backUrl}
-            alt="Draw pile"
-            className="rounded block"
+            alt=""
+            width={64}
+            height={96}
+            className="rounded block w-full h-full"
             style={
               needsCrop
                 ? {
@@ -62,12 +66,12 @@ export function PileComponent({
                     objectFit: 'cover',
                     objectPosition: 'left center',
                   }
-                : { width: '100%', height: '100%', objectFit: 'cover' }
+                : { objectFit: 'cover' }
             }
           />
         )}
         {cardCount !== undefined && (
-          <span className="absolute bottom-1 right-1 bg-slate-800/80 text-white text-xs rounded px-1">
+          <span className="absolute bottom-1 right-1 bg-ink/80 text-paper text-xs rounded px-1 font-mono tabular-nums">
             {cardCount}
           </span>
         )}
@@ -88,17 +92,19 @@ export function PileComponent({
         'relative w-16 h-24 rounded-md border-2 cursor-pointer overflow-hidden',
         'flex items-center justify-center',
         isDropTarget
-          ? 'border-green-400 ring-2 ring-green-400/50'
-          : 'border-slate-500',
-        !topCard ? 'bg-slate-800 border-dashed' : 'bg-white',
-        'transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400',
+          ? 'border-sage ring-2 ring-sage/40'
+          : 'border-hairline',
+        !topCard ? 'bg-paper-deep border-dashed' : 'bg-[#ffffff]',
+        'transition-[border-color,box-shadow,background-color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi focus-visible:ring-offset-2 focus-visible:ring-offset-paper',
       ].join(' ')}
     >
       {topCard && faceUrl ? (
         <img
           src={faceUrl}
-          alt="Top of pile"
-          className="rounded block"
+          alt=""
+          width={64}
+          height={96}
+          className="rounded block w-full h-full"
           style={
             discardNeedsCrop
               ? { objectFit: 'cover', objectPosition: 'left center' }
@@ -106,7 +112,7 @@ export function PileComponent({
           }
         />
       ) : (
-        <span className="text-slate-600 text-xs text-center px-1">
+        <span className="text-whisper text-xs text-center px-1 font-mono">
           {topCard ? '' : en.app.loading}
         </span>
       )}

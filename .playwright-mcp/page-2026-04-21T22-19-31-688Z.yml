@@ -1,0 +1,17 @@
+- generic [ref=e2]:
+  - main [ref=e226]:
+    - generic [ref=e227]:
+      - button "← Back to lobby" [ref=e228] [cursor=pointer]
+      - heading "phase10 room" [level=1] [ref=e229]
+      - paragraph [ref=e230]: phase10 — 1 of 2 seats filled
+      - region "Players in room" [ref=e231]:
+        - heading "Players" [level=2] [ref=e232]
+        - list [ref=e233]:
+          - listitem [ref=e234]:
+            - generic [ref=e236]: TestPlayer1
+            - generic [ref=e237]: HOST
+          - listitem [ref=e238]: Empty seat
+      - button "Start Game" [ref=e239] [cursor=pointer]
+  - status [ref=e241]:
+    - generic [ref=e242]: Create
+    - button "Dismiss notification" [ref=e243] [cursor=pointer]: ×

@@ -1,0 +1,43 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - heading "Card Platform" [level=1] [ref=e6]
+      - navigation "Account menu" [ref=e7]:
+        - generic "Signed in as" [ref=e8]: test-player-1
+        - button "Leaderboard" [ref=e9] [cursor=pointer]
+        - button "Settings" [ref=e10] [cursor=pointer]
+        - button "Sign Out" [ref=e11] [cursor=pointer]
+  - main [ref=e12]:
+    - region "Choose a Game" [ref=e13]:
+      - complementary "Filter Rooms" [ref=e14]:
+        - generic [ref=e15]:
+          - heading "Filter Rooms" [level=2] [ref=e16]
+          - generic [ref=e17]:
+            - generic [ref=e18]:
+              - generic [ref=e19]: Game
+              - combobox "Filter by game" [ref=e20]:
+                - option "All Games" [selected]
+            - generic [ref=e21]:
+              - generic [ref=e22]: Status
+              - combobox "Filter by status" [ref=e23]:
+                - option "All" [selected]
+                - option "Waiting"
+                - option "In Progress"
+            - generic [ref=e24] [cursor=pointer]:
+              - checkbox "Open seats" [ref=e25]
+              - text: Open seats
+            - generic [ref=e26] [cursor=pointer]:
+              - checkbox "Async only" [ref=e27]
+              - text: Async only
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - heading "Choose a Game" [level=2] [ref=e30]
+          - generic [ref=e31]: 0 games
+        - paragraph [ref=e33]: Loading…
+    - complementary "Friends" [ref=e35]:
+      - generic [ref=e36]:
+        - heading "Friends" [level=2] [ref=e37]
+        - generic [ref=e38]:
+          - button "Add Friend" [ref=e39] [cursor=pointer]
+          - button "Search" [ref=e40] [cursor=pointer]
+      - status "Loading friends" [ref=e41]: …

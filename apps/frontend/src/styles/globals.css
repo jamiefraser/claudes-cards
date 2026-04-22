@@ -1,10 +1,11 @@
+@import './tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import './tokens.css';
+/* ── Base reset ──────────────────────────────────────────────────────── */
 
-/* Base reset and defaults */
 *, *::before, *::after {
   box-sizing: border-box;
 }
@@ -15,56 +16,109 @@ html, body, #root {
   padding: 0;
 }
 
+html {
+  /* Native form-control theming — Le Salon is light. Override per-theme via
+     :root[data-theme="obsidian"] when we ship the dark theme. */
+  color-scheme: light;
+  /* System scrolls honour reduced-motion. */
+  scroll-behavior: smooth;
+}
+
+/* Touch affordance — kill the 300ms tap-zoom delay and the black flash on
+   interactive elements. Applied globally to any button/anchor/role=button. */
+button, a, [role="button"], [role="tab"], [role="menuitem"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
   font-family: var(--font-sans);
-  background-color: var(--color-bg);
-  color: var(--color-text);
-  font-size: var(--text-base);
-  line-height: 1.5;
+  font-feature-settings: 'ss01', 'cv02';       /* subtle Commissioner tweaks */
+  background-color: rgb(var(--paper));
+  color: rgb(var(--ink));
+  font-size: 1rem;
+  line-height: 1.55;
+  letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Focus ring */
+/* Headings adopt Fraunces by default, with optical size scaled for display. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-feature-settings: 'ss01', 'ss04';
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  color: rgb(var(--ink));
+}
+
+/* Tabular numerals — pair with .font-mono or explicit `.tabular`. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+/* ── Focus ring — ochre, warm. ────────────────────────────────────────── */
+
 :focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid rgb(var(--ochre-hi));
   outline-offset: 2px;
+  border-radius: 2px;
 }
 
-/* Scrollbar */
+/* ── Scrollbar — quiet, paper-toned. ─────────────────────────────────── */
+
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
-
 ::-webkit-scrollbar-track {
-  background: var(--color-surface);
+  background: rgb(var(--paper-deep) / 0.6);
 }
-
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: var(--radius-full);
+  background: rgb(var(--hairline));
+  border-radius: 9999px;
+  border: 2px solid rgb(var(--paper));
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--whisper));
 }
 
-/* Card draw animation — cards sliding into the hand from the pile area. */
+/* ── Selection — ochre highlight on paper. ────────────────────────────── */
+
+::selection {
+  background: rgb(var(--ochre) / 0.28);
+  color: rgb(var(--ink));
+}
+
+/* ── Motion primitives ───────────────────────────────────────────────── */
+
+/* Card arrival into the hand — quiet slide. */
 @keyframes card-slide-in {
-  0% {
-    transform: translate(0, -120px) scale(0.6);
-    opacity: 0;
-  }
-  60% {
-    opacity: 1;
-  }
-  100% {
-    transform: translate(0, 0) scale(1);
-    opacity: 1;
-  }
+  0%   { transform: translateY(-32px) scale(0.96); opacity: 0; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
 }
-
 .card-slide-in {
-  animation: card-slide-in 400ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  animation: card-slide-in 260ms var(--ease-salon) both;
 }
 
-/* Utility classes */
+/* Hairline rule reveal — the Le Salon turn-marker signature. */
+@keyframes rule-draw {
+  from { transform: scaleX(0); transform-origin: 0 50%; }
+  to   { transform: scaleX(1); transform-origin: 0 50%; }
+}
+.rule-draw {
+  animation: rule-draw 320ms var(--ease-salon) both;
+}
+
+/* Slow vignette/breathing for the felt (subtle, desktop-only by default). */
+@keyframes felt-breath {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.04); }
+}
+
+/* ── Utility classes ─────────────────────────────────────────────────── */
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -75,4 +129,36 @@ body {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border-width: 0;
+}
+
+/* Hairline rule — 1px dotted-equivalent in ochre-lite, as used on paper. */
+.hairline {
+  border-color: rgb(var(--hairline) / 0.7);
+}
+
+/* Paper grain backdrop — ultra-subtle. Opt in via `.paper-grain`. */
+.paper-grain {
+  position: relative;
+}
+.paper-grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 25% 30%, rgb(var(--ink) / 0.022) 0.5px, transparent 1px),
+    radial-gradient(circle at 75% 70%, rgb(var(--ink) / 0.018) 0.5px, transparent 1px);
+  background-size: 7px 7px, 11px 11px;
+  opacity: 0.9;
+  mix-blend-mode: multiply;
+}
+
+/* Hide horizontal scrollbar visually but keep scrollable — used by the
+   hand strip and the mobile opponent rail. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }

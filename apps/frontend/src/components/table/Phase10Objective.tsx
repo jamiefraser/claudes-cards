@@ -23,20 +23,20 @@ export function Phase10Objective({ phase, laidDown }: Phase10ObjectiveProps) {
   return (
     <div className="flex flex-col items-center gap-2">
       <div
-        className="flex flex-row items-center gap-3 px-3 py-1 rounded-md bg-slate-800 border border-slate-700 text-sm"
+        className="flex flex-row items-center gap-2 sm:gap-3 px-3 py-1.5 rounded-full bg-paper-raised/80 border border-hairline/70 text-xs sm:text-sm max-w-full min-w-0"
         aria-label={`${phaseLabel}. ${objective}`}
       >
-        <span className="font-semibold text-indigo-300">{phaseLabel}</span>
-        <span className="text-slate-200">{objective}</span>
+        <span className="font-display font-semibold text-ochre whitespace-nowrap">{phaseLabel}</span>
+        <span className="text-ink-soft truncate min-w-0">{objective}</span>
         {laidDown && (
-          <span className="text-emerald-400 text-xs font-medium">
+          <span className="text-sage text-xs font-medium whitespace-nowrap">
             ✓ laid down
           </span>
         )}
         <button
           type="button"
           onClick={() => setShowChart((s) => !s)}
-          className="ml-2 text-xs text-indigo-300 hover:text-indigo-200 underline focus:outline-none"
+          className="ml-1 text-xs text-ochre hover:text-ochre-hi underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi rounded whitespace-nowrap"
           aria-expanded={showChart}
         >
           {showChart ? 'Hide phases' : 'Show all phases'}
@@ -46,12 +46,15 @@ export function Phase10Objective({ phase, laidDown }: Phase10ObjectiveProps) {
         // The phases SVG contains two side-by-side copies of the reference
         // chart. Show only the left copy by cropping the container.
         <div
-          className="bg-white rounded-md p-2 shadow-lg overflow-hidden"
-          style={{ width: 560, height: 420 }}
+          className="bg-[#ffffff] rounded-md p-2 shadow-lg overflow-hidden max-w-full"
+          style={{ aspectRatio: '560 / 420' }}
         >
           <img
             src={phasesChartUrl}
             alt="Phase 10 phases reference chart"
+            width={560}
+            height={420}
+            loading="lazy"
             style={{
               width: '200%',
               height: '100%',

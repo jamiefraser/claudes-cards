@@ -1,0 +1,94 @@
+- generic [ref=e2]:
+  - generic [ref=e371]:
+    - generic [ref=e373]:
+      - generic [ref=e374]:
+        - generic [ref=e377]: Room F2C587 · Hand 1/1
+        - generic [ref=e378]:
+          - generic [ref=e379]: ◆
+          - generic [ref=e380]: Your turn
+      - generic [ref=e382]:
+        - button "End and delete this game" [ref=e383] [cursor=pointer]:
+          - generic [ref=e384]: ⏻
+        - button "Open settings" [ref=e385] [cursor=pointer]:
+          - generic [ref=e386]: ⚙
+      - button "Open rules" [ref=e387] [cursor=pointer]:
+        - generic [ref=e388]: Rules
+        - generic [ref=e389]: ❦
+      - generic [ref=e390]:
+        - generic [ref=e394]:
+          - button "Draw pile — 39 cards remaining" [ref=e395] [cursor=pointer]:
+            - img "Draw pile" [ref=e396]
+            - generic [ref=e397]: "39"
+          - button "Discard pile" [ref=e399] [cursor=pointer]:
+            - img "Top of pile" [ref=e400]
+        - generic "Bot 1 (Bot) seat" [ref=e404]:
+          - generic "Bot is playing for Bot 1 — they may return" [ref=e405]: BOT
+          - img [ref=e406]
+          - generic [ref=e419]: Bot 1(Bot)
+          - generic [ref=e420]: 10 cards
+          - img "10 cards face down" [ref=e421]:
+            - img [ref=e423]
+            - img [ref=e425]
+            - img [ref=e427]
+            - img [ref=e429]
+            - img [ref=e431]
+            - img [ref=e433]
+            - img [ref=e435]
+          - generic [ref=e436]:
+            - generic [ref=e437]: "0"
+            - generic [ref=e438]: pts
+      - generic [ref=e439]:
+        - toolbar "Game actions" [ref=e440]:
+          - button "Draw from deck" [ref=e441] [cursor=pointer]: Draw Deck
+          - button "Take top card" [ref=e442] [cursor=pointer]: Take Top
+          - button "Lay down selected cards" [ref=e443] [cursor=pointer]: Lay Down
+          - button "Discard selected card" [disabled] [ref=e444]: Discard
+          - button "Skip turn" [ref=e445] [cursor=pointer]: Skip Turn
+        - 'generic "Phase 1. Objective: 2 sets of 3" [ref=e447]':
+          - generic [ref=e448]: Phase 1
+          - generic [ref=e449]: "Objective: 2 sets of 3"
+          - button "Show all phases" [ref=e450] [cursor=pointer]
+        - list "Your hand" [ref=e451]:
+          - listitem [ref=e452]:
+            - button "Card 1 of 10" [ref=e453] [cursor=pointer]:
+              - img "red 8" [ref=e454]
+          - listitem [ref=e455]:
+            - button "Card 2 of 10" [ref=e456] [cursor=pointer]:
+              - img "Wild card" [ref=e457]
+          - listitem [ref=e458]:
+            - button "Card 3 of 10" [ref=e459] [cursor=pointer]:
+              - img "red 6" [ref=e460]
+          - listitem [ref=e461]:
+            - button "Card 4 of 10" [ref=e462] [cursor=pointer]:
+              - img "red 1" [ref=e463]
+          - listitem [ref=e464]:
+            - button "Card 5 of 10" [ref=e465] [cursor=pointer]:
+              - img "red 2" [ref=e466]
+          - listitem [ref=e467]:
+            - button "Card 6 of 10" [ref=e468] [cursor=pointer]:
+              - img "yellow 10" [ref=e469]
+          - listitem [ref=e470]:
+            - button "Card 7 of 10" [ref=e471] [cursor=pointer]:
+              - img "red 10" [ref=e472]
+          - listitem [ref=e473]:
+            - button "Card 8 of 10" [ref=e474] [cursor=pointer]:
+              - img "green 9" [ref=e475]
+          - listitem [ref=e476]:
+            - button "Card 9 of 10" [ref=e477] [cursor=pointer]:
+              - img "Skip card" [ref=e478]
+          - listitem [ref=e479]:
+            - button "Card 10 of 10" [ref=e480] [cursor=pointer]:
+              - img "blue 6" [ref=e481]
+        - generic [ref=e482]:
+          - generic [ref=e483]:
+            - generic [ref=e484]: TestPlayer1
+            - generic [ref=e485]: ·
+            - generic [ref=e486]: "0"
+          - button "Sort hand by rank" [ref=e487] [cursor=pointer]: Rank
+          - button "Sort hand by suit" [ref=e488] [cursor=pointer]: Suit
+    - complementary "Chat" [ref=e489]:
+      - paragraph [ref=e491]: No messages yet.
+      - generic [ref=e493]:
+        - textbox "Type a message…" [ref=e494]
+        - button "Send" [disabled] [ref=e495]
+  - status [ref=e496]

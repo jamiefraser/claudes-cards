@@ -9,6 +9,7 @@ import { AuthProvider } from '@/auth/AuthProvider';
 import { useAuth } from '@/auth/useAuth';
 import { ToastProvider, useToast } from '@/components/shared/Toast';
 import { ConnectionBanner } from '@/components/shared/ConnectionBanner';
+import { useTheme } from '@/hooks/useTheme';
 import { logger } from '@/utils/logger';
 
 import { LandingPage } from '@/pages/LandingPage';
@@ -57,12 +58,23 @@ function ReauthListener() {
   return null;
 }
 
+/**
+ * ThemeBoot — reads the user's theme preference from localStorage and
+ * imperatively applies `data-theme` to <html> on first render. Kept at
+ * the top of the app tree so every route paints in the chosen palette.
+ */
+function ThemeBoot() {
+  useTheme();
+  return null;
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
           <ToastProvider>
+            <ThemeBoot />
             <ReauthListener />
             <ConnectionBanner />
             <Routes>

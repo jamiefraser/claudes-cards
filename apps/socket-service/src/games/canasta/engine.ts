@@ -782,16 +782,46 @@ export class CanastaEngine implements IGameEngine {
     // extend=true while the pile is frozen surfaces the specific
     // FROZEN_EXTENSION_FORBIDDEN code instead of falling through to the
     // new-meld path and failing there on "no two naturals from hand".
-    const useIds = (action.payload?.useCardIds as string[] | undefined) ?? [];
+    const rawUseIds = (action.payload?.useCardIds as string[] | undefined) ?? [];
     const explicitExtend = action.payload?.extend === true;
     const top = pd.discardTop;
-    const handSelected = player.hand.filter((c) => useIds.includes(c.id));
-    if (handSelected.length !== useIds.length) {
-      throw new Error('One or more provided hand cards are not in hand');
-    }
 
     const mySideMelds = pd.melds[side] ?? [];
     const effectivelyFrozen = pd.discardFrozen || !pd.initialMeldDone[side];
+
+    // Auto-infer the hand selection when the client submits take-discard
+    // with an empty useCardIds. Clicking the pile or "Take Top" with no
+    // pre-selection is the natural way to play, and forcing the user to
+    // hunt through their hand first is a major UX barrier. The engine
+    // picks the simplest legal option:
+    //   - Unfrozen + side has a matching open meld → extend with just the top card.
+    //   - Otherwise: find two naturals of the top rank in hand and use those.
+    // If neither option is available we fall through to the validator below
+    // which throws a specific error code the UI can toast.
+    let useIds = rawUseIds;
+    if (rawUseIds.length === 0) {
+      const canExtend =
+        !effectivelyFrozen &&
+        mySideMelds.some((m) => m.rank === top.rank && !m.blackThrees);
+      if (canExtend) {
+        // Extension with only the top card — natural-canasta guard will
+        // still reject a conversion attempt below.
+        useIds = [];
+      } else {
+        const naturals = player.hand.filter(
+          (c) => !isWild(c) && c.rank === top.rank,
+        );
+        if (naturals.length >= 2) {
+          useIds = [naturals[0]!.id, naturals[1]!.id];
+        }
+      }
+    }
+
+    const useIdsSet = new Set(useIds);
+    const handSelected = player.hand.filter((c) => useIdsSet.has(c.id));
+    if (handSelected.length !== useIds.length) {
+      throw new Error('One or more provided hand cards are not in hand');
+    }
 
     // Explicit extend-intent while frozen — spec Step 3 / Step 5
     // FROZEN_EXTENSION_FORBIDDEN. Auto-detection below treats the frozen
@@ -855,24 +885,28 @@ export class CanastaEngine implements IGameEngine {
           );
         }
       } else {
-        // Unfrozen new-meld path: surface precise codes before the generic
-        // validator runs. A pickup that proposes only wilds to join the top
-        // card would fail validateNewMeld's natural-majority rule, but the
-        // stable code WILD_ONLY_MATCH_FORBIDDEN is what the spec calls out.
-        const naturalsInMeld = [top, ...handSelected].filter((c) => !isWild(c));
-        if (naturalsInMeld.length < 2) {
-          throw new CanastaPickupError(
-            'WILD_ONLY_MATCH_FORBIDDEN',
-            'Top card needs at least one natural partner from hand',
-          );
-        }
-        const hasMatchingNatural = handSelected.some(
+        // Unfrozen new-meld path. Two distinct error cases:
+        //   (a) Player's FULL HAND has no matching natural → no possible
+        //       pickup via new meld, surface NO_MATCHING_CARD.
+        //   (b) Player has a matching natural but chose to SELECT only
+        //       wilds → WILD_ONLY_MATCH_FORBIDDEN (distinct because the
+        //       fix is different: select a natural instead of a wild).
+        const handHasMatching = player.hand.some(
           (c) => !isWild(c) && c.rank === top.rank,
         );
-        if (!hasMatchingNatural) {
+        if (!handHasMatching) {
           throw new CanastaPickupError(
             'NO_MATCHING_CARD',
             `No natural ${top.rank} in hand to match the top card`,
+          );
+        }
+        const selectionHasMatching = handSelected.some(
+          (c) => !isWild(c) && c.rank === top.rank,
+        );
+        if (!selectionHasMatching) {
+          throw new CanastaPickupError(
+            'WILD_ONLY_MATCH_FORBIDDEN',
+            'Selected cards are all wilds — pick a matching natural instead',
           );
         }
       }
@@ -1410,22 +1444,24 @@ export function canTakeDiscardPile(
         };
       }
     } else {
-      const naturalsInMeld = [top, ...handSelected].filter((c) => !isWild(c));
-      if (naturalsInMeld.length < 2) {
-        return {
-          ok: false,
-          code: 'WILD_ONLY_MATCH_FORBIDDEN',
-          message: 'Need a natural partner for the top card',
-        };
-      }
-      const hasMatchingNatural = handSelected.some(
+      const handHasMatching = player.hand.some(
         (c) => !isWild(c) && c.rank === top.rank,
       );
-      if (!hasMatchingNatural) {
+      if (!handHasMatching) {
         return {
           ok: false,
           code: 'NO_MATCHING_CARD',
           message: `No natural ${top.rank} in hand`,
+        };
+      }
+      const selectionHasMatching = handSelected.some(
+        (c) => !isWild(c) && c.rank === top.rank,
+      );
+      if (!selectionHasMatching) {
+        return {
+          ok: false,
+          code: 'WILD_ONLY_MATCH_FORBIDDEN',
+          message: 'Select a matching natural, not just wilds',
         };
       }
     }

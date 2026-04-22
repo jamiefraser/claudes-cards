@@ -949,15 +949,19 @@ describe('CanastaEngine — pickup error codes', () => {
     )).toBe('NO_MATCHING_CARD');
   });
 
-  it('WILD_ONLY_MATCH_FORBIDDEN when unfrozen pickup uses only wilds from hand', () => {
+  it('WILD_ONLY_MATCH_FORBIDDEN when the player has a matching natural but selects only wilds', () => {
     // Side has made its initial meld (pile unfrozen for them) but has no
-    // existing K meld to extend, and the player tries to form a new meld
-    // using only wilds from hand with the top K. That produces 1 natural
-    // + 2 wilds which fails the natural-majority rule — surface the
-    // specific WILD_ONLY_MATCH_FORBIDDEN code rather than MELD_STRUCTURE.
+    // existing K meld to extend. The player DOES hold a natural K in
+    // hand, but chose to submit only wilds as the useCardIds — the fix
+    // for this user is "select the natural instead", which is why we
+    // distinguish from NO_MATCHING_CARD.
     const { state, pid } = discardStateForTake(engine, {
       top: c('top','K','diamonds'),
-      handForPid: [c('w1','2','clubs'), c('w2','2','hearts')],
+      handForPid: [
+        c('h1','K','hearts'),
+        c('w1','2','clubs'),
+        c('w2','2','hearts'),
+      ],
       frozen: false,
       initialMeldDone: true,
     });
@@ -1680,7 +1684,11 @@ describe('canTakeDiscardPile — pure validator', () => {
         setup: () => {
           const { state, pid } = discardStateForTake(engine, {
             top: c('top','K','diamonds'),
-            handForPid: [c('w1','2','clubs'), c('w2','2','hearts')],
+            handForPid: [
+              c('h1','K','hearts'),
+              c('w1','2','clubs'),
+              c('w2','2','hearts'),
+            ],
             frozen: false,
             initialMeldDone: true,
           });
@@ -1713,6 +1721,66 @@ describe('canTakeDiscardPile — pure validator', () => {
       // Contract: validator and engine agreed on this scenario.
       void name;
     }
+  });
+});
+
+// ===========================================================================
+// Discard-pickup UX: auto-infer hand selection when useCardIds is empty.
+// Clicking the discard pile / "Take Top" with nothing selected must Just Work
+// in the common cases (extend an existing open meld; use two naturals).
+// ===========================================================================
+
+describe('CanastaEngine — take-discard auto-inference', () => {
+  const engine = new CanastaEngine();
+
+  it('empty useCardIds extends an existing open meld with just the top card', () => {
+    const existing: CanastaMeld = {
+      rank: 'K',
+      cards: [c('e1','K','hearts'), c('e2','K','spades'), c('e3','K','clubs')],
+      naturals: 3,
+      wilds: 0,
+      isCanasta: false,
+    };
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','K','diamonds'),
+      handForPid: [c('h1','9','hearts'), c('h2','8','spades')],
+      frozen: false,
+      initialMeldDone: true,
+      existingMeld: existing,
+    });
+    const after = engine.applyAction(state, pid, { type: 'take-discard' });
+    const meld = pd(after).melds.A![0]!;
+    expect(meld.naturals).toBe(4);
+    expect(pd(after).discardTop).toBeNull();
+  });
+
+  it('empty useCardIds auto-picks two naturals from hand when no existing meld', () => {
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','K','diamonds'),
+      handForPid: [c('h1','K','hearts'), c('h2','K','spades'), c('h3','9','hearts')],
+      frozen: false,
+      initialMeldDone: true,
+    });
+    const after = engine.applyAction(state, pid, { type: 'take-discard' });
+    const meld = pd(after).melds.A![0]!;
+    expect(meld.rank).toBe('K');
+    expect(meld.naturals).toBe(3);
+    // Hand should be down by two naturals + up by zero pile cards (pile
+    // was just the top).
+    const player = after.players.find((p) => p.playerId === pid)!;
+    expect(player.hand.map((c) => c.id)).toEqual(['h3']);
+  });
+
+  it('empty useCardIds still errors with NO_MATCHING_CARD when no matching naturals and no meld', () => {
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','K','diamonds'),
+      handForPid: [c('h1','9','hearts'), c('h2','8','spades')],
+      frozen: false,
+      initialMeldDone: true,
+    });
+    expect(expectPickupCode(() =>
+      engine.applyAction(state, pid, { type: 'take-discard' }),
+    )).toBe('NO_MATCHING_CARD');
   });
 });
 

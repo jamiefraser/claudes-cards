@@ -61,7 +61,12 @@ interface GameTableProps {
 const FELT_W = 880;
 const FELT_H = 520;
 const SEAT_RX = FELT_W / 2 + 96;
-const SEAT_RY = FELT_H / 2 + 60;
+// Radial Y sits the opponent seat's TOP edge right at the felt's top edge
+// — the pill docks INTO the upper band of the felt rather than floating
+// above it. That's what keeps the bot visible on shorter viewports
+// without scrollbars, at the cost of overlapping the upper felt (which
+// the user explicitly accepts).
+const SEAT_RY = FELT_H / 2;
 
 export function GameTable({ roomId }: GameTableProps) {
   const [rulesOpen, setRulesOpen] = useState(false);
@@ -889,7 +894,7 @@ export function GameTable({ roomId }: GameTableProps) {
                           groups={melds}
                           cardCatalogue={cardCatalogue}
                           label={`${p.displayName}'s melds`}
-                          scale="medium"
+                          scale="full"
                           dropTargetPlayerId={
                             gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
                               ? p.playerId
@@ -1050,14 +1055,15 @@ export function GameTable({ roomId }: GameTableProps) {
               {/* Radial opponent seats pinned to the felt's geometric centre.
                   Desktop only — below lg the opponents render as the mobile
                   strip above the felt instead.
-                  The seat pill and the meld stack are two INDEPENDENTLY
-                  anchored elements at the ellipse point. The seat renders
-                  ABOVE the anchor (bottom edge at the ellipse point — so
-                  top-positioned opponents' pills land fully above the felt
-                  top) while the melds render BELOW (top edge at the
-                  ellipse point, overlapping the upper felt). Splitting the
-                  two stops the stack from growing into a tall vertical
-                  strip that cuts through the felt centre. */}
+                  Each seat renders as ONE flex-col stack anchored at the
+                  ellipse point: seat pill on top, melds (full size, same
+                  as the player's melds below the felt) below the pill.
+                  The ellipse Y is set to FELT_H/2 so the stack docks at
+                  the felt's top edge — the pill sits on the upper felt
+                  rather than floating above, which keeps everything
+                  inside the viewport at shorter heights. `width:
+                  max-content` stops the absolute wrapper from shrinking
+                  to a single-card-wide column. */}
               <div
                 className="hidden lg:block absolute pointer-events-auto"
                 style={{ left: FELT_W / 2, top: FELT_H / 2, width: 0, height: 0 }}
@@ -1097,60 +1103,29 @@ export function GameTable({ roomId }: GameTableProps) {
                       />
                     );
                     return (
-                      <>
-                        {/* Seat pill — bottom-centre lands AT the ellipse
-                            anchor, so the pill sits entirely above the
-                            anchor point (outside the felt for top
-                            opponents). A 4px gap between pill and anchor
-                            keeps the pill from hugging the felt edge. */}
-                        <div
-                          className="absolute"
-                          style={{
-                            left: 0,
-                            top: 0,
-                            transform: 'translate(-50%, calc(-100% - 4px))',
-                          }}
-                        >
-                          {seatNode}
-                        </div>
-                        {/* Melds — top-centre AT the ellipse anchor, so
-                            the stack grows DOWN from there. Scale=medium
-                            (0.75) keeps the stack short enough that it
-                            overlaps only the upper band of the felt and
-                            doesn't reach the draw/discard area.
-                            `width: max-content` is load-bearing: an
-                            absolute-positioned element with width auto
-                            uses shrink-to-fit, which collapses the inner
-                            flex-wrap cards row to ONE CARD PER LINE. We
-                            want the cards laid out horizontally (same as
-                            the local player's melds below the felt), so
-                            force the wrapper to size to the natural
-                            unwrapped row width. */}
+                      <div
+                        className="flex flex-col items-center gap-2"
+                        style={{
+                          transform: 'translate(-50%, 0)',
+                          width: 'max-content',
+                          maxWidth: FELT_W - 80,
+                        }}
+                      >
+                        {seatNode}
                         {melds.length > 0 && (
-                          <div
-                            className="absolute"
-                            style={{
-                              left: 0,
-                              top: 8,
-                              transform: 'translate(-50%, 0)',
-                              width: 'max-content',
-                              maxWidth: 480,
-                            }}
-                          >
-                            <MeldsArea
-                              groups={melds}
-                              cardCatalogue={cardCatalogue}
-                              label={`${p.displayName}'s melds`}
-                              scale="medium"
-                              dropTargetPlayerId={
-                                gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
-                                  ? p.playerId
-                                  : undefined
-                              }
-                            />
-                          </div>
+                          <MeldsArea
+                            groups={melds}
+                            cardCatalogue={cardCatalogue}
+                            label={`${p.displayName}'s melds`}
+                            scale="full"
+                            dropTargetPlayerId={
+                              gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
+                                ? p.playerId
+                                : undefined
+                            }
+                          />
                         )}
-                      </>
+                      </div>
                     );
                   }}
                 />

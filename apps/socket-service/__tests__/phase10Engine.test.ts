@@ -2931,7 +2931,21 @@ describe('Phase10Engine — Mattel rule suite', () => {
       ),
     };
     const drawn = engine.applyAction(withHand, playerId, { type: 'draw', payload: { source: 'deck' } });
-    const after = engine.applyAction(drawn, playerId, { type: 'lay-down', payload: { phase: 1 } });
+    // Pin the post-draw hand so the RNG from the stock deal can't pollute
+    // the assertion. If the drawn card happens to be another 2 the
+    // optimiser correctly includes it in the twos set, which is a valid
+    // arrangement but a different shape than the one this test asserts.
+    // Overwriting with a deterministic filler card keeps the test focused
+    // on the {4 twos}{2 eights+wild} shape.
+    const deterministic: GameState = {
+      ...drawn,
+      players: drawn.players.map((p) =>
+        p.playerId === playerId
+          ? { ...p, hand: [...hand, numCard('filler-drawn', 'red', 7)] }
+          : p,
+      ),
+    };
+    const after = engine.applyAction(deterministic, playerId, { type: 'lay-down', payload: { phase: 1 } });
     const laid = (after.publicData as any).laidDownPhases[playerId] as Array<{ type: string; cardIds: string[]; cards: Card[] }>;
     expect(laid).toHaveLength(2);
     const setSizes = laid.map((g) => g.cardIds.length).sort();

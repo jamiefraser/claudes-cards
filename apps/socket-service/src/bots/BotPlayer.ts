@@ -193,7 +193,42 @@ export class BotPlayer {
       // the same failing action forever — the bot appears stuck "thinking"
       // indefinitely. Budget one re-attempt with rightmostDiscard, then
       // force 'pass' so the room never waits > one think-cycle for us.
+      // Circuit-breaker: if the same bot hits the force-pass path N times
+      // in a short window, deactivate it. Sweeper skips inactive bots, so
+      // this turns an infinite reschedule loop into a clean "this bot is
+      // stuck, let a human unblock" outcome. The counter auto-expires so a
+      // bot that works normally for a while gets reset.
+      const failCountKey = `bot:failcount:${roomId}:${botPlayerId}`;
+      const FAILURE_THRESHOLD = 3;
+      const FAILURE_WINDOW_SECONDS = 120;
       let nextState: GameState;
+      const recordFailureAndMaybeDeactivate = async (action1: PlayerAction, err1: unknown, action2?: PlayerAction, err2?: unknown) => {
+        const failCount = await redis.incr(failCountKey);
+        await redis.expire(failCountKey, FAILURE_WINDOW_SECONDS);
+        logger.error('BotPlayer: engine rejected both strategy and fallback; forcing pass', {
+          roomId,
+          botPlayerId,
+          gameId: state.gameId,
+          turnVersion: state.version,
+          currentTurn: state.currentTurn,
+          gamePhase: (state.publicData as { gamePhase?: string })?.gamePhase,
+          strategyAction: action1.type,
+          strategyError: String(err1),
+          ...(action2 ? { fallbackAction: action2.type, fallbackError: String(err2) } : {}),
+          failCount,
+        });
+        await redis.del(`bot:queue:${roomId}:${botPlayerId}`);
+        await redis.del(`bot:schedule:${roomId}:${botPlayerId}`);
+        if (failCount >= FAILURE_THRESHOLD) {
+          logger.error('BotPlayer: failure threshold reached, deactivating bot', {
+            roomId,
+            botPlayerId,
+            failCount,
+          });
+          await this.botController.deactivate(roomId, botPlayerId);
+          await redis.del(failCountKey);
+        }
+      };
       try {
         nextState = engine.applyAction(state, botPlayerId, action);
       } catch (err) {
@@ -206,23 +241,19 @@ export class BotPlayer {
         try {
           const fallback = this.rightmostDiscard(state, botPlayerId);
           if (fallback.type === 'pass') {
-            await redis.del(`bot:queue:${roomId}:${botPlayerId}`);
-            await redis.del(`bot:schedule:${roomId}:${botPlayerId}`);
+            await recordFailureAndMaybeDeactivate(action, err);
             return;
           }
           nextState = engine.applyAction(state, botPlayerId, fallback);
           action = fallback;
         } catch (err2) {
-          logger.error('BotPlayer: rightmost-discard fallback also rejected; forcing pass', {
-            roomId,
-            botPlayerId,
-            err: String(err2),
-          });
-          await redis.del(`bot:queue:${roomId}:${botPlayerId}`);
-          await redis.del(`bot:schedule:${roomId}:${botPlayerId}`);
+          await recordFailureAndMaybeDeactivate(action, err, this.rightmostDiscard(state, botPlayerId), err2);
           return;
         }
       }
+      // Successful action: reset the failure counter so transient misfires
+      // don't eventually deactivate an otherwise-healthy bot.
+      await redis.del(failCountKey);
 
       // 8. Build action record (isBot: true per SPEC.md rule #11)
       const gameAction: GameAction = {

@@ -621,7 +621,7 @@ export class CanastaEngine implements IGameEngine {
 
   applyAction(state: GameState, playerId: string, action: PlayerAction): GameState {
     if (state.currentTurn !== playerId) throw new Error(`Not ${playerId}'s turn`);
-    const pd = state.publicData as unknown as CanastaPublicData;
+    const pd = this.ensureFlags(state.publicData as unknown as CanastaPublicData);
 
     switch (action.type) {
       case 'draw':         return this.handleDraw(state, playerId, pd);
@@ -666,6 +666,18 @@ export class CanastaEngine implements IGameEngine {
   // -------------------------------------------------------------------------
   // Handlers
   // -------------------------------------------------------------------------
+
+  /**
+   * Guarantee pd.flags is populated. Game states persisted before the
+   * CanastaVariantFlags field shipped in batch 2 lack the property; without
+   * this backfill, any handler that reads `pd.flags.xxx` crashes with a
+   * TypeError on the first action the bot tries to take after redeploy.
+   * Applied in applyAction before any handler runs.
+   */
+  private ensureFlags(pd: CanastaPublicData): CanastaPublicData {
+    if (pd.flags) return pd;
+    return { ...pd, flags: defaultCanastaFlags() };
+  }
 
   private handleDraw(state: GameState, playerId: string, pd: CanastaPublicData): GameState {
     if (pd.gamePhase !== 'draw') throw new Error('Already drew this turn');
@@ -765,8 +777,13 @@ export class CanastaEngine implements IGameEngine {
 
     // The caller provides: which hand-card ids to combine with the top to
     // form/extend a meld. Additional melds in the same action can be passed
-    // as payload.melds (same shape as handleMeld).
+    // as payload.melds (same shape as handleMeld). An optional `extend`
+    // boolean lets the caller state their intent explicitly — passing
+    // extend=true while the pile is frozen surfaces the specific
+    // FROZEN_EXTENSION_FORBIDDEN code instead of falling through to the
+    // new-meld path and failing there on "no two naturals from hand".
     const useIds = (action.payload?.useCardIds as string[] | undefined) ?? [];
+    const explicitExtend = action.payload?.extend === true;
     const top = pd.discardTop;
     const handSelected = player.hand.filter((c) => useIds.includes(c.id));
     if (handSelected.length !== useIds.length) {
@@ -775,6 +792,17 @@ export class CanastaEngine implements IGameEngine {
 
     const mySideMelds = pd.melds[side] ?? [];
     const effectivelyFrozen = pd.discardFrozen || !pd.initialMeldDone[side];
+
+    // Explicit extend-intent while frozen — spec Step 3 / Step 5
+    // FROZEN_EXTENSION_FORBIDDEN. Auto-detection below treats the frozen
+    // path as new-meld regardless, but if the caller explicitly asked to
+    // extend we return the precise code.
+    if (explicitExtend && effectivelyFrozen) {
+      throw new CanastaPickupError(
+        'FROZEN_EXTENSION_FORBIDDEN',
+        'Cannot extend an existing meld while the pile is frozen',
+      );
+    }
 
     // Determine whether the use-set + top forms a new meld or extends an existing one.
     const extensionTarget = !effectivelyFrozen
@@ -1246,4 +1274,219 @@ export class CanastaEngine implements IGameEngine {
       updatedAt: new Date().toISOString(),
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Pure pickup validator (batch 3 — spec E17 realisation).
+//
+// In physical Canasta the "show your match first" rule forbids a player from
+// inspecting the buried pile cards before committing to a take. Online, a
+// rejected take-discard action never mutates state, so the buried cards
+// never leave the server — the spec's two-phase commit is effectively
+// achieved by today's single-action flow. What was missing was a way for
+// consumers (UI, bot strategies, tests) to PRE-VALIDATE a pickup plan
+// without round-tripping through the engine and catching the throw.
+//
+// canTakeDiscardPile is that pre-flight validator. Same rule surface as
+// handleTakeDiscard's Steps 1–5; does not mutate state. Consumers should
+// submit a `take-discard` action only when this returns ok; the engine
+// re-validates on its side (never trust a client-side check).
+//
+// Rollback (spec E18) is trivial in a purely functional engine: snapshot
+// the GameState object before calling applyAction; restore that snapshot
+// if a later step decides the pickup should be undone. No dedicated API
+// needed — GameState is JSON-serialisable and the socket layer already
+// persists a prior version. See the socket handler for the snapshot point.
+// ---------------------------------------------------------------------------
+
+export interface CanastaPickupPlan {
+  /** Hand card ids the player intends to combine with the top card. */
+  useCardIds?: string[];
+  /** Extra melds to lay down in the same action, each as a list of ids. */
+  melds?: string[][];
+  /** Explicit intent — extend an existing meld rather than form a new one. */
+  extend?: boolean;
+}
+
+export type CanastaPickupCheckResult =
+  | { ok: true }
+  | { ok: false; code: CanastaPickupErrorCode; message: string };
+
+export function canTakeDiscardPile(
+  state: GameState,
+  playerId: string,
+  plan: CanastaPickupPlan = {},
+): CanastaPickupCheckResult {
+  const rawPd = state.publicData as unknown as CanastaPublicData;
+  const pd: CanastaPublicData = rawPd.flags
+    ? rawPd
+    : { ...rawPd, flags: defaultCanastaFlags() };
+
+  if (state.currentTurn !== playerId) {
+    return { ok: false, code: 'EMPTY_PILE', message: 'Not this player\'s turn' };
+  }
+
+  // Step 1: top-card reachability
+  if (!pd.discardTop || pd.discardPile.length === 0) {
+    return { ok: false, code: 'EMPTY_PILE', message: 'Discard pile is empty' };
+  }
+  if (isBlackThree(pd.discardTop)) {
+    return { ok: false, code: 'BLOCKED_BLACK_THREE', message: 'Black 3 on top' };
+  }
+  if (isWild(pd.discardTop)) {
+    return { ok: false, code: 'BLOCKED_WILD_ON_TOP', message: 'Wild on top' };
+  }
+  if (isRedThree(pd.discardTop)) {
+    return { ok: false, code: 'BLOCKED_RED_THREE', message: 'Red 3 on top' };
+  }
+
+  const top = pd.discardTop;
+  const side = sideOf(pd.variant, state.players.map((p) => p.playerId), playerId);
+  const player = state.players.find((p) => p.playerId === playerId);
+  if (!player) {
+    return { ok: false, code: 'NO_MATCHING_CARD', message: 'Player not seated' };
+  }
+
+  const useIds = plan.useCardIds ?? [];
+  const handSelected = player.hand.filter((c) => useIds.includes(c.id));
+  if (handSelected.length !== useIds.length) {
+    return {
+      ok: false,
+      code: 'NO_MATCHING_CARD',
+      message: 'One or more selected cards are not in hand',
+    };
+  }
+
+  const effectivelyFrozen = pd.discardFrozen || !pd.initialMeldDone[side];
+
+  // Step 5: explicit-extend intent while frozen
+  if (plan.extend === true && effectivelyFrozen) {
+    return {
+      ok: false,
+      code: 'FROZEN_EXTENSION_FORBIDDEN',
+      message: 'Cannot extend while the pile is frozen',
+    };
+  }
+
+  const mySideMelds = pd.melds[side] ?? [];
+  const extensionTarget = !effectivelyFrozen
+    ? mySideMelds.find((m) => m.rank === top.rank && !m.blackThrees)
+    : undefined;
+
+  if (extensionTarget) {
+    if (
+      !pd.flags.allowConvertingNaturalCanasta &&
+      extensionTarget.isCanasta &&
+      extensionTarget.canastaType === 'natural' &&
+      [top, ...handSelected].some(isWild)
+    ) {
+      return {
+        ok: false,
+        code: 'WOULD_CONVERT_NATURAL_CANASTA',
+        message: 'Cannot add wild to natural canasta',
+      };
+    }
+    const check = validateMeldExtension(extensionTarget, [top, ...handSelected]);
+    if (!check.ok) {
+      return { ok: false, code: 'MELD_STRUCTURE_INVALID', message: check.error };
+    }
+  } else {
+    if (effectivelyFrozen) {
+      const naturalMatches = handSelected.filter(
+        (c) => !isWild(c) && c.rank === top.rank,
+      );
+      if (naturalMatches.length < 2) {
+        if (handSelected.some(isWild)) {
+          return {
+            ok: false,
+            code: 'FROZEN_WILD_MATCH_FORBIDDEN',
+            message: 'Frozen pile: wilds not allowed',
+          };
+        }
+        return {
+          ok: false,
+          code: 'NO_MATCHING_CARD',
+          message: 'Need two naturals of the top card\'s rank',
+        };
+      }
+    } else {
+      const naturalsInMeld = [top, ...handSelected].filter((c) => !isWild(c));
+      if (naturalsInMeld.length < 2) {
+        return {
+          ok: false,
+          code: 'WILD_ONLY_MATCH_FORBIDDEN',
+          message: 'Need a natural partner for the top card',
+        };
+      }
+      const hasMatchingNatural = handSelected.some(
+        (c) => !isWild(c) && c.rank === top.rank,
+      );
+      if (!hasMatchingNatural) {
+        return {
+          ok: false,
+          code: 'NO_MATCHING_CARD',
+          message: `No natural ${top.rank} in hand`,
+        };
+      }
+    }
+    const check = validateNewMeld([top, ...handSelected]);
+    if (!check.ok) {
+      return { ok: false, code: 'MELD_STRUCTURE_INVALID', message: check.error };
+    }
+  }
+
+  // Step 4 — initial-meld threshold. Mirrors handleTakeDiscard's math so the
+  // pre-flight check matches the authoritative run. Pile cards are excluded
+  // from the threshold when flags.initialMeldMayUsePileCards is false.
+  if (!pd.initialMeldDone[side]) {
+    const pileCardIds = new Set(
+      pd.discardPile.slice(0, -1).map((c) => c.id),
+    );
+    const extraMelds = plan.melds ?? [];
+    let threshold = 0;
+    // Points from the new top meld (only counted when forming a new meld,
+    // not when extending — extensions don't contribute to the initial meld).
+    if (!extensionTarget) {
+      threshold += [top, ...handSelected].reduce(
+        (s, c) => s + canastaCardPoints(c),
+        0,
+      );
+    }
+    // Project hand after top-meld use to mirror the engine's handAfter.
+    const pileCards = pd.discardPile.slice(0, -1);
+    let handAfter = [
+      ...player.hand.filter((c) => !useIds.includes(c.id)),
+      ...pileCards,
+    ];
+    for (const group of extraMelds) {
+      const cs = handAfter.filter((c) => group.includes(c.id));
+      if (cs.length !== group.length) {
+        return {
+          ok: false,
+          code: 'MELD_STRUCTURE_INVALID',
+          message: 'Additional meld cards not all present',
+        };
+      }
+      const check = validateNewMeld(cs);
+      if (!check.ok) {
+        return { ok: false, code: 'MELD_STRUCTURE_INVALID', message: check.error };
+      }
+      const countable = pd.flags.initialMeldMayUsePileCards
+        ? cs
+        : cs.filter((c) => !pileCardIds.has(c.id));
+      threshold += countable.reduce((s, c) => s + canastaCardPoints(c), 0);
+      handAfter = handAfter.filter((c) => !group.includes(c.id));
+    }
+    const prior = pd.scoresPriorHand[side] ?? 0;
+    const required = initialMeldMinimum(prior);
+    if (threshold < required) {
+      return {
+        ok: false,
+        code: 'INITIAL_MELD_NOT_MET',
+        message: `Initial meld ${threshold} < required ${required}`,
+      };
+    }
+  }
+
+  return { ok: true };
 }

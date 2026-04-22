@@ -199,6 +199,22 @@ export class BotController {
   }
 
   /**
+   * Deactivate a single bot in a room. Called by BotPlayer's failure
+   * circuit-breaker when the strategy + fallback have both been rejected
+   * by the engine repeatedly — at that point letting the sweeper keep
+   * rescheduling just burns cycles and leaves the table stuck on
+   * "Thinking...". Removing the bot from bot:active tells the sweeper to
+   * stop attempting; a human seat host can re-seat it if desired.
+   */
+  async deactivate(roomId: string, botPlayerId: string): Promise<void> {
+    await redis.hdel(`bot:active:${roomId}`, botPlayerId);
+    this.activeBots.get(roomId)?.delete(botPlayerId);
+    await redis.del(`bot:queue:${roomId}:${botPlayerId}`);
+    await redis.del(`bot:schedule:${roomId}:${botPlayerId}`);
+    logger.info('Bot deactivated (single)', { roomId, botPlayerId });
+  }
+
+  /**
    * Deactivate all bots in a room (called when game ends).
    * Fetches HGETALL, clears cache, deletes HASH.
    */

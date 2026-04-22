@@ -5,6 +5,7 @@
 import {
   CanastaEngine,
   CanastaPickupError,
+  canTakeDiscardPile,
   canastaCardPoints,
   initialMeldMinimum,
   isWild,
@@ -1141,6 +1142,91 @@ describe('CanastaEngine — undischargeable-hand guard', () => {
 // ===========================================================================
 
 // ===========================================================================
+// Regression: "bot freezes up after the player discards a black 3".
+// Simulates the exact turn sequence the user reports, driving each engine
+// action through applyAction the same way the socket handler / BotPlayer
+// would. If any step throws, the strategy will fall back to rightmostDiscard
+// which the engine rejects in draw phase → force-pass → sweeper reschedules
+// → infinite loop. The test asserts the engine accepts a straightforward
+// draw action when a black 3 is on top of the discard pile.
+// ===========================================================================
+
+describe('CanastaEngine — regression: bot draw after player discards a black 3', () => {
+  const engine = new CanastaEngine();
+
+  it('engine accepts a bare { type: "draw" } from the bot when the discard top is a black 3', () => {
+    const start = engine.startGame(makeConfig(4));
+    // Seat 0 is the human; seat 1 is the bot. The engine's startGame chose
+    // a random first player, so we pin currentTurn to the bot and transition
+    // to draw phase with a black 3 sitting on top of the discard pile.
+    const botId = 'p2';
+    const state0 = seedHand(start, botId, [
+      c('h1','K','hearts'), c('h2','Q','spades'), c('h3','9','hearts'),
+      c('h4','7','spades'), c('h5','5','hearts'), c('h6','4','clubs'),
+      c('h7','A','hearts'), c('h8','10','spades'), c('h9','J','diamonds'),
+      c('h10','6','clubs'), c('h11','8','hearts'),
+    ]);
+    const pd0 = pd(state0);
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      gamePhase: 'draw',
+      // A realistic discard pile — just the player's black-3 on top of the
+      // round's opening card. Pile not frozen (black 3 doesn't freeze).
+      discardPile: [c('base','5','hearts'), c('top','3','clubs')],
+      discardTop: c('top','3','clubs'),
+      discardFrozen: false,
+    };
+    const state: GameState = {
+      ...state0,
+      currentTurn: botId,
+      publicData: cleaned as unknown as Record<string, unknown>,
+    };
+    // This is what CanastaBotStrategy returns in the draw phase — a bare
+    // draw. If the engine throws here, the bot stalls.
+    const after = engine.applyAction(state, botId, { type: 'draw' });
+    expect(pd(after).gamePhase).toBe('meld-discard');
+    // Stock was 108 - 4*11 - 1 base - 1 top = 59 cards.
+    // After drawing drawCount=1 (4p), pile size = 58.
+    expect(pd(after).drawPile.length).toBeLessThan(pd0.drawPile.length);
+    // Hand grew by exactly drawCount.
+    const botPlayer = after.players.find((p) => p.playerId === botId)!;
+    expect(botPlayer.hand.length).toBe(12);
+  });
+
+  it('2-player canasta: engine draws drawCount=2 cards without throwing when black 3 is on top', () => {
+    const start = engine.startGame({
+      roomId: 'r',
+      gameId: 'canasta',
+      playerIds: ['p1', 'p2'],
+      asyncMode: false,
+      turnTimerSeconds: null,
+    });
+    const botId = 'p2';
+    const state0 = seedHand(start, botId, [
+      c('h1','K','hearts'), c('h2','Q','spades'), c('h3','9','hearts'),
+      c('h4','7','spades'), c('h5','5','hearts'), c('h6','4','clubs'),
+      c('h7','A','hearts'), c('h8','10','spades'), c('h9','J','diamonds'),
+      c('h10','6','clubs'), c('h11','8','hearts'), c('h12','K','spades'),
+      c('h13','Q','hearts'), c('h14','9','spades'), c('h15','7','hearts'),
+    ]);
+    const pd0 = pd(state0);
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      gamePhase: 'draw',
+      discardPile: [c('base','5','hearts'), c('top','3','spades')],
+      discardTop: c('top','3','spades'),
+      discardFrozen: false,
+    };
+    const state: GameState = {
+      ...state0,
+      currentTurn: botId,
+      publicData: cleaned as unknown as Record<string, unknown>,
+    };
+    expect(() => engine.applyAction(state, botId, { type: 'draw' })).not.toThrow();
+  });
+});
+
+// ===========================================================================
 // Batch 2 — variant flags, natural-canasta guard, initial-meld pile-cards,
 // forced pickup after stock exhaust.
 // ===========================================================================
@@ -1457,5 +1543,214 @@ describe('CanastaEngine — pickup atomicity', () => {
       .toEqual(snapshotHand);
     expect(pd(state).discardPile.map((c) => c.id)).toEqual(snapshotPile);
     expect(JSON.stringify(pd(state).melds)).toBe(snapshotMelds);
+  });
+});
+
+// ===========================================================================
+// Batch 3 — pure pickup validator + FROZEN_EXTENSION_FORBIDDEN.
+// ===========================================================================
+
+describe('canTakeDiscardPile — pure validator', () => {
+  const engine = new CanastaEngine();
+
+  it('returns {ok: true} for a legal unfrozen extension', () => {
+    const existing: CanastaMeld = {
+      rank: 'K',
+      cards: [c('e1','K','hearts'), c('e2','K','spades'), c('e3','K','clubs')],
+      naturals: 3,
+      wilds: 0,
+      isCanasta: false,
+    };
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','K','diamonds'),
+      handForPid: [c('h1','9','hearts'), c('h2','9','spades')],
+      frozen: false,
+      initialMeldDone: true,
+      existingMeld: existing,
+    });
+    const result = canTakeDiscardPile(state, pid, { useCardIds: [] });
+    expect(result.ok).toBe(true);
+  });
+
+  it('returns the specific code for a blocked pile without mutating state', () => {
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','3','clubs'),
+      handForPid: [c('k1','K','hearts'), c('k2','K','spades')],
+    });
+    const snapshot = JSON.stringify(state);
+    const result = canTakeDiscardPile(state, pid, { useCardIds: [] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('BLOCKED_BLACK_THREE');
+    // State must be byte-identical — the validator must not mutate.
+    expect(JSON.stringify(state)).toBe(snapshot);
+  });
+
+  it('returns FROZEN_EXTENSION_FORBIDDEN when extend=true on a frozen pile', () => {
+    const existing: CanastaMeld = {
+      rank: 'K',
+      cards: [c('e1','K','hearts'), c('e2','K','spades'), c('e3','K','clubs')],
+      naturals: 3,
+      wilds: 0,
+      isCanasta: false,
+    };
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','K','diamonds'),
+      handForPid: [c('h1','9','hearts'), c('h2','9','spades')],
+      frozen: true,
+      initialMeldDone: true,
+      existingMeld: existing,
+    });
+    const result = canTakeDiscardPile(state, pid, {
+      useCardIds: [],
+      extend: true,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('FROZEN_EXTENSION_FORBIDDEN');
+  });
+
+  it('engine also throws FROZEN_EXTENSION_FORBIDDEN when take-discard payload.extend=true on a frozen pile', () => {
+    const existing: CanastaMeld = {
+      rank: 'K',
+      cards: [c('e1','K','hearts'), c('e2','K','spades'), c('e3','K','clubs')],
+      naturals: 3,
+      wilds: 0,
+      isCanasta: false,
+    };
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','K','diamonds'),
+      handForPid: [c('h1','9','hearts'), c('h2','9','spades')],
+      frozen: true,
+      initialMeldDone: true,
+      existingMeld: existing,
+    });
+    expect(expectPickupCode(() =>
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: { useCardIds: [], extend: true },
+      }),
+    )).toBe('FROZEN_EXTENSION_FORBIDDEN');
+  });
+
+  it('validator result matches engine.applyAction outcome for every batch-1/2 error code', () => {
+    // Sanity: any scenario where applyAction throws a CanastaPickupError
+    // should also be flagged by canTakeDiscardPile with the SAME code.
+    // This is the contract consumers rely on: pre-flight and run-time agree.
+    const scenarios: Array<{
+      name: string;
+      setup: () => { state: GameState; pid: string; plan: { useCardIds?: string[]; extend?: boolean } };
+      expectedCode: CanastaPickupErrorCode;
+    }> = [
+      {
+        name: 'BLOCKED_BLACK_THREE',
+        setup: () => {
+          const { state, pid } = discardStateForTake(engine, {
+            top: c('top','3','clubs'),
+            handForPid: [c('k1','K','hearts'), c('k2','K','spades')],
+          });
+          return { state, pid, plan: {} };
+        },
+        expectedCode: 'BLOCKED_BLACK_THREE',
+      },
+      {
+        name: 'BLOCKED_WILD_ON_TOP',
+        setup: () => {
+          const { state, pid } = discardStateForTake(engine, {
+            top: c('top','2','clubs'),
+            handForPid: [c('k1','K','hearts'), c('k2','K','spades')],
+          });
+          return { state, pid, plan: {} };
+        },
+        expectedCode: 'BLOCKED_WILD_ON_TOP',
+      },
+      {
+        name: 'FROZEN_WILD_MATCH_FORBIDDEN',
+        setup: () => {
+          const { state, pid } = discardStateForTake(engine, {
+            top: c('top','K','diamonds'),
+            handForPid: [c('h1','K','hearts'), c('w','2','clubs')],
+            frozen: true,
+            initialMeldDone: false,
+          });
+          return { state, pid, plan: { useCardIds: ['h1','w'] } };
+        },
+        expectedCode: 'FROZEN_WILD_MATCH_FORBIDDEN',
+      },
+      {
+        name: 'WILD_ONLY_MATCH_FORBIDDEN',
+        setup: () => {
+          const { state, pid } = discardStateForTake(engine, {
+            top: c('top','K','diamonds'),
+            handForPid: [c('w1','2','clubs'), c('w2','2','hearts')],
+            frozen: false,
+            initialMeldDone: true,
+          });
+          return { state, pid, plan: { useCardIds: ['w1','w2'] } };
+        },
+        expectedCode: 'WILD_ONLY_MATCH_FORBIDDEN',
+      },
+    ];
+
+    for (const { name, setup, expectedCode } of scenarios) {
+      const { state, pid, plan } = setup();
+      const validatorResult = canTakeDiscardPile(state, pid, plan);
+      expect(validatorResult.ok).toBe(false);
+      if (!validatorResult.ok) {
+        expect(validatorResult.code).toBe(expectedCode);
+      }
+
+      let engineCode: CanastaPickupErrorCode | undefined;
+      try {
+        engine.applyAction(state, pid, {
+          type: 'take-discard',
+          payload: plan,
+        });
+      } catch (err) {
+        if (err instanceof CanastaPickupError) {
+          engineCode = err.code;
+        }
+      }
+      expect(engineCode).toBe(expectedCode);
+      // Contract: validator and engine agreed on this scenario.
+      void name;
+    }
+  });
+});
+
+// ===========================================================================
+// Batch 3 — rollback pattern verification.
+// Engine is purely functional, so "rollback" is simply using the prior
+// snapshot. This test documents the contract: the state object passed in
+// to applyAction is never mutated, even on throw OR on success.
+// ===========================================================================
+
+describe('CanastaEngine — rollback via snapshot', () => {
+  const engine = new CanastaEngine();
+
+  it('applyAction never mutates the input state — callers can rollback by reusing the pre-call reference', () => {
+    const existing: CanastaMeld = {
+      rank: 'K',
+      cards: [c('e1','K','hearts'), c('e2','K','spades'), c('e3','K','clubs')],
+      naturals: 3,
+      wilds: 0,
+      isCanasta: false,
+    };
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','K','diamonds'),
+      handForPid: [c('h1','9','hearts'), c('h2','9','spades')],
+      frozen: false,
+      initialMeldDone: true,
+      existingMeld: existing,
+    });
+    const snapshot = JSON.parse(JSON.stringify(state)) as GameState;
+    const after = engine.applyAction(state, pid, {
+      type: 'take-discard',
+      payload: { useCardIds: [] },
+    });
+    // Post-action state differs.
+    expect(after).not.toBe(state);
+    // But the original reference is unchanged — its top card is still the
+    // king from the pile, and the existing K meld still has 3 naturals
+    // (the extension lives on `after.publicData.melds`, not state's).
+    expect(JSON.stringify(state)).toBe(JSON.stringify(snapshot));
   });
 });

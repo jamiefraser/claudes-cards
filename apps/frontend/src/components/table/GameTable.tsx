@@ -863,7 +863,7 @@ export function GameTable({ roomId }: GameTableProps) {
                     <div
                       key={p.playerId}
                       className="flex-none snap-start flex flex-col items-center gap-1.5"
-                      style={{ minWidth: melds.length > 0 ? 180 : 140 }}
+                      style={{ minWidth: melds.length > 0 ? 260 : 140 }}
                     >
                       {isBot ? (
                         <BotSeat
@@ -889,7 +889,7 @@ export function GameTable({ roomId }: GameTableProps) {
                           groups={melds}
                           cardCatalogue={cardCatalogue}
                           label={`${p.displayName}'s melds`}
-                          scale={isRummyFamily ? 'medium' : 'full'}
+                          scale="full"
                           dropTargetPlayerId={
                             gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
                               ? p.playerId
@@ -1049,13 +1049,14 @@ export function GameTable({ roomId }: GameTableProps) {
 
               {/* Radial opponent seats pinned to the felt's geometric centre.
                   Desktop only — below lg the opponents render as the mobile
-                  strip above the felt instead, because the radial positions
-                  overflow viewports narrower than ~1080px.
-                  We pass seatWidth/Height = 0 so each seat is anchored as a
-                  zero-size point on the ellipse; the renderSeat content
-                  centres itself via transform, and for top-half seats the
-                  stack grows UPWARD (melds above the pill) so nothing
-                  dangles back onto the green felt. */}
+                  strip above the felt instead.
+                  The seat pill is anchored at the ellipse point (outside or
+                  just inside the felt edge depending on where on the
+                  ellipse the seat sits) and melds always hang DOWN from
+                  the pill at full card size. Overlap with the green felt
+                  is accepted: a tall meld drops onto the felt rather than
+                  floating off the top of the viewport where the previous
+                  layout pushed it out of view. */}
               <div
                 className="hidden lg:block absolute pointer-events-auto"
                 style={{ left: FELT_W / 2, top: FELT_H / 2, width: 0, height: 0 }}
@@ -1069,19 +1070,12 @@ export function GameTable({ roomId }: GameTableProps) {
                   seatWidth={0}
                   seatHeight={0}
                   getKey={(item) => item.player.playerId}
-                  renderSeat={(item, seat) => {
+                  renderSeat={(item) => {
                     if (item.kind === 'self') return null;
                     const p = item.player;
                     const isBot = activeBots.some(b => b.playerId === p.playerId) || p.isBot;
                     const isCurrentTurn = gameState.currentTurn === p.playerId;
                     const melds = meldsByPlayer(p.playerId);
-                    // Top half of the ellipse — melds render ABOVE the
-                    // seat pill so the whole stack extends away from the
-                    // felt, not into it. The `translate(-50%, -100%)`
-                    // pins the stack's BOTTOM edge (the seat pill) at
-                    // the ellipse point; top-hat of the stack (melds)
-                    // floats further out.
-                    const isTopHalf = seat.angleDeg > 180 && seat.angleDeg < 360;
                     const seatNode = isBot ? (
                       <BotSeat
                         playerState={p}
@@ -1106,7 +1100,7 @@ export function GameTable({ roomId }: GameTableProps) {
                         groups={melds}
                         cardCatalogue={cardCatalogue}
                         label={`${p.displayName}'s melds`}
-                        scale={isRummyFamily ? 'medium' : 'full'}
+                        scale="full"
                         dropTargetPlayerId={
                           gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
                             ? p.playerId
@@ -1117,23 +1111,10 @@ export function GameTable({ roomId }: GameTableProps) {
                     return (
                       <div
                         className="flex flex-col items-center gap-1.5"
-                        style={{
-                          transform: isTopHalf
-                            ? 'translate(-50%, -100%)'
-                            : 'translate(-50%, 0)',
-                        }}
+                        style={{ transform: 'translate(-50%, 0)' }}
                       >
-                        {isTopHalf ? (
-                          <>
-                            {meldsNode}
-                            {seatNode}
-                          </>
-                        ) : (
-                          <>
-                            {seatNode}
-                            {meldsNode}
-                          </>
-                        )}
+                        {seatNode}
+                        {meldsNode}
                       </div>
                     );
                   }}

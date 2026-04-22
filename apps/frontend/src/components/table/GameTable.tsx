@@ -851,18 +851,19 @@ export function GameTable({ roomId }: GameTableProps) {
             className="lg:hidden relative z-raised pt-2 pb-3 px-3 sm:px-5 overflow-hidden border-b border-hairline/50"
             aria-label={en.table.otherPlayersLabel}
           >
-            <div className="no-scrollbar flex flex-row gap-2 overflow-x-auto snap-x snap-mandatory">
+            <div className="no-scrollbar flex flex-row gap-3 overflow-x-auto snap-x snap-mandatory items-start">
               {radialItems
                 .filter((i) => i.kind === 'opponent')
                 .map((item) => {
                   const p = item.player;
                   const isBot = activeBots.some(b => b.playerId === p.playerId) || p.isBot;
                   const isCurrentTurn = gameState.currentTurn === p.playerId;
+                  const melds = meldsByPlayer(p.playerId);
                   return (
                     <div
                       key={p.playerId}
-                      className="flex-none snap-start"
-                      style={{ minWidth: 140 }}
+                      className="flex-none snap-start flex flex-col items-center gap-1.5"
+                      style={{ minWidth: melds.length > 0 ? 180 : 140 }}
                     >
                       {isBot ? (
                         <BotSeat
@@ -881,6 +882,19 @@ export function GameTable({ roomId }: GameTableProps) {
                           deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
                           isDealer={dealerId === p.playerId}
                           compact
+                        />
+                      )}
+                      {melds.length > 0 && (
+                        <MeldsArea
+                          groups={melds}
+                          cardCatalogue={cardCatalogue}
+                          label={`${p.displayName}'s melds`}
+                          scale={isRummyFamily ? 'medium' : 'full'}
+                          dropTargetPlayerId={
+                            gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
+                              ? p.playerId
+                              : undefined
+                          }
                         />
                       )}
                     </div>
@@ -1021,7 +1035,12 @@ export function GameTable({ roomId }: GameTableProps) {
               {/* Radial opponent seats pinned to the felt's geometric centre.
                   Desktop only — below lg the opponents render as the mobile
                   strip above the felt instead, because the radial positions
-                  overflow viewports narrower than ~1080px. */}
+                  overflow viewports narrower than ~1080px.
+                  We pass seatWidth/Height = 0 so each seat is anchored as a
+                  zero-size point on the ellipse; the renderSeat content
+                  centres itself via transform, and for top-half seats the
+                  stack grows UPWARD (melds above the pill) so nothing
+                  dangles back onto the green felt. */}
               <div
                 className="hidden lg:block absolute pointer-events-auto"
                 style={{ left: FELT_W / 2, top: FELT_H / 2, width: 0, height: 0 }}
@@ -1032,46 +1051,73 @@ export function GameTable({ roomId }: GameTableProps) {
                   ry={SEAT_RY}
                   cx={0}
                   cy={0}
+                  seatWidth={0}
+                  seatHeight={0}
                   getKey={(item) => item.player.playerId}
-                  renderSeat={(item) => {
+                  renderSeat={(item, seat) => {
                     if (item.kind === 'self') return null;
                     const p = item.player;
                     const isBot = activeBots.some(b => b.playerId === p.playerId) || p.isBot;
                     const isCurrentTurn = gameState.currentTurn === p.playerId;
                     const melds = meldsByPlayer(p.playerId);
+                    // Top half of the ellipse — melds render ABOVE the
+                    // seat pill so the whole stack extends away from the
+                    // felt, not into it. The `translate(-50%, -100%)`
+                    // pins the stack's BOTTOM edge (the seat pill) at
+                    // the ellipse point; top-hat of the stack (melds)
+                    // floats further out.
+                    const isTopHalf = seat.angleDeg > 180 && seat.angleDeg < 360;
+                    const seatNode = isBot ? (
+                      <BotSeat
+                        playerState={p}
+                        originalDisplayName={p.displayName}
+                        isCurrentTurn={isCurrentTurn}
+                        deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
+                        isDealer={dealerId === p.playerId}
+                        compact={isRummyFamily}
+                      />
+                    ) : (
+                      <PlayerSeat
+                        playerState={p}
+                        isCurrentTurn={isCurrentTurn}
+                        isSelf={false}
+                        deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
+                        isDealer={dealerId === p.playerId}
+                        compact={isRummyFamily}
+                      />
+                    );
+                    const meldsNode = melds.length > 0 ? (
+                      <MeldsArea
+                        groups={melds}
+                        cardCatalogue={cardCatalogue}
+                        label={`${p.displayName}'s melds`}
+                        scale={isRummyFamily ? 'medium' : 'full'}
+                        dropTargetPlayerId={
+                          gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
+                            ? p.playerId
+                            : undefined
+                        }
+                      />
+                    ) : null;
                     return (
-                      <div className="flex flex-col items-center gap-1.5">
-                        {isBot ? (
-                          <BotSeat
-                            playerState={p}
-                            originalDisplayName={p.displayName}
-                            isCurrentTurn={isCurrentTurn}
-                            deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
-                            isDealer={dealerId === p.playerId}
-                            compact={isRummyFamily}
-                          />
+                      <div
+                        className="flex flex-col items-center gap-1.5"
+                        style={{
+                          transform: isTopHalf
+                            ? 'translate(-50%, -100%)'
+                            : 'translate(-50%, 0)',
+                        }}
+                      >
+                        {isTopHalf ? (
+                          <>
+                            {meldsNode}
+                            {seatNode}
+                          </>
                         ) : (
-                          <PlayerSeat
-                            playerState={p}
-                            isCurrentTurn={isCurrentTurn}
-                            isSelf={false}
-                            deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
-                            isDealer={dealerId === p.playerId}
-                            compact={isRummyFamily}
-                          />
-                        )}
-                        {melds.length > 0 && (
-                          <MeldsArea
-                            groups={melds}
-                            cardCatalogue={cardCatalogue}
-                            label={`${p.displayName}'s melds`}
-                            scale={isRummyFamily ? 'tiny' : 'full'}
-                            dropTargetPlayerId={
-                              gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
-                                ? p.playerId
-                                : undefined
-                            }
-                          />
+                          <>
+                            {seatNode}
+                            {meldsNode}
+                          </>
                         )}
                       </div>
                     );

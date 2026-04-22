@@ -28,12 +28,12 @@ export interface MeldsAreaProps {
   /** Label shown above the melds (e.g. "Your melds", "Ada's melds"). */
   label?: string;
   /**
-   * Layout scale. `full` matches the player's own hand cards, `compact` shrinks
-   * to ~50% (pre-existing), and `tiny` to ~33% — used for opponents in the
-   * rummy family so their melds never dominate the seat. Kept in sync with
-   * the opponent-hand-back size set in PlayerSeat.
+   * Layout scale. `full` matches the player's own hand cards, `medium` shrinks
+   * to 75% (opponent melds — legible without crowding the seat), `compact`
+   * to 50%, `tiny` to 33%. Used for opponents in the rummy family so their
+   * melds never dominate the seat.
    */
-  scale?: 'full' | 'compact' | 'tiny';
+  scale?: 'full' | 'medium' | 'compact' | 'tiny';
   /**
    * When set, each group is wrapped in a @dnd-kit droppable with id
    * `meld:{dropTargetPlayerId}:{groupIndex}` so the parent DndContext can
@@ -90,11 +90,16 @@ export function MeldsArea({
 
   const isTiny = scale === 'tiny';
   const isCompact = scale === 'compact';
+  const isMedium = scale === 'medium';
   // CardComponent renders itself at a fixed 48×72 (sm: 64×96), so to shrink
   // we scale visually via CSS transform AND clamp the wrapper's layout box to
   // the target size. Without the explicit wrapper size the scaled card still
   // reserves its full 48×72, producing comically large gaps between melds.
-  const scaleFactor = scale === 'tiny' ? 0.33 : scale === 'compact' ? 0.5 : 1;
+  const scaleFactor =
+    scale === 'tiny' ? 0.33
+    : scale === 'compact' ? 0.5
+    : scale === 'medium' ? 0.75
+    : 1;
   // Negative space-x values overlap each card on top of its left neighbour.
   // We keep the overlap modest enough that the top-left rank+suit glyph of
   // every card stays visible — without that, a long meld (especially after
@@ -106,14 +111,16 @@ export function MeldsArea({
       ? '-space-x-1'
       : scale === 'compact'
         ? '-space-x-2'
-        : '-space-x-3';
+        : scale === 'medium'
+          ? '-space-x-2.5'
+          : '-space-x-3';
 
   return (
     <div
       className={[
         'flex flex-col items-center gap-1 p-2 rounded-md',
         'bg-slate-800/60 border border-slate-700',
-        isTiny || isCompact ? 'text-xs' : 'text-sm',
+        isTiny || isCompact || isMedium ? 'text-xs' : 'text-sm',
       ].join(' ')}
       aria-label={label ?? 'Laid-down melds'}
     >

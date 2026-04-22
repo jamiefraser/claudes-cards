@@ -123,6 +123,9 @@ services:
         condition: service_healthy
 
   # Vite dev server — HMR, VITE_AUTH_MODE=dev, local JWT issuer.
+  # Source is volume-mounted so edits on the host trigger HMR without
+  # rebuilding the image. Named volumes over node_modules keep the
+  # container's install intact when the host lacks Linux node_modules.
   frontend:
     image: claudes-cards-frontend-dev
     build:
@@ -134,6 +137,16 @@ services:
       VITE_SOCKET_URL: http://localhost:3002
       VITE_AUTH_MODE: dev
       VITE_LOG_LEVEL: debug
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./apps/frontend/src:/build/apps/frontend/src
+      - ./apps/frontend/index.html:/build/apps/frontend/index.html
+      - ./apps/frontend/vite.config.ts:/build/apps/frontend/vite.config.ts
+      - ./apps/frontend/tailwind.config.js:/build/apps/frontend/tailwind.config.js
+      - ./apps/frontend/postcss.config.js:/build/apps/frontend/postcss.config.js
+      - ./apps/frontend/tsconfig.json:/build/apps/frontend/tsconfig.json
+      - ./packages/shared-types/src:/build/packages/shared-types/src
+      - ./packages/cards-engine/src:/build/packages/cards-engine/src
     ports:
       - "5173:5173"
     depends_on:

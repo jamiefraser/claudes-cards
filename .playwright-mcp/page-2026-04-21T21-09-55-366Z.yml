@@ -1,0 +1,31 @@
+- generic [ref=e1]:
+  - main [ref=e338]:
+    - generic [ref=e339]:
+      - button "← Back to lobby" [ref=e340] [cursor=pointer]
+      - heading "Audit Room" [level=1] [ref=e341]
+      - paragraph [ref=e342]: phase10 — 1 of 2 seats filled
+      - region "Players in room" [ref=e343]:
+        - heading "Players" [level=2] [ref=e344]
+        - list [ref=e345]:
+          - listitem [ref=e346]:
+            - generic [ref=e348]: TestPlayer1
+            - generic [ref=e349]: HOST
+          - listitem [ref=e350]: Empty seat
+      - button "Start Game" [ref=e351] [cursor=pointer]
+  - dialog "Add bots to start the game" [ref=e356]:
+    - generic [active] [ref=e358]:
+      - generic [ref=e359]:
+        - heading "Add bots to start the game" [level=2] [ref=e360]
+        - button "Close dialog" [ref=e361] [cursor=pointer]: ×
+      - generic [ref=e362]:
+        - paragraph [ref=e363]:
+          - text: Your room has 1 human of 2 seats. You must add at least
+          - strong [ref=e364]: "1"
+          - text: bot to start.
+        - generic [ref=e365]:
+          - generic [ref=e366]: How many bots?
+          - combobox "Number of bots" [ref=e367]:
+            - option "1 bot" [selected]
+        - generic [ref=e368]:
+          - button "Cancel" [ref=e369] [cursor=pointer]
+          - button "Start Game" [ref=e370] [cursor=pointer]

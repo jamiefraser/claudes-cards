@@ -2,10 +2,11 @@
  * LobbyPage — main lobby with game browser and friend list.
  * SPEC.md §6, §14
  */
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GameBrowser } from '@/components/lobby/GameBrowser';
 import { FriendList } from '@/components/social/FriendList';
+import { ThemePicker } from '@/components/shared/ThemePicker';
 import { useAuth } from '@/auth/useAuth';
 import { usePresence } from '@/hooks/usePresence';
 import { useLobbySocket, getLobbySocket } from '@/hooks/useSocket';
@@ -21,16 +22,13 @@ import type {
 export function LobbyPage() {
   const navigate = useNavigate();
   const { player, isAuthenticated, logout } = useAuth();
+  const [friendsOpen, setFriendsOpen] = useState(false);
 
-  // Presence heartbeat
   usePresence();
-
-  // Ensure lobby socket is connected
   useLobbySocket();
 
   const { setRooms, upsertRoom, removeRoom } = useLobbyStore();
 
-  // Subscribe to lobby socket events
   useEffect(() => {
     const socket = getLobbySocket();
 
@@ -60,51 +58,81 @@ export function LobbyPage() {
     };
   }, [setRooms, upsertRoom, removeRoom]);
 
-  if (!isAuthenticated) {
-    navigate('/', { replace: true });
-    return null;
-  }
+  // Unauthenticated redirect — done in an effect so we don't mutate router
+  // state during render (React warning + stale-state races).
+  useEffect(() => {
+    if (!isAuthenticated) navigate('/', { replace: true });
+  }, [isAuthenticated, navigate]);
+
+  if (!isAuthenticated) return null;
+
+  const navButton = (
+    label: string,
+    onClick: () => void,
+    { badge }: { badge?: string } = {},
+  ) => (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 min-h-[44px] px-2.5 text-sm text-ink-soft hover:text-ink focus-visible:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi rounded-md"
+    >
+      {label}
+      {badge && (
+        <span className="text-[0.65rem] font-mono px-1.5 py-0.5 rounded-full bg-ochre/15 text-ochre">{badge}</span>
+      )}
+    </button>
+  );
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col">
-      {/* Top nav */}
-      <header className="bg-slate-800 border-b border-slate-700 px-3 sm:px-6 py-3 flex items-center justify-between gap-2 flex-wrap">
-        <h1 className="text-base sm:text-lg font-bold text-white">{en.app.title}</h1>
-        <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
-          <span className="text-sm text-slate-300 hidden sm:inline">{player?.displayName}</span>
-          <button
-            onClick={() => navigate('/leaderboard')}
-            className="text-sm text-slate-400 hover:text-white py-2 px-2 min-h-[44px] inline-flex items-center"
-          >
-            {en.leaderboard.title}
-          </button>
-          <button
-            onClick={() => navigate('/settings')}
-            className="text-sm text-slate-400 hover:text-white py-2 px-2 min-h-[44px] inline-flex items-center"
-          >
-            {en.settings.title}
-          </button>
-          {(player?.role === 'admin' || player?.role === 'moderator') && (
+    <div className="min-h-screen bg-paper flex flex-col">
+      {/* Top nav — single row, scrolls user chrome on tiny screens. */}
+      <header className="sticky top-0 z-20 bg-paper/92 backdrop-blur border-b border-hairline/70">
+        <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-2 flex items-center justify-between gap-3">
+          <h1 className="font-display text-lg sm:text-xl font-semibold text-ink tracking-tight leading-none">
+            {en.app.title}
+          </h1>
+          <nav className="flex items-center gap-0.5 sm:gap-2" aria-label="Account menu">
+            <div className="hidden md:block">
+              <ThemePicker variant="pill" />
+            </div>
+            <span className="hidden sm:inline text-xs text-whisper font-mono" aria-label="Signed in as">
+              {player?.displayName}
+            </span>
+            {navButton(en.leaderboard.title, () => navigate('/leaderboard'))}
+            {navButton(en.settings.title, () => navigate('/settings'))}
+            {(player?.role === 'admin' || player?.role === 'moderator') &&
+              navButton(en.admin.title, () => navigate('/admin'))}
+            {navButton(en.auth.signOut, logout)}
             <button
-              onClick={() => navigate('/admin')}
-              className="text-sm text-slate-400 hover:text-white py-2 px-2 min-h-[44px] inline-flex items-center"
+              onClick={() => setFriendsOpen(v => !v)}
+              aria-expanded={friendsOpen}
+              aria-controls="lobby-friends-drawer"
+              className="md:hidden inline-flex items-center justify-center min-h-[44px] min-w-[44px] px-2 text-ink-soft hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi rounded-md"
             >
-              {en.admin.title}
+              <span aria-hidden className="text-lg">☍</span>
+              <span className="sr-only">Friends</span>
             </button>
-          )}
-          <button
-            onClick={logout}
-            className="text-sm text-slate-400 hover:text-white py-2 px-2 min-h-[44px] inline-flex items-center"
-          >
-            {en.auth.signOut}
-          </button>
+          </nav>
         </div>
       </header>
 
-      {/* Main content — stacks vertically on mobile, side-by-side on md+ */}
-      <main className="flex flex-col md:flex-row flex-1 gap-4 md:gap-6 p-3 sm:p-6 md:overflow-hidden">
+      {/* Main content. Grid + friends rail on desktop; stacked on mobile. */}
+      <main className="flex-1 max-w-[1600px] w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 flex flex-col md:grid md:grid-cols-[1fr_18rem] md:gap-6 md:items-start">
         <GameBrowser />
-        <FriendList />
+
+        {/* Desktop: always-visible Friends rail */}
+        <div className="hidden md:block md:sticky md:top-[5rem] self-start">
+          <FriendList />
+        </div>
+
+        {/* Mobile: collapsible Friends drawer triggered from the header */}
+        {friendsOpen && (
+          <div
+            id="lobby-friends-drawer"
+            className="md:hidden mt-4 animate-seat-in"
+          >
+            <FriendList />
+          </div>
+        )}
       </main>
     </div>
   );

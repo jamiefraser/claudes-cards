@@ -9,7 +9,8 @@
  *
  * SPEC.md §9.5 and §15 (hand-end flow).
  */
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { getGameSocket } from '@/hooks/useSocket';
 import { logger } from '@/utils/logger';
 import type { GameActionPayload } from '@shared/socket';
@@ -61,33 +62,51 @@ export function Phase10HandScore({
     logger.debug('Phase10HandScore: ack-scoring', { roomId, myPlayerId });
   }, [roomId, myPlayerId]);
 
-  return (
+  // Esc dismisses by acking (same affordance as the button). Never dismisses
+  // silently — this is a consent modal, not a popover.
+  useEffect(() => {
+    if (haveIAcked) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleAck();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [haveIAcked, handleAck]);
+
+  // Auto-focus the primary button when the modal opens so keyboard users land
+  // on the ack target immediately.
+  const ackButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!haveIAcked) ackButtonRef.current?.focus();
+  }, [haveIAcked]);
+
+  return createPortal(
     <div
       role="dialog"
       aria-labelledby="phase10-hand-score-title"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6"
     >
       <div
-        className="absolute inset-0 bg-night/80 backdrop-blur-sm animate-[seat-in_260ms_ease-out_both]"
+        className="absolute inset-0 bg-[rgb(29_24_18_/_0.55)] backdrop-blur-sm animate-seat-in"
         aria-hidden
       />
       <div
         className={[
           'relative w-full max-w-lg',
-          'bg-night-raised border border-brass/35 rounded-2xl shadow-float',
+          'bg-paper-raised border border-hairline/60 rounded-2xl shadow-float',
           'p-5 sm:p-7',
           'animate-[seat-in_320ms_ease-out_both]',
-          'max-h-[90vh] overflow-y-auto',
+          'max-h-[90vh] overflow-y-auto overscroll-contain',
         ].join(' ')}
       >
         <div className="text-center mb-5">
-          <p className="text-xs uppercase tracking-[0.25em] text-brass-bright/70">
+          <p className="text-xs uppercase tracking-[0.25em] text-ochre/80">
             Hand complete
           </p>
           <h2
             id="phase10-hand-score-title"
-            className="font-display text-2xl sm:text-3xl mt-1 text-parchment"
+            className="font-display text-2xl sm:text-3xl mt-1 text-ink text-balance"
           >
             {winner
               ? `${winner.displayName} went out`
@@ -106,28 +125,28 @@ export function Phase10HandScore({
                 className={[
                   'flex items-center justify-between gap-3',
                   'px-3 py-2.5 rounded-lg',
-                  'bg-night/60 border border-brass/15',
-                  isWinner ? 'ring-1 ring-brass/60' : '',
+                  'bg-paper/70 border border-hairline/70',
+                  isWinner ? 'ring-1 ring-ochre/70' : '',
                 ].join(' ')}
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <span
                     className={[
                       'w-2 h-2 rounded-full flex-shrink-0',
-                      acked ? 'bg-emerald-400' : 'bg-slate-500',
+                      acked ? 'bg-sage' : 'bg-whisper/60',
                     ].join(' ')}
                     title={acked ? 'Ready for next hand' : 'Waiting…'}
                     aria-hidden
                   />
-                  <span className="font-display text-parchment truncate">
+                  <span className="font-display text-ink truncate">
                     {p.displayName}
                   </span>
                   {isWinner && (
-                    <span className="text-[0.65rem] uppercase tracking-wider text-brass-bright px-1.5 py-0.5 rounded-full bg-brass/15">
+                    <span className="text-[0.65rem] uppercase tracking-wider text-ochre px-1.5 py-0.5 rounded-full bg-ochre/15">
                       Winner
                     </span>
                   )}
-                  <span className="text-xs text-parchment/60 flex-shrink-0">
+                  <span className="text-xs text-whisper flex-shrink-0">
                     Phase {p.currentPhase ?? 1}
                     {p.phaseLaidDown ? ' ✓' : ''}
                   </span>
@@ -136,16 +155,16 @@ export function Phase10HandScore({
                   <span
                     className={[
                       'font-mono text-sm tabular-nums',
-                      delta === 0 ? 'text-emerald-300' : 'text-rose-300/90',
+                      delta === 0 ? 'text-sage' : 'text-burgundy',
                     ].join(' ')}
                     aria-label={`Points this hand: ${delta}`}
                   >
                     {delta === 0 ? '±0' : `+${delta}`}
                   </span>
-                  <span className="font-display text-brass-bright tabular-nums text-lg">
+                  <span className="font-display text-ochre tabular-nums text-lg">
                     {p.score}
                   </span>
-                  <span className="text-[0.6rem] uppercase tracking-wider text-parchment/40">
+                  <span className="text-[0.6rem] uppercase tracking-wider text-whisper">
                     pts
                   </span>
                 </div>
@@ -163,31 +182,34 @@ export function Phase10HandScore({
                 className={[
                   'w-full px-5 py-3 min-h-[48px] rounded-full',
                   'font-display text-sm tracking-wide',
-                  'bg-night/70 text-parchment/60 border border-brass/20',
+                  'bg-paper-deep/60 text-ink-soft border border-hairline',
                   'cursor-default',
                 ].join(' ')}
               >
-                Waiting for{' '}
-                {waitingOnHumans.length > 0
-                  ? waitingOnHumans.map((p) => p.displayName).join(', ')
-                  : 'the next deal…'}
+                <span className="truncate inline-block max-w-full align-middle">
+                  Waiting for{' '}
+                  {waitingOnHumans.length > 0
+                    ? waitingOnHumans.map((p) => p.displayName).join(', ')
+                    : 'the next deal…'}
+                </span>
               </button>
-              <p className="text-xs text-parchment/50 text-center">
-                The next hand starts as soon as everyone's ready.
+              <p className="text-xs text-whisper text-center">
+                The next hand starts as soon as everyone&rsquo;s ready.
               </p>
             </>
           ) : (
             <button
+              ref={ackButtonRef}
               type="button"
               onClick={handleAck}
               className={[
                 'w-full px-5 py-3 min-h-[48px] rounded-full',
                 'font-display text-sm tracking-wide',
-                'bg-gradient-to-b from-brass-bright to-brass text-night font-semibold',
-                'shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_6px_16px_-6px_rgba(200,169,106,0.6)]',
+                'bg-gradient-to-b from-ochre-hi to-ochre text-accent-fg font-semibold',
+                'shadow-[inset_0_1px_0_rgb(var(--paper)_/_0.45),0_6px_16px_-6px_rgb(var(--ochre)_/_0.55)]',
                 'hover:brightness-105 active:translate-y-[1px]',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-secondary',
-                'transition-all duration-150',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi focus-visible:ring-offset-2 focus-visible:ring-offset-paper',
+                'transition-[transform,box-shadow,filter] duration-150',
               ].join(' ')}
             >
               Ready for next hand
@@ -195,6 +217,7 @@ export function Phase10HandScore({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

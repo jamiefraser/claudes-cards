@@ -1,90 +1,262 @@
 /**
- * CSS custom properties (design tokens).
- * Used throughout the app via var(--token-name).
+ * Design tokens — three directions, user-selectable.
+ *
+ * Tokens are RGB triplets so Tailwind's `rgb(var(--x) / <alpha-value>)`
+ * pattern can apply opacity modifiers (e.g. `text-ink/60`).
+ *
+ * The default theme is Le Salon. `:root[data-theme="riso"]` and
+ * `:root[data-theme="obsidian"]` override each semantic slot so every
+ * component that uses `text-ink`, `bg-paper`, `bg-ochre`, etc. reskins
+ * automatically. The theme attribute is set by `ThemeProvider` and
+ * persisted to localStorage.
+ *
+ * Semantic slots (stable across themes):
+ *   --paper / --paper-raised / --paper-deep  surfaces
+ *   --ink / --ink-soft / --whisper           foreground text
+ *   --hairline                               1px dividers
+ *   --ochre / --ochre-hi                     primary accent (action, current turn)
+ *   --burgundy                               destructive / warning
+ *   --sage                                   success / positive delta
+ *   --felt / --felt-deep / --felt-edge / --felt-light  table felt gradient
+ *   --bot                                    bot indicator colour
+ *   --font-display / --font-sans / --font-mono
+ *   --card-surface (literal white by default, dark for Obsidian)
  */
 
-:root {
-  /* Brand colours */
-  --color-primary: #4f46e5;       /* Indigo-600 */
-  --color-primary-hover: #4338ca; /* Indigo-700 */
-  --color-secondary: #0ea5e9;     /* Sky-500 */
+/* ─── Le Salon (default) ────────────────────────────────────────────── */
 
-  /* Surface colours */
-  --color-bg: #0f172a;            /* Slate-900 */
-  --color-surface: #1e293b;       /* Slate-800 */
-  --color-surface-raised: #334155;/* Slate-700 */
-  --color-border: #475569;        /* Slate-600 */
+:root,
+:root[data-theme="salon"] {
+  color-scheme: light;
 
-  /* Text colours */
-  --color-text: #f1f5f9;          /* Slate-100 */
-  --color-text-muted: #94a3b8;    /* Slate-400 */
-  --color-text-disabled: #64748b; /* Slate-500 */
+  /* Surfaces */
+  --paper:           244 234 216;  /* #f4ead8 */
+  --paper-raised:    237 225 202;  /* #ede1ca */
+  --paper-deep:      226 212 184;  /* #e2d4b8 */
 
-  /* Status / presence colours */
-  --color-online: #22c55e;        /* Green-500 */
-  --color-in-game: #f59e0b;       /* Amber-500 */
-  --color-away: #94a3b8;          /* Slate-400 */
-  --color-offline: #64748b;       /* Slate-500 */
+  /* Text */
+  --ink:             29  24  18;   /* #1d1812 */
+  --ink-soft:        58  48  39;   /* #3a3027 */
+  --whisper:         135 116 87;   /* #877457 */
 
-  /* Bot badge colour */
-  --color-bot: #a855f7;           /* Purple-500 */
+  /* Accent */
+  --hairline:        201 185 151;  /* #c9b997 */
+  --ochre:           181 123 45;   /* #b57b2d */
+  --ochre-hi:        210 153 69;   /* #d29945 */
+  --burgundy:        123 30  29;   /* #7b1e1d */
+  --sage:            76  115 78;   /* #4c734e */
+  /* Foreground colour for text/icons sitting on an --ochre surface.
+     Each theme picks whichever pole gives ≥4.5:1 contrast. */
+  --accent-fg:       29  24  18;   /* Salon: ink (dark) on warm ochre */
 
-  /* Card colours (Phase 10) */
-  --color-card-red: #ef4444;
-  --color-card-blue: #3b82f6;
-  --color-card-green: #22c55e;
-  --color-card-yellow: #eab308;
-  --color-card-wild: #1e293b;
-  --color-card-skip: #475569;
-  --color-card-back: #4f46e5;
+  /* Table felt */
+  --felt:            43  62  42;   /* #2b3e2a — muted forest */
+  --felt-deep:       30  46  29;
+  --felt-edge:       20  30  20;
+  --felt-light:      60  83  57;
 
-  /* Cribbage board colours */
-  --color-peg-red: #ef4444;
-  --color-peg-blue: #3b82f6;
-  --color-peg-green: #22c55e;
-  --color-board-wood: #8b6914;
-  --color-hole-empty: #d4c5a9;
-  --color-skunk-line: #ef4444;
-  --color-doubleskunk-line: #f97316;
+  /* Bot */
+  --bot:             124 106 154;  /* #7c6a9a — quiet plum */
 
-  /* Spacing scale */
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-6: 1.5rem;
-  --space-8: 2rem;
+  /* Status & game-card swatches (anchored per theme for identity) */
+  --color-online:        34  148 94;
+  --color-in-game:       181 123 45;
+  --color-away:          135 116 87;
+  --color-offline:       135 116 87;
+  --color-card-red:      197 56  43;
+  --color-card-blue:     48  98  153;
+  --color-card-green:    74  120 72;
+  --color-card-yellow:   191 146 45;
+  --color-card-wild:     29  24  18;
+  --color-card-skip:     135 116 87;
 
   /* Typography */
-  --font-sans: 'Inter', 'system-ui', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-  --text-xs: 0.75rem;
-  --text-sm: 0.875rem;
-  --text-base: 1rem;
-  --text-lg: 1.125rem;
-  --text-xl: 1.25rem;
-  --text-2xl: 1.5rem;
+  --font-display: 'Fraunces', 'Georgia', serif;
+  --font-sans:    'Commissioner', 'system-ui', sans-serif;
+  --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
 
-  /* Border radius */
-  --radius-sm: 0.25rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
+  /* Motion */
+  --ease-theme:   cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-quick:    180ms;
+  --dur-normal:   260ms;
+  --dur-slow:     380ms;
+
+  /* Elevation */
+  --shadow-paper:  0 2px 6px -3px rgb(29 24 18 / 0.18),
+                   0 12px 28px -18px rgb(29 24 18 / 0.22);
+  --shadow-card:   0 1px 2px rgb(29 24 18 / 0.12),
+                   0 10px 22px -14px rgb(29 24 18 / 0.28);
+  --shadow-felt:   inset 0 0 0 1px rgb(201 185 151 / 0.35),
+                   0 30px 80px -30px rgb(29 24 18 / 0.35);
+  --shadow-lift:   0 14px 36px -18px rgb(29 24 18 / 0.35),
+                   0 0 0 1px rgb(201 185 151 / 0.5);
+
+  /* Card faces keep literal white — playing cards are playing cards. */
+  --card-surface:  255 255 255;
+
+  /* Radii */
+  --radius-sm:   0.25rem;
+  --radius-md:   0.5rem;
+  --radius-lg:   0.75rem;
+  --radius-xl:   1rem;
   --radius-full: 9999px;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5);
-
-  /* Transitions */
-  --transition-fast: 150ms ease;
-  --transition-normal: 250ms ease;
-  --transition-slow: 400ms ease;
-
-  /* Z-index layers */
-  --z-base: 0;
-  --z-raised: 10;
-  --z-modal: 100;
-  --z-toast: 200;
+  /* Z layers */
+  --z-base:    0;
+  --z-raised:  10;
+  --z-dock:    20;
+  --z-modal:   100;
+  --z-toast:   200;
   --z-tooltip: 300;
+}
+
+/* ─── Bodega Riso ────────────────────────────────────────────────────── */
+
+:root[data-theme="riso"] {
+  color-scheme: light;
+
+  /* Surfaces — warm cream, not white */
+  --paper:           248 238 211;  /* #f8eed3 */
+  --paper-raised:    242 229 194;  /* #f2e5c2 */
+  --paper-deep:      234 212 156;  /* #ead49c */
+
+  /* Text */
+  --ink:             26  22  18;   /* #1a1612 */
+  --ink-soft:        59  50  42;   /* #3b322a */
+  --whisper:         132 111 80;   /* #846f50 */
+
+  /* Accent — tomato primary, mustard secondary */
+  --hairline:        197 174 130;
+  --ochre:           226 77  42;   /* #e24d2a tomato → "ochre" slot = primary action */
+  --ochre-hi:        255 108 74;   /* tomato-hi */
+  --burgundy:        182 40  58;
+  --sage:            156 211 182;  /* #9cd3b6 mint → "sage" slot = success */
+  --accent-fg:       248 238 211;  /* Riso: cream on tomato for contrast */
+
+  /* Table felt — deep teal (distinctive) */
+  --felt:            14  78  84;   /* #0e4e54 */
+  --felt-deep:       8  54  60;
+  --felt-edge:       5  36  42;
+  --felt-light:      28 107 114;   /* #1c6b72 */
+
+  /* Bot — playful plum */
+  --bot:             214 85 124;   /* #d6557c rose */
+
+  /* Mustard accent lives in its own slot for chips/dealers — overriding
+     --in-game with mustard gives a warm "in session" hue. */
+  --color-online:        156 211 182;
+  --color-in-game:       236 179 62;  /* #ecb33e mustard */
+  --color-away:          132 111 80;
+  --color-offline:       132 111 80;
+  --color-card-red:      226 77  42;
+  --color-card-blue:     36  90  152;
+  --color-card-green:    88  150 107;
+  --color-card-yellow:   236 179 62;
+  --color-card-wild:     26  22  18;
+  --color-card-skip:     132 111 80;
+
+  /* Typography — playful display, warm body serif */
+  --font-display: 'Bricolage Grotesque', 'Georgia', sans-serif;
+  --font-sans:    'Gelasio', 'Iowan Old Style', Georgia, serif;
+  --font-mono:    'Space Mono', 'JetBrains Mono', monospace;
+
+  /* Motion — plop with overshoot */
+  --ease-theme:   cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-quick:    200ms;
+  --dur-normal:   240ms;
+  --dur-slow:     420ms;
+
+  /* Elevation with warm ink tint */
+  --shadow-paper:  0 2px 6px -3px rgb(26 22 18 / 0.20),
+                   0 12px 28px -18px rgb(26 22 18 / 0.26);
+  --shadow-card:   0 1px 2px rgb(26 22 18 / 0.14),
+                   0 10px 22px -14px rgb(26 22 18 / 0.34);
+  --shadow-felt:   inset 0 0 0 1px rgb(197 174 130 / 0.35),
+                   0 30px 80px -30px rgb(26 22 18 / 0.45);
+  --shadow-lift:   0 14px 36px -18px rgb(26 22 18 / 0.45),
+                   0 0 0 1px rgb(226 77 42 / 0.4);
+
+  --card-surface:  253 250 243;  /* very slight warm tint for cards */
+}
+
+/* ─── Obsidian Club ──────────────────────────────────────────────────── */
+
+:root[data-theme="obsidian"] {
+  color-scheme: dark;
+
+  /* Surfaces — near-black */
+  --paper:           11  13  16;   /* #0b0d10 */
+  --paper-raised:    22  25  30;   /* #16191e */
+  --paper-deep:      35  40  49;   /* #232831 */
+
+  /* Text — warm off-white, never pure */
+  --ink:             235 230 220;  /* #ebe6dc */
+  --ink-soft:        201 194 179;  /* #c9c2b3 */
+  --whisper:         110 106 98;   /* #6e6a62 */
+
+  /* Accent — acid chartreuse for current-turn / primary action */
+  --hairline:        60  68  78;
+  --ochre:           197 255 74;   /* #c5ff4a chartreuse */
+  --ochre-hi:        223 255 137;
+  --burgundy:        255 107 61;   /* #ff6b3d ember */
+  --sage:            139 180 52;   /* dim chartreuse */
+  --accent-fg:       11  13  16;   /* Obsidian: near-black on acid chartreuse */
+
+  /* Table felt — deepest emerald-black */
+  --felt:            5  35  31;    /* #05231f */
+  --felt-deep:       3  22  20;
+  --felt-edge:       1  14  14;
+  --felt-light:      12 59  51;    /* #0c3b33 */
+
+  /* Bot */
+  --bot:             161 138 200;
+
+  --color-online:        139 180 52;
+  --color-in-game:       197 255 74;
+  --color-away:          110 106 98;
+  --color-offline:       110 106 98;
+  --color-card-red:      255 107 61;
+  --color-card-blue:     107 174 255;
+  --color-card-green:    139 214 153;
+  --color-card-yellow:   232 206 102;
+  --color-card-wild:     235 230 220;
+  --color-card-skip:     110 106 98;
+
+  /* Typography — confident geometric display + workhorse sans */
+  --font-display: 'Syne', 'Helvetica', sans-serif;
+  --font-sans:    'General Sans', 'system-ui', sans-serif;
+  --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Motion — sharp, decisive */
+  --ease-theme:   cubic-bezier(0.3, 0, 0, 1);
+  --dur-quick:    150ms;
+  --dur-normal:   200ms;
+  --dur-slow:     320ms;
+
+  /* Elevation with deep shadow + accent glow for lift */
+  --shadow-paper:  0 2px 6px -3px rgb(0 0 0 / 0.55),
+                   0 18px 34px -20px rgb(0 0 0 / 0.65);
+  --shadow-card:   0 1px 2px rgb(0 0 0 / 0.45),
+                   0 14px 30px -16px rgb(0 0 0 / 0.8);
+  --shadow-felt:   inset 0 0 0 1px rgb(60 68 78 / 0.5),
+                   0 40px 110px -40px rgb(0 0 0 / 0.85);
+  --shadow-lift:   0 18px 46px -18px rgb(0 0 0 / 0.75),
+                   0 0 0 1px rgb(197 255 74 / 0.25),
+                   0 0 28px -6px rgb(197 255 74 / 0.22);
+
+  /* Cards keep light faces even in the dark room. */
+  --card-surface:  235 230 220;
+}
+
+/* ─── Global reduced-motion guard ────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
 }

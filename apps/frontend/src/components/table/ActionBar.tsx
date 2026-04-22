@@ -230,44 +230,46 @@ export function ActionBar({
   const handleAckShow = () => emitAction('ack-show');
 
   const barBase = [
-    // On mobile the bar is the full width of the viewport (minus 12px each
-    // side) and buttons share the available space; on tablet+ it reverts to
-    // the original pill. Without this, five turn buttons wrap to three rows
-    // on a 360px phone and push the felt off-screen.
-    'inline-flex flex-row flex-wrap justify-center gap-1.5 sm:gap-2 items-center',
-    'px-2 sm:px-4 py-1.5 sm:py-2 min-h-[52px] sm:min-h-[56px] rounded-3xl sm:rounded-full',
+    // Mobile: horizontal scroll strip so 5+ buttons don't wrap to two
+    // rows at 375px. Tablet+: normal pill that sizes to content.
+    'flex flex-row items-center gap-1.5 sm:gap-2',
+    'px-3 sm:px-4 py-1.5 sm:py-2 min-h-[52px] sm:min-h-[56px] rounded-3xl sm:rounded-full',
     'w-[calc(100vw-16px)] sm:w-auto max-w-full',
-    'bg-night-raised/85 backdrop-blur',
-    'border border-brass/25 shadow-float',
-    'animate-[seat-in_260ms_ease-out_both]',
+    'bg-paper-raised/90 backdrop-blur',
+    'border border-hairline/60 shadow-paper',
+    'overflow-x-auto sm:overflow-visible no-scrollbar',
+    'animate-seat-in',
   ].join(' ');
 
   const btnBase = [
     // Compact on mobile (still 44px tap target), full-size on tablet+.
-    'px-3 sm:px-5 py-2 sm:py-2.5 min-h-[44px] rounded-full',
+    // flex-none stops the scroll strip from shrinking buttons below tap.
+    'flex-none px-3 sm:px-5 py-2 sm:py-2.5 min-h-[44px] min-w-[44px] rounded-full',
     'text-xs sm:text-sm font-semibold tracking-wide whitespace-nowrap',
-    'transition-all duration-150',
-    'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-secondary',
+    // Never `transition-all` — list what actually changes so the compositor
+    // doesn't invalidate every frame.
+    'transition-[transform,box-shadow,background-color,border-color,color,filter] duration-180 ease-[cubic-bezier(0.22,1,0.36,1)]',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi focus-visible:ring-offset-2 focus-visible:ring-offset-paper',
   ].join(' ');
 
   const btnPrimary = [
-    'bg-gradient-to-b from-brass-bright to-brass text-night',
-    'shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_6px_16px_-6px_rgba(200,169,106,0.6)]',
+    'bg-gradient-to-b from-ochre-hi to-ochre text-accent-fg',
+    'shadow-[inset_0_1px_0_rgb(var(--paper)_/_0.45),0_6px_16px_-6px_rgb(var(--ochre)_/_0.55)]',
     'hover:brightness-105 active:translate-y-[1px]',
   ].join(' ');
 
   const btnGhost = [
-    'bg-night/60 text-parchment/90 border border-brass/15',
-    'hover:border-brass/40 hover:text-parchment',
+    'bg-paper-deep/40 text-ink-soft border border-hairline',
+    'hover:border-ochre hover:bg-paper-deep/70 hover:text-ink',
   ].join(' ');
 
   const btnDanger = [
-    'bg-rose-600/90 text-white border border-rose-400/40',
-    'hover:bg-rose-500',
+    'bg-burgundy text-paper border border-burgundy/60',
+    'hover:brightness-110',
   ].join(' ');
 
   const btnEnabled = btnPrimary;
-  const btnDisabled = 'bg-night/40 text-parchment/30 border border-brass/10 cursor-not-allowed';
+  const btnDisabled = 'bg-paper-deep/50 text-whisper/70 border border-hairline/60 disabled:cursor-not-allowed';
 
   // --- Cribbage discarding phase: "Send to Crib" sends every selected card
   // in one shot (engine accepts a multi-card discard). When the player has

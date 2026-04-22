@@ -20,41 +20,66 @@ export function GameCard({ game, onBrowseRooms }: GameCardProps) {
 
   return (
     <article
-      className="bg-slate-800 rounded-lg p-4 flex flex-col gap-3 border border-slate-700 hover:border-indigo-500 transition-colors"
+      className={[
+        'group relative flex flex-col gap-3 p-4 sm:p-5',
+        'bg-paper-raised/60 rounded-lg border border-hairline/60',
+        'transition-colors duration-200',
+        'hover:border-ochre/60 hover:bg-paper-raised',
+        'focus-within:border-ochre',
+      ].join(' ')}
       aria-label={game.name}
     >
-      <div className="flex items-start justify-between">
-        <div>
-          <h3 className="text-white font-semibold text-base">{game.name}</h3>
-          <p className="text-slate-400 text-xs mt-0.5">{game.category}</p>
+      <header className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <h3 className="font-display font-semibold text-lg text-ink leading-tight break-words hyphens-auto">
+            {game.name}
+          </h3>
+          <p className="text-whisper text-xs mt-1 uppercase tracking-wider">{game.category}</p>
         </div>
         {game.supportsAsync && (
-          <span className="text-xs bg-indigo-900/50 text-indigo-300 px-2 py-0.5 rounded-full">
+          <span className="shrink-0 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-ochre bg-paper px-2 py-0.5 rounded-full border border-hairline/80">
             {en.lobby.asyncMode}
           </span>
         )}
-      </div>
+      </header>
 
-      <div className="flex items-center gap-2 text-slate-400 text-xs">
+      <div className="flex items-center gap-2 text-whisper text-xs">
         <span>{playerRange}</span>
         {game.activeRoomCount > 0 && (
-          <span className="text-green-400">
-            {en.lobby.activeRooms.replace('{count}', String(game.activeRoomCount))}
-          </span>
+          <>
+            <span aria-hidden className="text-hairline">·</span>
+            <span className="text-sage font-medium">
+              {en.lobby.activeRooms.replace('{count}', String(game.activeRoomCount))}
+            </span>
+          </>
         )}
       </div>
 
-      <div className="mt-auto flex flex-col gap-2">
+      <div className="mt-auto flex flex-col gap-2 pt-2">
         <button
+          type="button"
           onClick={() => onBrowseRooms(game)}
-          className="w-full bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium py-2 px-4 rounded-md transition-colors"
+          className={[
+            'w-full min-h-[44px] px-4 py-2.5 rounded-md',
+            'text-sm font-medium whitespace-nowrap',
+            'bg-paper border border-hairline text-ink',
+            'hover:border-ochre hover:bg-paper-raised transition-colors',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi focus-visible:ring-offset-2 focus-visible:ring-offset-paper',
+          ].join(' ')}
           aria-label={en.aria.browseRoomsFor.replace('{game}', game.name)}
         >
           {en.lobby.browseRooms}
         </button>
         <button
+          type="button"
           onClick={() => setCreateOpen(true)}
-          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium py-2 px-4 rounded-md transition-colors"
+          className={[
+            'w-full min-h-[44px] px-4 py-2.5 rounded-md',
+            'text-sm font-medium whitespace-nowrap',
+            'bg-ochre text-accent-fg border border-ochre',
+            'hover:bg-ochre-hi hover:border-ochre-hi transition-colors',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi focus-visible:ring-offset-2 focus-visible:ring-offset-paper',
+          ].join(' ')}
         >
           {en.lobby.createRoom}
         </button>

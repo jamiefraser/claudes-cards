@@ -1,0 +1,109 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]: 🂡
+      - generic [ref=e7]: Card Platform
+    - button "Already have an account? Sign in" [ref=e8] [cursor=pointer]
+  - generic [ref=e9]:
+    - heading "Your favourite card games, anywhere." [level=1] [ref=e10]
+    - paragraph [ref=e11]: A modern lounge for classic card games — play live or async, solo or with friends, on any device.
+    - generic [ref=e12]:
+      - button "Sign in to play" [active] [ref=e13] [cursor=pointer]
+      - paragraph [ref=e14]: Sign in is quick — create an account or use an existing email. Your session stays signed in on this device.
+  - generic [ref=e104]:
+    - paragraph [ref=e105]: Development mode — select a test user to sign in
+    - generic [ref=e106]:
+      - generic [ref=e107]: Select a test user
+      - combobox "Select a test user" [ref=e108]:
+        - option "TestPlayer1 (test-player-1)" [selected]
+        - option "TestPlayer2 (test-player-2)"
+        - option "TestPlayer3 (test-player-3)"
+        - option "TestMod (test-moderator)"
+        - option "TestAdmin (test-admin)"
+    - button "Sign In" [ref=e109] [cursor=pointer]
+  - generic [ref=e15]:
+    - heading "Games on the table" [level=2] [ref=e16]
+    - list [ref=e17]:
+      - listitem [ref=e18]:
+        - generic [ref=e19]: ♠
+        - generic [ref=e20]: Cribbage
+        - generic [ref=e21]: The classic peg-and-board game
+      - listitem [ref=e22]:
+        - generic [ref=e23]: ♥
+        - generic [ref=e24]: Gin Rummy
+        - generic [ref=e25]: Two-player rummy for sharp hands
+      - listitem [ref=e26]:
+        - generic [ref=e27]: ⑩
+        - generic [ref=e28]: Phase 10
+        - generic [ref=e29]: Rummy-style phase race
+      - listitem [ref=e30]:
+        - generic [ref=e31]: ♠
+        - generic [ref=e32]: Spades
+        - generic [ref=e33]: Partnership trick-taking with a fixed trump
+      - listitem [ref=e34]:
+        - generic [ref=e35]: ♥
+        - generic [ref=e36]: Hearts
+        - generic [ref=e37]: Trick-taking avoidance game
+      - listitem [ref=e38]:
+        - generic [ref=e39]: ♦
+        - generic [ref=e40]: Euchre
+        - generic [ref=e41]: Fast partnership trick-taking
+      - listitem [ref=e42]:
+        - generic [ref=e43]: ♣
+        - generic [ref=e44]: Canasta
+        - generic [ref=e45]: Melding with wild cards — 2, 3, or 4 players
+      - listitem [ref=e46]:
+        - generic [ref=e47]: ♦
+        - generic [ref=e48]: Rummy
+        - generic [ref=e49]: Classic set-and-run shedding game
+      - listitem [ref=e50]:
+        - generic [ref=e51]: "8"
+        - generic [ref=e52]: Crazy Eights
+        - generic [ref=e53]: Shedding game with wild eights
+      - listitem [ref=e54]:
+        - generic [ref=e55]: ♣
+        - generic [ref=e56]: Oh Hell
+        - generic [ref=e57]: Predict your tricks exactly
+      - listitem [ref=e58]:
+        - generic [ref=e59]: ♠
+        - generic [ref=e60]: Whist
+        - generic [ref=e61]: Classical English trick-taking
+      - listitem [ref=e62]:
+        - generic [ref=e63]: 🐟
+        - generic [ref=e64]: Go Fish
+        - generic [ref=e65]: Asking-and-matching family game
+      - listitem [ref=e66]:
+        - generic [ref=e67]: ⚔
+        - generic [ref=e68]: War
+        - generic [ref=e69]: Simple head-to-head comparison
+      - listitem [ref=e70]:
+        - generic [ref=e71]: ⚡
+        - generic [ref=e72]: Spit
+        - generic [ref=e73]: Real-time two-player speed game
+      - listitem [ref=e74]:
+        - generic [ref=e75]: 🤦
+        - generic [ref=e76]: Idiot (Palace / Shithead)
+        - generic [ref=e77]: Three-layer shedding game
+  - generic [ref=e78]:
+    - heading "Why play here?" [level=2] [ref=e79]
+    - list [ref=e80]:
+      - listitem [ref=e81]:
+        - heading "Real-time & async" [level=3] [ref=e82]
+        - paragraph [ref=e83]: Drop in for a live hand or let turns roll over 24 – 72 hours. Bots step in politely if someone's away.
+      - listitem [ref=e84]:
+        - heading "Play with friends" [level=3] [ref=e85]
+        - paragraph [ref=e86]: Private rooms, invites, and a friends list keep your circle close — no randoms unless you want them.
+      - listitem [ref=e87]:
+        - heading "Any device, same seat" [level=3] [ref=e88]
+        - paragraph [ref=e89]: Start on your laptop, finish on your phone. Your hand follows you — responsive down to the smallest screen.
+      - listitem [ref=e90]:
+        - heading "Rule-accurate" [level=3] [ref=e91]
+        - paragraph [ref=e92]: Server-authoritative engines, transparent scoring, and an in-game rules panel sourced from the classic references.
+      - listitem [ref=e93]:
+        - heading "Track your skill" [level=3] [ref=e94]
+        - paragraph [ref=e95]: Monthly and all-time leaderboards per game. Humans only — bots never ladder.
+      - listitem [ref=e96]:
+        - heading "Polished feel" [level=3] [ref=e97]
+        - paragraph [ref=e98]: Card flips, pegging clicks, gentle chimes — all royalty-free, all mutable, all tuned to stay out of your way.
+  - button "Sign in to play" [ref=e100] [cursor=pointer]
+  - button "Credits & attribution" [ref=e102] [cursor=pointer]

@@ -1117,17 +1117,24 @@ export function GameTable({ roomId }: GameTableProps) {
                             the stack grows DOWN from there. Scale=medium
                             (0.75) keeps the stack short enough that it
                             overlaps only the upper band of the felt and
-                            doesn't reach the draw/discard area. A
-                            max-height + scroll guard handles extreme
-                            scenarios (e.g. 8-card phase 10 laid down). */}
+                            doesn't reach the draw/discard area.
+                            `width: max-content` is load-bearing: an
+                            absolute-positioned element with width auto
+                            uses shrink-to-fit, which collapses the inner
+                            flex-wrap cards row to ONE CARD PER LINE. We
+                            want the cards laid out horizontally (same as
+                            the local player's melds below the felt), so
+                            force the wrapper to size to the natural
+                            unwrapped row width. */}
                         {melds.length > 0 && (
                           <div
-                            className="absolute overflow-y-auto no-scrollbar"
+                            className="absolute"
                             style={{
                               left: 0,
                               top: 8,
                               transform: 'translate(-50%, 0)',
-                              maxHeight: 200,
+                              width: 'max-content',
+                              maxWidth: 480,
                             }}
                           >
                             <MeldsArea

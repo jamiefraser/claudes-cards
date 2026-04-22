@@ -171,14 +171,14 @@ export function CreateRoomModal({ isOpen, onClose, game, onRoomCreated }: Create
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-3 min-h-[44px] text-sm text-slate-300 hover:text-white transition-colors"
+            className="px-4 py-3 min-h-[44px] rounded-md text-sm text-slate-300 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi focus-visible:ring-offset-2 focus-visible:ring-offset-paper-raised"
           >
             {en.rooms.cancel}
           </button>
           <button
             type="submit"
             disabled={mutation.isPending}
-            className="px-4 py-3 min-h-[44px] text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium disabled:opacity-50 transition-colors"
+            className="px-4 py-3 min-h-[44px] text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium disabled:opacity-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi focus-visible:ring-offset-2 focus-visible:ring-offset-paper-raised"
           >
             {mutation.isPending ? en.app.loading : en.rooms.create}
           </button>

@@ -72,13 +72,13 @@ export function RoomBrowserModal({ isOpen, onClose, game }: RoomBrowserModalProp
         <div className="flex gap-2">
           <button
             onClick={() => refetch()}
-            className="text-xs text-slate-400 hover:text-white underline"
+            className="text-xs text-slate-400 hover:text-white underline rounded px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi focus-visible:ring-offset-2 focus-visible:ring-offset-paper-raised"
           >
             {en.rooms.refresh}
           </button>
           <button
             onClick={() => setShowCreate(true)}
-            className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-md"
+            className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi focus-visible:ring-offset-2 focus-visible:ring-offset-paper-raised"
           >
             {en.lobby.createRoom}
           </button>
@@ -130,7 +130,7 @@ export function RoomBrowserModal({ isOpen, onClose, game }: RoomBrowserModalProp
             </div>
             <button
               onClick={() => handleJoin(room)}
-              className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-md"
+              className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi focus-visible:ring-offset-2 focus-visible:ring-offset-paper-deep"
             >
               {en.lobby.joinRoom}
             </button>

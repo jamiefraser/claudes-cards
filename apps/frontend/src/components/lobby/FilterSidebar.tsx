@@ -90,7 +90,7 @@ export function FilterSidebar({ games }: FilterSidebarProps) {
           onClick={() => setMobileOpen(v => !v)}
           aria-expanded={mobileOpen}
           aria-controls="lobby-filter-body"
-          className="flex items-center justify-between w-full min-h-[44px] px-3 py-2 rounded-md border border-hairline/70 bg-paper-raised/60 text-ink"
+          className="flex items-center justify-between w-full min-h-[44px] px-3 py-2 rounded-md border border-hairline/70 bg-paper-raised/60 text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
         >
           <span className="flex items-center gap-2 text-sm font-medium tracking-wide">
             <span className="text-xs uppercase tracking-[0.18em] text-ochre">

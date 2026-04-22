@@ -12,8 +12,11 @@ ARG VITE_AUTH_MODE=production
 ARG VITE_B2C_CLIENT_ID=
 ARG VITE_B2C_AUTHORITY=
 ARG VITE_B2C_KNOWN_AUTHORITIES=
-ARG VITE_B2C_REDIRECT_URI=
 ARG VITE_LOG_LEVEL=info
+
+# VITE_B2C_REDIRECT_URI is intentionally NOT baked here. MSAL derives the
+# redirect URI from window.location.origin at runtime so one image serves
+# multiple hosts (custom domain + CAE default hostname + localhost).
 
 ENV VITE_API_URL=$VITE_API_URL \
     VITE_SOCKET_URL=$VITE_SOCKET_URL \
@@ -21,7 +24,6 @@ ENV VITE_API_URL=$VITE_API_URL \
     VITE_B2C_CLIENT_ID=$VITE_B2C_CLIENT_ID \
     VITE_B2C_AUTHORITY=$VITE_B2C_AUTHORITY \
     VITE_B2C_KNOWN_AUTHORITIES=$VITE_B2C_KNOWN_AUTHORITIES \
-    VITE_B2C_REDIRECT_URI=$VITE_B2C_REDIRECT_URI \
     VITE_LOG_LEVEL=$VITE_LOG_LEVEL
 
 COPY package.json package-lock.json turbo.json tsconfig.base.json ./

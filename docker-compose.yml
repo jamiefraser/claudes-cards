@@ -148,7 +148,6 @@ services:
         VITE_B2C_CLIENT_ID: ${VITE_B2C_CLIENT_ID:-}
         VITE_B2C_AUTHORITY: ${VITE_B2C_AUTHORITY:-}
         VITE_B2C_KNOWN_AUTHORITIES: ${VITE_B2C_KNOWN_AUTHORITIES:-}
-        VITE_B2C_REDIRECT_URI: ${VITE_B2C_REDIRECT_URI:-}
     restart: unless-stopped
     ports:
       - "80:80"

@@ -194,7 +194,6 @@ jobs:
             --build-arg VITE_B2C_CLIENT_ID="${{ vars.B2C_CLIENT_ID }}" \
             --build-arg VITE_B2C_AUTHORITY="${{ vars.B2C_AUTHORITY }}" \
             --build-arg VITE_B2C_KNOWN_AUTHORITIES="${{ vars.B2C_KNOWN_AUTHORITIES }}" \
-            --build-arg VITE_B2C_REDIRECT_URI="https://$WEB_FQDN" \
             --build-arg VITE_LOG_LEVEL=info \
             .
 

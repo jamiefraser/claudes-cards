@@ -2,7 +2,11 @@
  * MsalAuthProvider (Production — AUTH_MODE=production)
  *
  * Azure AD B2C authentication via MSAL.
- * - Config sourced from VITE_B2C_* env vars.
+ * - Client/authority/known-authorities come from VITE_B2C_* env vars.
+ * - Redirect URI is derived from window.location.origin at runtime so that
+ *   the same build works from any registered host (custom domain, Container
+ *   App default hostname, localhost, etc.). Every host the app is served
+ *   from must be registered in B2C.
  * - Uses localStorage cache so sessions stick across browser restarts.
  * - On successful login, mirrors the id token into localStorage under 'auth_token'
  *   so the existing apiFetch / socket code keeps working unchanged.
@@ -31,12 +35,16 @@ const knownAuthorities = (import.meta.env.VITE_B2C_KNOWN_AUTHORITIES as string |
   ?.split(',')
   .map((s) => s.trim())
   .filter(Boolean) ?? [];
-// Login and logout always land on the app root. B2C must have the root URL
-// registered as both a Redirect URI and a Post-logout Redirect URI;
-// otherwise B2C falls back to its own hosted signed-out page.
+// Login and logout always land on the app root of whatever host the user
+// is currently on — custom domain, Container App default hostname, or
+// localhost. Baking this at build time breaks multi-host deployments (a
+// build baked for foo.example.com rejects sign-in requests arriving at
+// bar.example.com). Every host the app is served from MUST be registered
+// in B2C as both a Redirect URI and a Post-logout Redirect URI, otherwise
+// B2C rejects login with AADB2C90006 or falls back to its hosted
+// signed-out page on logout.
 const redirectUri =
-  (import.meta.env.VITE_B2C_REDIRECT_URI as string | undefined) ??
-  (typeof window !== 'undefined' ? window.location.origin : '');
+  typeof window !== 'undefined' ? window.location.origin : '';
 
 const missingConfig = !clientId || !authority || knownAuthorities.length === 0;
 
@@ -206,9 +214,8 @@ export function MsalAuthProvider({ children }: { children: React.ReactNode }) {
     setPlayer(null);
     if (msalInstance) {
       const account = msalInstance.getActiveAccount() ?? msalInstance.getAllAccounts()[0];
-      // Send the browser back to the app root after B2C signs the user out.
-      // Fall back to window.location.origin so we never inherit a deep-link
-      // path from VITE_B2C_REDIRECT_URI.
+      // Send the browser back to the app root of the current host after
+      // B2C signs the user out.
       const postLogoutRedirectUri =
         typeof window !== 'undefined' ? window.location.origin : redirectUri;
       void msalInstance.logoutRedirect({

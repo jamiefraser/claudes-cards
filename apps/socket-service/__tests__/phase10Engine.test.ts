@@ -1278,18 +1278,25 @@ describe('Phase10Engine', () => {
       },
     });
 
-    // Player now has phaseLaidDown = true and can hit
-    // Discard to end turn
+    // Player now has phaseLaidDown = true and can hit.
+    // Discard to end turn. Crucially — pick a NON-SKIP card: discarding a
+    // skip in a 2-player game keeps the turn on the discarder (SPEC.md §9.5),
+    // which breaks the "back to player 1" assumption below for certain RNG
+    // seeds. Same rule applies to the other player's discard.
     const handAfterLaydown = s.players.find((p) => p.playerId === playerId)!.hand;
     if (handAfterLaydown.length === 0) return; // already out
+    const nonSkip1 = handAfterLaydown.find((c) => c.phase10Type !== 'skip');
+    if (!nonSkip1) return; // all-skip hand — skip the test
 
-    s = engine.applyAction(s, playerId, { type: 'discard', cardIds: [handAfterLaydown[0]!.id] });
+    s = engine.applyAction(s, playerId, { type: 'discard', cardIds: [nonSkip1.id] });
 
-    // Other player turn - draw and discard quickly
+    // Other player turn - draw and discard quickly (also non-skip).
     const other = s.currentTurn!;
     s = engine.applyAction(s, other, { type: 'draw', payload: { source: 'deck' } });
     const otherHand = s.players.find((p) => p.playerId === other)!.hand;
-    s = engine.applyAction(s, other, { type: 'discard', cardIds: [otherHand[0]!.id] });
+    const nonSkip2 = otherHand.find((c) => c.phase10Type !== 'skip');
+    if (!nonSkip2) return;
+    s = engine.applyAction(s, other, { type: 'discard', cardIds: [nonSkip2.id] });
 
     // Back to player 1 - draw then hit meld
     s = engine.applyAction(s, playerId, { type: 'draw', payload: { source: 'deck' } });

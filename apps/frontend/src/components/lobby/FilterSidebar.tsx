@@ -32,15 +32,10 @@ export function FilterSidebar({ games }: FilterSidebarProps) {
     setFilters({ hasSpace: e.target.checked ? true : undefined });
   };
 
-  const handleAsyncChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFilters({ asyncMode: e.target.checked ? true : undefined });
-  };
-
   const activeCount =
     (filters.gameId ? 1 : 0) +
     (filters.status ? 1 : 0) +
-    (filters.hasSpace ? 1 : 0) +
-    (filters.asyncMode ? 1 : 0);
+    (filters.hasSpace ? 1 : 0);
 
   const panel = (
     <div className="flex flex-col gap-4">
@@ -50,7 +45,6 @@ export function FilterSidebar({ games }: FilterSidebarProps) {
           value={filters.gameId ?? ''}
           onChange={handleGameChange}
           className="bg-paper border border-hairline text-ink text-sm rounded-md px-3 py-2 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi"
-          aria-label={en.aria.filterByGame}
         >
           <option value="">{en.lobby.filterAllGames}</option>
           {games.map(g => (
@@ -65,7 +59,6 @@ export function FilterSidebar({ games }: FilterSidebarProps) {
           value={filters.status ?? ''}
           onChange={handleStatusChange}
           className="bg-paper border border-hairline text-ink text-sm rounded-md px-3 py-2 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi"
-          aria-label={en.aria.filterByStatus}
         >
           <option value="">{en.lobby.filterAll}</option>
           <option value="waiting">{en.lobby.roomStatus.waiting}</option>
@@ -81,16 +74,6 @@ export function FilterSidebar({ games }: FilterSidebarProps) {
           className="w-4 h-4 accent-ochre"
         />
         {en.lobby.filterOpenSeats}
-      </label>
-
-      <label className="flex items-center gap-3 text-sm text-ink-soft cursor-pointer min-h-[44px]">
-        <input
-          type="checkbox"
-          checked={filters.asyncMode === true}
-          onChange={handleAsyncChange}
-          className="w-4 h-4 accent-ochre"
-        />
-        {en.lobby.filterAsyncOnly}
       </label>
     </div>
   );

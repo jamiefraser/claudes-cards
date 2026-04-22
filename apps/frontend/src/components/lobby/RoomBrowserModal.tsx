@@ -12,6 +12,7 @@ import type { GameCatalogEntry } from '@shared/admin';
 import type { Room } from '@shared/rooms';
 import en from '@/i18n/en.json';
 import { logger } from '@/utils/logger';
+import { pluralise } from '@/utils/formatScore';
 
 interface RoomBrowserModalProps {
   isOpen: boolean;
@@ -63,9 +64,10 @@ export function RoomBrowserModal({ isOpen, onClose, game }: RoomBrowserModalProp
     >
       <div className="flex justify-between items-center mb-4">
         <span className="text-sm text-slate-400">
-          {rooms.length === 1
-            ? en.rooms.roomsAvailable.replace('{count}', '1')
-            : en.rooms.roomsAvailablePlural.replace('{count}', String(rooms.length))}
+          {pluralise(rooms.length, {
+            one: en.rooms.roomsAvailable,
+            other: en.rooms.roomsAvailablePlural,
+          })}
         </span>
         <div className="flex gap-2">
           <button
@@ -91,8 +93,20 @@ export function RoomBrowserModal({ isOpen, onClose, game }: RoomBrowserModalProp
         <p className="text-slate-400 text-sm text-center py-4">{en.lobby.noRooms}</p>
       )}
 
-      <ul className="flex flex-col gap-2 max-h-72 overflow-y-auto">
-        {rooms.map(room => (
+      <ul className="flex flex-col gap-2 max-h-72 overflow-y-auto overscroll-contain">
+        {rooms.map(room => {
+          const clockLabel =
+            room.settings.asyncMode && room.settings.turnTimerSeconds
+              ? en.rooms.turnClockBadge.replace(
+                  '{duration}',
+                  room.settings.turnTimerSeconds >= 259200
+                    ? en.rooms.timer72h
+                    : room.settings.turnTimerSeconds >= 172800
+                    ? en.rooms.timer48h
+                    : en.rooms.timer24h,
+                )
+              : null;
+          return (
           <li
             key={room.id}
             className="flex items-center justify-between bg-slate-700 rounded-md px-4 py-3"
@@ -103,9 +117,15 @@ export function RoomBrowserModal({ isOpen, onClose, game }: RoomBrowserModalProp
               </p>
               <p className="text-slate-400 text-xs">
                 {room.players.length} / {room.settings.maxPlayers} players
-                {room.settings.asyncMode && (
-                  <span className="ml-2 text-indigo-400">{en.lobby.asyncMode}</span>
-                )}
+                {clockLabel ? (
+                  <span className="ml-2 text-indigo-400" aria-label={clockLabel}>
+                    {clockLabel}
+                  </span>
+                ) : !room.settings.asyncMode ? (
+                  <span className="ml-2 text-rose-400" aria-label={en.rooms.liveBadgeTooltip}>
+                    {en.rooms.liveBadge}
+                  </span>
+                ) : null}
               </p>
             </div>
             <button
@@ -115,7 +135,8 @@ export function RoomBrowserModal({ isOpen, onClose, game }: RoomBrowserModalProp
               {en.lobby.joinRoom}
             </button>
           </li>
-        ))}
+          );
+        })}
       </ul>
     </Modal>
   );

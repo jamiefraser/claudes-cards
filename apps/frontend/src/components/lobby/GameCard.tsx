@@ -36,9 +36,16 @@ export function GameCard({ game, onBrowseRooms }: GameCardProps) {
           </h3>
           <p className="text-whisper text-xs mt-1 uppercase tracking-wider">{game.category}</p>
         </div>
-        {game.supportsAsync && (
-          <span className="shrink-0 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-ochre bg-paper px-2 py-0.5 rounded-full border border-hairline/80">
-            {en.lobby.asyncMode}
+        {/* Flag the exception, not the default. Most games are
+            "play at your pace" (async); strictly real-time games
+            (War, Spit) get a badge so players know what they're in for. */}
+        {!game.supportsAsync && (
+          <span
+            className="shrink-0 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-burgundy bg-paper px-2 py-0.5 rounded-full border border-hairline/80"
+            title={en.rooms.liveBadgeTooltip}
+            aria-label={en.rooms.liveBadgeTooltip}
+          >
+            {en.rooms.liveBadge}
           </span>
         )}
       </header>

@@ -32,7 +32,12 @@ export function CreateRoomModal({ isOpen, onClose, game, onRoomCreated }: Create
   const navigate = useNavigate();
 
   const [name, setName] = useState('');
-  const [asyncMode, setAsyncMode] = useState(false);
+  // Async mode is the sane default for every game that supports it — the
+  // whole point of this platform is "play with friends, take your turn
+  // when you have a minute." Games flagged supportsAsync=false (War,
+  // Spit) are strictly real-time by nature and stay live. The user
+  // doesn't see the toggle; they pick the turn-clock (only when async).
+  const asyncMode = game.supportsAsync;
   const [turnTimerSeconds, setTurnTimerSeconds] = useState<number>(86400);
   const [isPrivate, setIsPrivate] = useState(false);
   const [password, setPassword] = useState('');
@@ -87,12 +92,13 @@ export function CreateRoomModal({ isOpen, onClose, game, onRoomCreated }: Create
           <span className="text-sm text-slate-300">{en.rooms.roomName}</span>
           <input
             type="text"
+            name="roomName"
+            autoComplete="off"
             value={name}
             onChange={e => setName(e.target.value)}
             placeholder={en.rooms.roomNamePlaceholder}
             maxLength={60}
             className="bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-2 text-sm"
-            aria-label={en.rooms.roomName}
           />
         </label>
 
@@ -103,7 +109,6 @@ export function CreateRoomModal({ isOpen, onClose, game, onRoomCreated }: Create
             value={maxPlayers}
             onChange={e => setMaxPlayers(Number(e.target.value))}
             className="bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-2 text-sm"
-            aria-label={en.rooms.maxPlayers}
           >
             {playerOptions.map(n => (
               <option key={n} value={n}>{n}</option>
@@ -111,32 +116,27 @@ export function CreateRoomModal({ isOpen, onClose, game, onRoomCreated }: Create
           </select>
         </label>
 
-        {/* Async mode */}
+        {/* Turn clock — only surfaced for async-capable games. Strictly
+            real-time games (War, Spit) have no turn timer; all players
+            are online or the game doesn't start. */}
         {game.supportsAsync && (
-          <div className="flex flex-col gap-2">
-            <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={asyncMode}
-                onChange={e => setAsyncMode(e.target.checked)}
-              />
-              {en.rooms.asyncToggle}
+          <div className="flex flex-col gap-1">
+            <label className="flex flex-col gap-1">
+              <span className="text-sm text-slate-300">{en.rooms.turnTimer}</span>
+              <select
+                value={turnTimerSeconds}
+                onChange={e => setTurnTimerSeconds(Number(e.target.value))}
+                aria-describedby="turn-clock-help"
+                className="bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-2 text-sm"
+              >
+                {TIMER_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
             </label>
-            {asyncMode && (
-              <label className="flex flex-col gap-1 ml-6">
-                <span className="text-xs text-slate-400">{en.rooms.turnTimer}</span>
-                <select
-                  value={turnTimerSeconds}
-                  onChange={e => setTurnTimerSeconds(Number(e.target.value))}
-                  className="bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-1.5 text-sm"
-                  aria-label={en.rooms.turnTimer}
-                >
-                  {TIMER_OPTIONS.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </label>
-            )}
+            <p id="turn-clock-help" className="text-xs text-slate-400 mt-1">
+              {en.rooms.turnTimerHelp}
+            </p>
           </div>
         )}
 
@@ -155,11 +155,12 @@ export function CreateRoomModal({ isOpen, onClose, game, onRoomCreated }: Create
               <span className="text-xs text-slate-400">{en.rooms.password}</span>
               <input
                 type="password"
+                name="roomPassword"
+                autoComplete="new-password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder={en.rooms.passwordPlaceholder}
                 className="bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-1.5 text-sm"
-                aria-label={en.rooms.password}
               />
             </label>
           )}

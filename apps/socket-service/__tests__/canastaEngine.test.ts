@@ -4,12 +4,14 @@
 
 import {
   CanastaEngine,
+  CanastaPickupError,
   canastaCardPoints,
   initialMeldMinimum,
   isWild,
   validateNewMeld,
   validateMeldExtension,
   type CanastaMeld,
+  type CanastaPickupErrorCode,
   type CanastaPublicData,
 } from '../src/games/canasta/engine';
 import type { Card, GameConfig, GameState } from '@card-platform/shared-types';
@@ -710,7 +712,7 @@ describe('CanastaEngine \u2014 take-discard', () => {
     });
     expect(() =>
       engine.applyAction(state, pid, { type: 'take-discard' }),
-    ).toThrow(/black 3 or wild/);
+    ).toThrow(/black 3/i);
   });
 
   it('cannot take pile when top is a wild card', () => {
@@ -720,7 +722,7 @@ describe('CanastaEngine \u2014 take-discard', () => {
     });
     expect(() =>
       engine.applyAction(state, pid, { type: 'take-discard' }),
-    ).toThrow(/black 3 or wild/);
+    ).toThrow(/wild/i);
   });
 
   it('unfrozen take: extends an existing meld with just the top card', () => {
@@ -835,3 +837,335 @@ describe('CanastaEngine \u2014 freeze-by-wild', () => {
   });
 });
 
+// ===========================================================================
+// Pickup — stable error codes (batch 1)
+// Shared helpers (seedHand, forceMeldPhase, discardStateForTake) live above.
+// ===========================================================================
+
+/**
+ * Grab the `.code` off a thrown CanastaPickupError. Asserts the throw shape
+ * too so a regression where we revert to plain Error surfaces immediately.
+ */
+function expectPickupCode(fn: () => void): CanastaPickupErrorCode {
+  try {
+    fn();
+  } catch (err) {
+    if (!(err instanceof CanastaPickupError)) {
+      throw new Error(`Expected CanastaPickupError, got ${String(err)}`);
+    }
+    return err.code;
+  }
+  throw new Error('Expected function to throw, but it did not');
+}
+
+describe('CanastaEngine — pickup error codes', () => {
+  const engine = new CanastaEngine();
+
+  it('EMPTY_PILE when the discard pile has no top card', () => {
+    const start = engine.startGame(makeConfig(4));
+    const pid = 'p1';
+    const state0 = seedHand(start, pid, [c('k1','K','hearts'), c('k2','K','spades')]);
+    const pd0 = pd(state0);
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      discardPile: [],
+      discardTop: null,
+      discardFrozen: false,
+    };
+    const state: GameState = {
+      ...state0,
+      currentTurn: pid,
+      publicData: cleaned as unknown as Record<string, unknown>,
+    };
+    const code = expectPickupCode(() =>
+      engine.applyAction(state, pid, { type: 'take-discard' }),
+    );
+    expect(code).toBe('EMPTY_PILE');
+  });
+
+  it('BLOCKED_BLACK_THREE when a black 3 sits on top', () => {
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','3','clubs'),
+      handForPid: [c('k1','K','hearts'), c('k2','K','spades')],
+    });
+    expect(expectPickupCode(() =>
+      engine.applyAction(state, pid, { type: 'take-discard' }),
+    )).toBe('BLOCKED_BLACK_THREE');
+  });
+
+  it('BLOCKED_WILD_ON_TOP for a wild (2 or joker) on top', () => {
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','2','clubs'),
+      handForPid: [c('k1','K','hearts'), c('k2','K','spades')],
+    });
+    expect(expectPickupCode(() =>
+      engine.applyAction(state, pid, { type: 'take-discard' }),
+    )).toBe('BLOCKED_WILD_ON_TOP');
+  });
+
+  it('BLOCKED_RED_THREE defensively blocks a red 3 on top', () => {
+    // Red 3s are normally laid down on draw and never land on the discard
+    // pile. This is a defensive guard that a corrupted state can't be
+    // picked up silently (spec E1 / Step 1).
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','3','hearts'),
+      handForPid: [c('k1','K','hearts'), c('k2','K','spades')],
+    });
+    expect(expectPickupCode(() =>
+      engine.applyAction(state, pid, { type: 'take-discard' }),
+    )).toBe('BLOCKED_RED_THREE');
+  });
+
+  it('FROZEN_WILD_MATCH_FORBIDDEN when selecting a wild against a frozen pile', () => {
+    // Hand has one natural K and one wild. Frozen rules require TWO naturals
+    // from hand; choosing the wild is specifically forbidden.
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','K','diamonds'),
+      handForPid: [c('h1','K','hearts'), c('w','2','clubs')],
+      frozen: true,
+      initialMeldDone: false,
+    });
+    expect(expectPickupCode(() =>
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: { useCardIds: ['h1','w'] },
+      }),
+    )).toBe('FROZEN_WILD_MATCH_FORBIDDEN');
+  });
+
+  it('NO_MATCHING_CARD when frozen pickup has only one natural of the rank', () => {
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','K','diamonds'),
+      handForPid: [c('h1','K','hearts'), c('h2','9','hearts')],
+      frozen: true,
+      initialMeldDone: false,
+    });
+    expect(expectPickupCode(() =>
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: { useCardIds: ['h1','h2'] },
+      }),
+    )).toBe('NO_MATCHING_CARD');
+  });
+
+  it('WILD_ONLY_MATCH_FORBIDDEN when unfrozen pickup uses only wilds from hand', () => {
+    // Side has made its initial meld (pile unfrozen for them) but has no
+    // existing K meld to extend, and the player tries to form a new meld
+    // using only wilds from hand with the top K. That produces 1 natural
+    // + 2 wilds which fails the natural-majority rule — surface the
+    // specific WILD_ONLY_MATCH_FORBIDDEN code rather than MELD_STRUCTURE.
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','K','diamonds'),
+      handForPid: [c('w1','2','clubs'), c('w2','2','hearts')],
+      frozen: false,
+      initialMeldDone: true,
+    });
+    expect(expectPickupCode(() =>
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: { useCardIds: ['w1','w2'] },
+      }),
+    )).toBe('WILD_ONLY_MATCH_FORBIDDEN');
+  });
+
+  it('NO_MATCHING_CARD when unfrozen and hand has no natural of the top rank', () => {
+    // Side has already melded (unfrozen) but no existing K meld. Hand has
+    // a natural 9 + a wild — no K match possible. Specifically NO_MATCHING,
+    // not WILD_ONLY (we have a natural in the proposed meld, just wrong rank).
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','K','diamonds'),
+      handForPid: [c('h1','9','hearts'), c('w','2','clubs')],
+      frozen: false,
+      initialMeldDone: true,
+    });
+    expect(expectPickupCode(() =>
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: { useCardIds: ['h1','w'] },
+      }),
+    )).toBe('NO_MATCHING_CARD');
+  });
+
+  it('INITIAL_MELD_NOT_MET when pickup does not reach the threshold', () => {
+    // Fresh side (has_made_initial_meld = false). A new 3-K meld is 30 pts;
+    // threshold is 50 (default for score ≥ 0). No extras declared.
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','K','diamonds'),
+      handForPid: [c('h1','K','hearts'), c('h2','K','spades')],
+      frozen: true,
+      initialMeldDone: false,
+    });
+    expect(expectPickupCode(() =>
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: { useCardIds: ['h1','h2'] },
+      }),
+    )).toBe('INITIAL_MELD_NOT_MET');
+  });
+});
+
+// ===========================================================================
+// Pickup — merge same-rank melds on frozen pickup (E6)
+// ===========================================================================
+
+describe('CanastaEngine — merge same-rank melds on frozen pickup', () => {
+  const engine = new CanastaEngine();
+
+  it('frozen pickup with an existing same-rank meld merges into one', () => {
+    // Scenario: side already has a 3-card K meld on the table. Pile is
+    // frozen (discardFrozen = true, and/or initial-meld not done — but here
+    // we set initialMeldDone so only discardFrozen freezes). Player takes
+    // the pile with two naturals, forming a second K meld. The engine
+    // must merge the two into one meld of 6+ cards and preserve invariants.
+    const existing: CanastaMeld = {
+      rank: 'K',
+      cards: [c('e1','K','hearts'), c('e2','K','spades'), c('e3','K','clubs')],
+      naturals: 3,
+      wilds: 0,
+      isCanasta: false,
+    };
+    const start = engine.startGame(makeConfig(4));
+    const pid = 'p1';
+    const hand = [c('h1','K','diamonds'), c('h2','K','hearts'), c('bye','9','hearts')];
+    const state0 = seedHand(start, pid, hand);
+    const pd0 = pd(state0);
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      discardPile: [c('pc1','5','hearts'), c('top','K','clubs')],
+      discardTop: c('top','K','clubs'),
+      discardFrozen: true,
+      initialMeldDone: { A: true, B: false },
+      initialMeldDoneAtTurnStart: { A: true, B: false },
+      melds: { A: [existing], B: [] },
+    };
+    const state: GameState = {
+      ...state0,
+      currentTurn: pid,
+      publicData: cleaned as unknown as Record<string, unknown>,
+    };
+    const after = engine.applyAction(state, pid, {
+      type: 'take-discard',
+      payload: { useCardIds: ['h1','h2'] },
+    });
+    const sideMelds = pd(after).melds.A!;
+    expect(sideMelds).toHaveLength(1);
+    expect(sideMelds[0]!.naturals).toBe(6);
+    expect(sideMelds[0]!.wilds).toBe(0);
+    // 6 cards → not yet a canasta.
+    expect(sideMelds[0]!.isCanasta).toBe(false);
+  });
+
+  it('merge becomes a natural canasta when combined size hits 7', () => {
+    const existing: CanastaMeld = {
+      rank: '7',
+      cards: [
+        c('e1','7','hearts'), c('e2','7','spades'),
+        c('e3','7','clubs'), c('e4','7','diamonds'),
+      ],
+      naturals: 4,
+      wilds: 0,
+      isCanasta: false,
+    };
+    const start = engine.startGame(makeConfig(4));
+    const pid = 'p1';
+    const hand = [c('h1','7','hearts'), c('h2','7','spades'), c('bye','9','hearts')];
+    const state0 = seedHand(start, pid, hand);
+    const pd0 = pd(state0);
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      discardPile: [c('pc1','5','hearts'), c('top','7','clubs')],
+      discardTop: c('top','7','clubs'),
+      discardFrozen: true,
+      initialMeldDone: { A: true, B: false },
+      initialMeldDoneAtTurnStart: { A: true, B: false },
+      melds: { A: [existing], B: [] },
+    };
+    const state: GameState = {
+      ...state0,
+      currentTurn: pid,
+      publicData: cleaned as unknown as Record<string, unknown>,
+    };
+    const after = engine.applyAction(state, pid, {
+      type: 'take-discard',
+      payload: { useCardIds: ['h1','h2'] },
+    });
+    const sideMelds = pd(after).melds.A!;
+    expect(sideMelds).toHaveLength(1);
+    expect(sideMelds[0]!.isCanasta).toBe(true);
+    expect(sideMelds[0]!.canastaType).toBe('natural');
+  });
+});
+
+// ===========================================================================
+// Pickup — E19 undischargeable-hand guard
+// ===========================================================================
+
+describe('CanastaEngine — undischargeable-hand guard', () => {
+  const engine = new CanastaEngine();
+
+  it('rejects a pickup that leaves the player with no card to discard', () => {
+    // Construct a scenario: pile is just the top card (no cards below),
+    // and hand has exactly the two naturals needed for the new meld. After
+    // pickup: hand = 0, no canasta yet → cannot go out, cannot discard.
+    const start = engine.startGame(makeConfig(4));
+    const pid = 'p1';
+    const hand = [c('h1','K','hearts'), c('h2','K','spades')];
+    const state0 = seedHand(start, pid, hand);
+    const pd0 = pd(state0);
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      discardPile: [c('top','K','diamonds')],
+      discardTop: c('top','K','diamonds'),
+      discardFrozen: true,
+      scoresPriorHand: { ...pd0.scoresPriorHand, A: -1 },
+      initialMeldDone: { A: false, B: false },
+      initialMeldDoneAtTurnStart: { A: false, B: false },
+      melds: { A: [], B: [] },
+    };
+    const state: GameState = {
+      ...state0,
+      currentTurn: pid,
+      publicData: cleaned as unknown as Record<string, unknown>,
+    };
+    expect(expectPickupCode(() =>
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: { useCardIds: ['h1','h2'] },
+      }),
+    )).toBe('WOULD_LEAVE_UNDISCHARGEABLE_HAND');
+  });
+});
+
+// ===========================================================================
+// Pickup — atomicity: rejection at any point leaves state byte-identical
+// ===========================================================================
+
+describe('CanastaEngine — pickup atomicity', () => {
+  const engine = new CanastaEngine();
+
+  it('rejected pickup does not mutate melds, hand, or the discard pile', () => {
+    const { state, pid } = discardStateForTake(engine, {
+      top: c('top','K','diamonds'),
+      handForPid: [c('h1','K','hearts'), c('w','2','clubs')],
+      frozen: true,
+      initialMeldDone: false,
+    });
+    const snapshotHand = state.players.find((p) => p.playerId === pid)!.hand.map((c) => c.id);
+    const snapshotPile = pd(state).discardPile.map((c) => c.id);
+    const snapshotMelds = JSON.stringify(pd(state).melds);
+
+    expect(() =>
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: { useCardIds: ['h1','w'] },
+      }),
+    ).toThrow();
+
+    // Original state must be untouched (applyAction is pure — it returns a
+    // new state on success and throws without mutating on failure).
+    expect(state.players.find((p) => p.playerId === pid)!.hand.map((c) => c.id))
+      .toEqual(snapshotHand);
+    expect(pd(state).discardPile.map((c) => c.id)).toEqual(snapshotPile);
+    expect(JSON.stringify(pd(state).melds)).toBe(snapshotMelds);
+  });
+});

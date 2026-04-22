@@ -941,13 +941,28 @@ export function GameTable({ roomId }: GameTableProps) {
                         isDropTarget={true}
                         deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
                         onClick={() => {
-                          if (isMyTurn) {
-                            const socket = getGameSocket();
+                          if (!isMyTurn) return;
+                          const socket = getGameSocket();
+                          // Canasta pickup is a distinct action from a stock
+                          // draw: the engine needs to know which hand cards
+                          // the player plans to meld with the top card. We
+                          // forward whatever is currently selected as
+                          // useCardIds; if the selection is empty the engine
+                          // will return NO_MATCHING_CARD, surfaced as a toast.
+                          if (gameState.gameId === 'canasta') {
                             socket.emit('game_action', {
                               roomId,
-                              action: { type: 'draw', payload: { source: 'discard' } },
+                              action: {
+                                type: 'take-discard',
+                                payload: { useCardIds: [...selectedCardIds] },
+                              },
                             } satisfies GameActionPayload);
+                            return;
                           }
+                          socket.emit('game_action', {
+                            roomId,
+                            action: { type: 'draw', payload: { source: 'discard' } },
+                          } satisfies GameActionPayload);
                         }}
                       />
                       {/* Crazy Eights: show the declared suit when a wild

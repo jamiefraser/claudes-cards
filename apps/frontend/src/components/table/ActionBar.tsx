@@ -144,7 +144,17 @@ export function ActionBar({
     if (isMyTurn) emitAction('draw', undefined, { source: 'deck' });
   };
   const handleDrawDiscard = () => {
-    if (isMyTurn) emitAction('draw', undefined, { source: 'discard' });
+    if (!isMyTurn) return;
+    // Canasta's pickup is a separate engine action (take-discard) that
+    // requires the player to nominate which hand cards will join the top
+    // card in a meld. We forward the current selection as useCardIds; the
+    // engine returns a specific error code if the selection is invalid or
+    // missing, which the gameAction socket handler surfaces to a toast.
+    if (isCanasta) {
+      emitAction('take-discard', undefined, { useCardIds: [...selectedCardIds] });
+      return;
+    }
+    emitAction('draw', undefined, { source: 'discard' });
   };
   const handleLayDown = () => {
     // Phase 10: server auto-arranges from the full hand if no groups are

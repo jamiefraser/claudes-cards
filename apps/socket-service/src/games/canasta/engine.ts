@@ -244,6 +244,37 @@ function drawOneAutoRed3(
 }
 
 // ---------------------------------------------------------------------------
+// Pickup error codes — stable strings consumers (socket handler, UI toasts,
+// bot strategy) can branch on. Kept as a string-literal union instead of a
+// TS enum so they serialise cleanly over the wire and survive JSON
+// round-trips without aliasing.
+// ---------------------------------------------------------------------------
+
+export type CanastaPickupErrorCode =
+  | 'EMPTY_PILE'
+  | 'BLOCKED_BLACK_THREE'
+  | 'BLOCKED_WILD_ON_TOP'
+  | 'BLOCKED_RED_THREE'
+  | 'NO_MATCHING_CARD'
+  | 'FROZEN_WILD_MATCH_FORBIDDEN'
+  | 'FROZEN_EXTENSION_FORBIDDEN'
+  | 'WILD_ONLY_MATCH_FORBIDDEN'
+  | 'MELD_STRUCTURE_INVALID'
+  | 'WOULD_CONVERT_NATURAL_CANASTA'
+  | 'INITIAL_MELD_NOT_MET'
+  | 'WOULD_LEAVE_UNDISCHARGEABLE_HAND'
+  | 'MERGED_MELD_INVALID';
+
+export class CanastaPickupError extends Error {
+  public readonly code: CanastaPickupErrorCode;
+  constructor(code: CanastaPickupErrorCode, message: string) {
+    super(message);
+    this.name = 'CanastaPickupError';
+    this.code = code;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Meld validation
 // ---------------------------------------------------------------------------
 
@@ -375,6 +406,45 @@ function extendMeld(existing: CanastaMeld, added: Card[], check: MeldCheckOk): C
 /** Sum of natural card-point values in a meld (excluding bonus items). */
 function meldNaturalPoints(cards: Card[]): number {
   return cards.reduce((sum, c) => sum + canastaCardPoints(c), 0);
+}
+
+/**
+ * Fold every non-black-threes meld of the given rank into a single meld.
+ * Canasta rules forbid two open melds of the same rank for one side; a
+ * frozen pile pickup can create that state (the player forms a new meld
+ * with the top card while their side already has a meld of that rank),
+ * so we merge here and re-check the wild-cap invariants. Throws a
+ * CanastaPickupError('MERGED_MELD_INVALID') if the merged meld would
+ * violate wild limits — exceedingly unlikely because the frozen path
+ * always produces an all-natural new meld, but enforced for defence.
+ */
+function mergeSameRankMelds(melds: CanastaMeld[], rank: string): CanastaMeld[] {
+  const sameRank = melds.filter((m) => !m.blackThrees && m.rank === rank);
+  if (sameRank.length <= 1) return melds;
+
+  const allCards = sameRank.flatMap((m) => m.cards);
+  const naturals = allCards.filter((c) => !isWild(c));
+  const wilds = allCards.filter(isWild);
+
+  if (wilds.length > 3 || wilds.length >= naturals.length) {
+    throw new CanastaPickupError(
+      'MERGED_MELD_INVALID',
+      'Merging same-rank melds would violate the wild-card cap',
+    );
+  }
+
+  const isCanasta = allCards.length >= 7;
+  const merged: CanastaMeld = {
+    rank,
+    cards: [...naturals, ...wilds].map((c) => ({ ...c, faceUp: true })),
+    naturals: naturals.length,
+    wilds: wilds.length,
+    isCanasta,
+    canastaType: isCanasta ? (wilds.length === 0 ? 'natural' : 'mixed') : undefined,
+  };
+
+  const others = melds.filter((m) => m.blackThrees || m.rank !== rank);
+  return [...others, merged];
 }
 
 // ---------------------------------------------------------------------------
@@ -582,9 +652,31 @@ export class CanastaEngine implements IGameEngine {
     pd: CanastaPublicData,
   ): GameState {
     if (pd.gamePhase !== 'draw') throw new Error('Must draw (or take) at start of turn');
-    if (!pd.discardTop) throw new Error('Discard pile is empty');
-    if (isBlackThree(pd.discardTop) || isWild(pd.discardTop)) {
-      throw new Error('Discard pile is blocked (black 3 or wild on top)');
+    // Step 1 — pile takeable at all? Stable error codes so UI/bot consumers
+    // can branch on a specific rejection without parsing messages.
+    if (!pd.discardTop || pd.discardPile.length === 0) {
+      throw new CanastaPickupError('EMPTY_PILE', 'Discard pile is empty');
+    }
+    if (isBlackThree(pd.discardTop)) {
+      throw new CanastaPickupError(
+        'BLOCKED_BLACK_THREE',
+        'Discard pile is blocked: black 3 on top',
+      );
+    }
+    if (isWild(pd.discardTop)) {
+      throw new CanastaPickupError(
+        'BLOCKED_WILD_ON_TOP',
+        'Discard pile is blocked: wild on top',
+      );
+    }
+    // Defensive: red 3s are laid down immediately on draw, so one should
+    // never land on top of the discard pile. Guard anyway so a corrupted
+    // state can't silently be picked up (spec E1 / BLOCKED_RED_THREE).
+    if (isRedThree(pd.discardTop)) {
+      throw new CanastaPickupError(
+        'BLOCKED_RED_THREE',
+        'Discard pile is blocked: red 3 on top',
+      );
     }
 
     const side = sideOf(pd.variant, state.players.map((p) => p.playerId), playerId);
@@ -611,7 +703,12 @@ export class CanastaEngine implements IGameEngine {
     if (extensionTarget) {
       // Extending an existing meld \u2014 top + useIds may be any legal combo.
       const check = validateMeldExtension(extensionTarget, [top, ...handSelected]);
-      if (!check.ok) throw new Error(`Cannot take pile: ${check.error}`);
+      if (!check.ok) {
+        throw new CanastaPickupError(
+          'MELD_STRUCTURE_INVALID',
+          `Cannot take pile: ${check.error}`,
+        );
+      }
     } else {
       // Forming a new meld with the top card. When frozen we need at least
       // two naturals of the top card's rank in the hand.
@@ -620,11 +717,49 @@ export class CanastaEngine implements IGameEngine {
           (c) => !isWild(c) && c.rank === top.rank,
         );
         if (naturalMatches.length < 2) {
-          throw new Error('Frozen pile requires two natural matches from hand');
+          // Distinguish "tried to use wilds while frozen" from generic
+          // no-matching-card so UI can explain *why* the pickup failed.
+          const attemptedWildMatch = handSelected.some(isWild);
+          if (attemptedWildMatch) {
+            throw new CanastaPickupError(
+              'FROZEN_WILD_MATCH_FORBIDDEN',
+              'Frozen pile: two natural matches from hand required (wilds not allowed)',
+            );
+          }
+          throw new CanastaPickupError(
+            'NO_MATCHING_CARD',
+            'Frozen pile requires two natural matches of the top card from hand',
+          );
+        }
+      } else {
+        // Unfrozen new-meld path: surface precise codes before the generic
+        // validator runs. A pickup that proposes only wilds to join the top
+        // card would fail validateNewMeld's natural-majority rule, but the
+        // stable code WILD_ONLY_MATCH_FORBIDDEN is what the spec calls out.
+        const naturalsInMeld = [top, ...handSelected].filter((c) => !isWild(c));
+        if (naturalsInMeld.length < 2) {
+          throw new CanastaPickupError(
+            'WILD_ONLY_MATCH_FORBIDDEN',
+            'Top card needs at least one natural partner from hand',
+          );
+        }
+        const hasMatchingNatural = handSelected.some(
+          (c) => !isWild(c) && c.rank === top.rank,
+        );
+        if (!hasMatchingNatural) {
+          throw new CanastaPickupError(
+            'NO_MATCHING_CARD',
+            `No natural ${top.rank} in hand to match the top card`,
+          );
         }
       }
       const check = validateNewMeld([top, ...handSelected]);
-      if (!check.ok) throw new Error(`Cannot take pile: ${check.error}`);
+      if (!check.ok) {
+        throw new CanastaPickupError(
+          'MELD_STRUCTURE_INVALID',
+          `Cannot take pile: ${check.error}`,
+        );
+      }
     }
 
     // Apply take: hand receives all pile cards EXCEPT the top (which goes
@@ -652,18 +787,23 @@ export class CanastaEngine implements IGameEngine {
 
     // If a new meld was made AND side had not yet made initial meld, we need
     // to honour the initial-meld threshold including any extra melds declared
-    // in the same action.
+    // in the same action. Unified into the single return below so the merge
+    // (E6) and undischargeable-hand (E19) checks run regardless of path.
     let newInitialMeldDone = { ...pd.initialMeldDone };
+    let handAfter = [...newHand];
     if (!pd.initialMeldDone[side]) {
-      // Count additional melds (if any) via payload.melds (list of array-of-ids).
       const additional = (action.payload?.melds as string[][] | undefined) ?? [];
       let extraPoints = 0;
-      let handAfter = [...newHand];
       for (const group of additional) {
         const cs = handAfter.filter((c) => group.includes(c.id));
         if (cs.length !== group.length) throw new Error('Additional meld cards not all in hand');
         const check = validateNewMeld(cs);
-        if (!check.ok) throw new Error(`Extra meld invalid: ${check.error}`);
+        if (!check.ok) {
+          throw new CanastaPickupError(
+            'MELD_STRUCTURE_INVALID',
+            `Extra meld invalid: ${check.error}`,
+          );
+        }
         extraPoints += meldNaturalPoints(cs);
         handAfter = handAfter.filter((c) => !group.includes(c.id));
         newMelds[side] = [...newMelds[side]!, meldFromCards(cs, check as MeldCheckOk)];
@@ -671,37 +811,50 @@ export class CanastaEngine implements IGameEngine {
       const prior = pd.scoresPriorHand[side] ?? 0;
       const required = initialMeldMinimum(prior);
       if (initialMeldPoints + extraPoints < required) {
-        throw new Error(`Initial meld ${initialMeldPoints + extraPoints} < required ${required}`);
+        throw new CanastaPickupError(
+          'INITIAL_MELD_NOT_MET',
+          `Initial meld ${initialMeldPoints + extraPoints} < required ${required}`,
+        );
       }
       newInitialMeldDone = { ...newInitialMeldDone, [side]: true };
-      // Commit the post-extra hand.
-      return this.advanceToMeldDiscard(
-        state,
-        state.players.map((p) =>
-          p.playerId === playerId ? { ...p, hand: handAfter } : p,
-        ),
-        {
-          ...pd,
-          melds: newMelds,
-          initialMeldDone: newInitialMeldDone,
-          initialMeldDoneAtTurnStart: { ...pd.initialMeldDoneAtTurnStart, [side]: pd.initialMeldDone[side] ?? false },
-          discardPile: [],
-          discardTop: null,
-          discardFrozen: false,
-        },
+    }
+
+    // E6: merge same-rank melds. Only the frozen path can leave the side with
+    // two melds of the top card's rank (unfrozen path auto-extends an
+    // existing meld instead of creating a new one). Additional melds in the
+    // initial-meld flow could also introduce a same-rank duplicate. Fold any
+    // duplicates into one meld and re-check the wild-cap invariants.
+    const topRank = top.rank;
+    if (topRank) {
+      newMelds[side] = mergeSameRankMelds(newMelds[side]!, topRank);
+    }
+
+    // E19: reject a pickup that would leave the player unable to discard.
+    // Default rules require a discard to end the turn (even when going out),
+    // so an empty hand post-pickup is always rejected in batch 1. When the
+    // require_discard_to_go_out flag ships in batch 2 this guard will relax
+    // for the "concealed going-out without discard" variant.
+    if (handAfter.length === 0) {
+      throw new CanastaPickupError(
+        'WOULD_LEAVE_UNDISCHARGEABLE_HAND',
+        'Pickup would leave you with no cards to discard',
       );
     }
 
     return this.advanceToMeldDiscard(
       state,
-      state.players.map((p) => (p.playerId === playerId ? { ...p, hand: newHand } : p)),
+      state.players.map((p) => (p.playerId === playerId ? { ...p, hand: handAfter } : p)),
       {
         ...pd,
         melds: newMelds,
+        initialMeldDone: newInitialMeldDone,
+        initialMeldDoneAtTurnStart: {
+          ...pd.initialMeldDoneAtTurnStart,
+          [side]: pd.initialMeldDone[side] ?? false,
+        },
         discardPile: [],
         discardTop: null,
         discardFrozen: false,
-        initialMeldDoneAtTurnStart: { ...pd.initialMeldDone },
       },
     );
   }

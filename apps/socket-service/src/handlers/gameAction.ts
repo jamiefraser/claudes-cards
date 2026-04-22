@@ -117,7 +117,16 @@ export async function gameActionHandler(
       nextState = engine.applyAction(state, playerId, effectiveAction);
     } catch (err) {
       logger.warn('gameAction: applyAction failed', { roomId, playerId, action: action.type, err: String(err) });
-      socket.emit('game_error', { code: 'INVALID_ACTION', message: String(err) });
+      // Surface engine-supplied error codes (e.g. Canasta pickup rejections
+      // throw CanastaPickupError with a stable `code`) so the UI can route
+      // them to a specific toast. Falls back to the generic INVALID_ACTION
+      // when the engine threw a plain Error.
+      const code =
+        typeof (err as { code?: unknown }).code === 'string'
+          ? (err as { code: string }).code
+          : 'INVALID_ACTION';
+      const message = err instanceof Error ? err.message : String(err);
+      socket.emit('game_error', { code, message });
       return;
     }
 

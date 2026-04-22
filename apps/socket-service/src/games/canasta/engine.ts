@@ -119,6 +119,9 @@ export interface CanastaPublicData {
   /** Number of stock cards drawn per turn (1 for 3p/4p, 2 for 2p). */
   drawCount: number;
 
+  /** Per-table rule flags (see CanastaVariantFlags). */
+  flags: CanastaVariantFlags;
+
   dealerIndex: number;
 
   /**
@@ -221,6 +224,37 @@ function drawCount(v: CanastaVariant): number {
 }
 
 /**
+ * Configurable per-table rule flags. Defaults match Hoyle's "Classic" Canasta;
+ * future admin panels or room-creation modals can override individual flags
+ * without changing the engine. Stored in publicData so reconnecting clients
+ * and bot strategies see a consistent rule set across a game.
+ */
+export interface CanastaVariantFlags {
+  /** Allow adding a wild to an existing natural canasta, converting it to
+   *  mixed. Most rule sets forbid this — default false. */
+  readonly allowConvertingNaturalCanasta: boolean;
+  /** Whether cards acquired from the discard pile on this turn count toward
+   *  the initial-meld point threshold. Hoyle's Classic: false. */
+  readonly initialMeldMayUsePileCards: boolean;
+  /** When stock exhausts, require the current player to take the pile if
+   *  they can legally extend a meld; otherwise the hand ends. Default true. */
+  readonly forcedPickupAfterStockExhaust: boolean;
+  /** Default Canasta rule: the top card of a discard pile taken on the
+   *  going-out turn does not relax the discard requirement. Reserved flag
+   *  for batch-3 "concealed going-out without discard" variants. */
+  readonly requireDiscardToGoOut: boolean;
+}
+
+function defaultCanastaFlags(): CanastaVariantFlags {
+  return {
+    allowConvertingNaturalCanasta: false,
+    initialMeldMayUsePileCards: false,
+    forcedPickupAfterStockExhaust: true,
+    requireDiscardToGoOut: true,
+  };
+}
+
+/**
  * Draw-and-promote helper. Used during initial deal and regular draws so red 3s
  * are auto-placed in front of the drawer's side and a replacement drawn.
  */
@@ -263,7 +297,8 @@ export type CanastaPickupErrorCode =
   | 'WOULD_CONVERT_NATURAL_CANASTA'
   | 'INITIAL_MELD_NOT_MET'
   | 'WOULD_LEAVE_UNDISCHARGEABLE_HAND'
-  | 'MERGED_MELD_INVALID';
+  | 'MERGED_MELD_INVALID'
+  | 'STOCK_EXHAUSTED_MUST_TAKE_PILE';
 
 export class CanastaPickupError extends Error {
   public readonly code: CanastaPickupErrorCode;
@@ -418,6 +453,34 @@ function meldNaturalPoints(cards: Card[]): number {
  * violate wild limits — exceedingly unlikely because the frozen path
  * always produces an all-natural new meld, but enforced for defence.
  */
+/**
+ * True when the current player's side could legally extend an existing open
+ * meld using the top card of the discard pile. Used for spec E8 forced-
+ * pickup-after-stock-exhaust: the player is required to take the pile if
+ * this returns true while the stock is empty.
+ *
+ * Conservative: we only confirm an unambiguous forced extension. A pickup
+ * that would require hand cards is NOT considered forced — the player can
+ * always choose to try a frozen take or a natural-pair pickup, but the
+ * engine can't know those are available without simulating every combo.
+ */
+function canForceExtendPile(pd: CanastaPublicData, side: string): boolean {
+  const top = pd.discardTop;
+  if (!top) return false;
+  if (isBlackThree(top) || isWild(top) || isRedThree(top)) return false;
+  // Frozen pile can't be extended — the player would need two naturals from
+  // hand to form a new meld, which is not a "forced" obligation.
+  if (pd.discardFrozen) return false;
+  if (!pd.initialMeldDone[side]) return false;
+  const melds = pd.melds[side] ?? [];
+  const target = melds.find((m) => !m.blackThrees && m.rank === top.rank);
+  if (!target) return false;
+  // Natural-canasta guard: if top is natural, extension is fine. If top is
+  // natural but the target is a natural canasta, adding a natural keeps it
+  // natural — still fine. No wild involved when forcing via top card alone.
+  return true;
+}
+
 function mergeSameRankMelds(melds: CanastaMeld[], rank: string): CanastaMeld[] {
   const sameRank = melds.filter((m) => !m.blackThrees && m.rank === rank);
   if (sameRank.length <= 1) return melds;
@@ -535,6 +598,7 @@ export class CanastaEngine implements IGameEngine {
       scoresPriorHand,
       goOutRequirement: goOutReq(variant),
       drawCount: drawCount(variant),
+      flags: defaultCanastaFlags(),
       dealerIndex: 0,
       log: [],
     };
@@ -606,6 +670,23 @@ export class CanastaEngine implements IGameEngine {
   private handleDraw(state: GameState, playerId: string, pd: CanastaPublicData): GameState {
     if (pd.gamePhase !== 'draw') throw new Error('Already drew this turn');
     const side = sideOf(pd.variant, state.players.map((p) => p.playerId), playerId);
+
+    // Stock-exhaust forced-pickup (spec E8). Before attempting the draw,
+    // check whether the stock is already empty. If it is AND the current
+    // player can legally extend an existing meld with the top discard, they
+    // MUST take the pile per the flag; the round does not end yet. If they
+    // cannot extend, the hand ends as before.
+    if (
+      pd.drawPile.length === 0 &&
+      pd.flags.forcedPickupAfterStockExhaust &&
+      canForceExtendPile(pd, side)
+    ) {
+      throw new CanastaPickupError(
+        'STOCK_EXHAUSTED_MUST_TAKE_PILE',
+        'Stock is empty and you can extend a meld with the top card — you must take the pile',
+      );
+    }
+
     let pile = [...pd.drawPile];
     let reds = { ...pd.redThrees };
     const addedToHand: Card[] = [];
@@ -701,6 +782,20 @@ export class CanastaEngine implements IGameEngine {
       : undefined;
 
     if (extensionTarget) {
+      // Natural-canasta guard: adding a wild to a completed natural canasta
+      // converts it to "mixed", which most rule sets forbid. Gated by the
+      // allow_converting_natural_canasta flag (default false).
+      if (
+        !pd.flags.allowConvertingNaturalCanasta &&
+        extensionTarget.isCanasta &&
+        extensionTarget.canastaType === 'natural' &&
+        [top, ...handSelected].some(isWild)
+      ) {
+        throw new CanastaPickupError(
+          'WOULD_CONVERT_NATURAL_CANASTA',
+          'Cannot add a wild to a natural canasta (would convert to mixed)',
+        );
+      }
       // Extending an existing meld \u2014 top + useIds may be any legal combo.
       const check = validateMeldExtension(extensionTarget, [top, ...handSelected]);
       if (!check.ok) {
@@ -793,6 +888,11 @@ export class CanastaEngine implements IGameEngine {
     let handAfter = [...newHand];
     if (!pd.initialMeldDone[side]) {
       const additional = (action.payload?.melds as string[][] | undefined) ?? [];
+      // Pile-card ids — cards just acquired from under the top of the discard
+      // pile. In default rules (initialMeldMayUsePileCards=false) those cards
+      // can still be MELDED (they're in hand now) but do NOT count toward the
+      // initial-meld point threshold. Track so we can exclude them below.
+      const pileCardIds = new Set(pileCards.map((c) => c.id));
       let extraPoints = 0;
       for (const group of additional) {
         const cs = handAfter.filter((c) => group.includes(c.id));
@@ -804,7 +904,10 @@ export class CanastaEngine implements IGameEngine {
             `Extra meld invalid: ${check.error}`,
           );
         }
-        extraPoints += meldNaturalPoints(cs);
+        const countableCards = pd.flags.initialMeldMayUsePileCards
+          ? cs
+          : cs.filter((c) => !pileCardIds.has(c.id));
+        extraPoints += meldNaturalPoints(countableCards);
         handAfter = handAfter.filter((c) => !group.includes(c.id));
         newMelds[side] = [...newMelds[side]!, meldFromCards(cs, check as MeldCheckOk)];
       }
@@ -891,6 +994,19 @@ export class CanastaEngine implements IGameEngine {
       if (group.extend) {
         const target = newMeldsForSide.find((m) => m.rank === group.extend && !m.blackThrees);
         if (!target) throw new Error(`No existing meld of rank ${group.extend} to extend`);
+        // Natural-canasta guard mirrors the pickup path — forbids wild-to-
+        // natural-canasta conversion unless the flag is explicitly enabled.
+        if (
+          !pd.flags.allowConvertingNaturalCanasta &&
+          target.isCanasta &&
+          target.canastaType === 'natural' &&
+          cs.some(isWild)
+        ) {
+          throw new CanastaPickupError(
+            'WOULD_CONVERT_NATURAL_CANASTA',
+            'Cannot add a wild to a natural canasta (would convert to mixed)',
+          );
+        }
         const check = validateMeldExtension(target, cs);
         if (!check.ok) throw new Error(`Extension invalid: ${check.error}`);
         const updated = extendMeld(target, cs, check as MeldCheckOk);

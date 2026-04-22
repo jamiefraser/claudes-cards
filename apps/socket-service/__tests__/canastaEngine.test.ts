@@ -1140,6 +1140,296 @@ describe('CanastaEngine — undischargeable-hand guard', () => {
 // Pickup — atomicity: rejection at any point leaves state byte-identical
 // ===========================================================================
 
+// ===========================================================================
+// Batch 2 — variant flags, natural-canasta guard, initial-meld pile-cards,
+// forced pickup after stock exhaust.
+// ===========================================================================
+
+describe('CanastaEngine — default variant flags', () => {
+  const engine = new CanastaEngine();
+
+  it('startGame exposes the Hoyle defaults on publicData', () => {
+    const state = engine.startGame(makeConfig(4));
+    const flags = pd(state).flags;
+    expect(flags.allowConvertingNaturalCanasta).toBe(false);
+    expect(flags.initialMeldMayUsePileCards).toBe(false);
+    expect(flags.forcedPickupAfterStockExhaust).toBe(true);
+    expect(flags.requireDiscardToGoOut).toBe(true);
+  });
+});
+
+describe('CanastaEngine — WOULD_CONVERT_NATURAL_CANASTA guard', () => {
+  const engine = new CanastaEngine();
+
+  function buildStateWithNaturalCanasta(): { state: GameState; pid: string } {
+    // Side A has a 7-card all-natural K canasta. Pile top is a K with a wild
+    // buried under it — picking it up with the natural K extends the
+    // canasta, but if the handSelected brings wilds along, we convert it.
+    const naturalCanasta: CanastaMeld = {
+      rank: 'K',
+      cards: [
+        c('e1','K','hearts'), c('e2','K','spades'), c('e3','K','clubs'),
+        c('e4','K','diamonds'), c('e5','K','hearts'), c('e6','K','spades'),
+        c('e7','K','clubs'),
+      ],
+      naturals: 7,
+      wilds: 0,
+      isCanasta: true,
+      canastaType: 'natural',
+    };
+    const start = engine.startGame(makeConfig(4));
+    const pid = 'p1';
+    const hand = [c('w1','2','clubs'), c('bye','9','hearts'), c('bye2','5','hearts')];
+    const state0 = seedHand(start, pid, hand);
+    const pd0 = pd(state0);
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      discardPile: [c('pc1','5','hearts'), c('top','K','diamonds')],
+      discardTop: c('top','K','diamonds'),
+      discardFrozen: false,
+      initialMeldDone: { A: true, B: false },
+      initialMeldDoneAtTurnStart: { A: true, B: false },
+      melds: { A: [naturalCanasta], B: [] },
+    };
+    return {
+      pid,
+      state: {
+        ...state0,
+        currentTurn: pid,
+        publicData: cleaned as unknown as Record<string, unknown>,
+      },
+    };
+  }
+
+  it('pickup extension that would add a wild to a natural canasta rejects with WOULD_CONVERT_NATURAL_CANASTA', () => {
+    const { state, pid } = buildStateWithNaturalCanasta();
+    expect(expectPickupCode(() =>
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: { useCardIds: ['w1'] },
+      }),
+    )).toBe('WOULD_CONVERT_NATURAL_CANASTA');
+  });
+
+  it('pickup extension with only naturals succeeds (no conversion)', () => {
+    const { state, pid } = buildStateWithNaturalCanasta();
+    // Use no hand cards — just the top K natural extends the canasta.
+    const after = engine.applyAction(state, pid, {
+      type: 'take-discard',
+      payload: { useCardIds: [] },
+    });
+    const meld = pd(after).melds.A![0]!;
+    expect(meld.naturals).toBe(8);
+    expect(meld.wilds).toBe(0);
+    expect(meld.canastaType).toBe('natural');
+  });
+
+  it('flag=true allows the conversion', () => {
+    const { state, pid } = buildStateWithNaturalCanasta();
+    const enabled: GameState = {
+      ...state,
+      publicData: {
+        ...(state.publicData as Record<string, unknown>),
+        flags: {
+          ...pd(state).flags,
+          allowConvertingNaturalCanasta: true,
+        },
+      } as Record<string, unknown>,
+    };
+    const after = engine.applyAction(enabled, pid, {
+      type: 'take-discard',
+      payload: { useCardIds: ['w1'] },
+    });
+    const meld = pd(after).melds.A![0]!;
+    expect(meld.wilds).toBe(1);
+    expect(meld.canastaType).toBe('mixed');
+  });
+
+  it('handleMeld extension also rejects wild-on-natural-canasta by default', () => {
+    const { state, pid } = buildStateWithNaturalCanasta();
+    // Switch to meld-discard phase (post-draw) so handleMeld is legal.
+    const melding: GameState = {
+      ...state,
+      publicData: {
+        ...(state.publicData as Record<string, unknown>),
+        gamePhase: 'meld-discard',
+      } as Record<string, unknown>,
+    };
+    expect(() =>
+      engine.applyAction(melding, pid, {
+        type: 'meld',
+        payload: { melds: [{ cardIds: ['w1'], extend: 'K' }] },
+      }),
+    ).toThrow(/natural canasta/i);
+  });
+});
+
+describe('CanastaEngine — initialMeldMayUsePileCards flag', () => {
+  const engine = new CanastaEngine();
+
+  function buildInitialMeldScenario(flagValue: boolean): { state: GameState; pid: string } {
+    // Side A's initial-meld threshold is 50 (prior score = 0). Player takes
+    // a K-pile with 2 K naturals → top meld = 3 Ks = 30 pts. Insufficient on
+    // its own. They also declare an extra meld from hand+pile: the pile
+    // buries a single 9 which, combined with two 9s from hand, forms a
+    // second meld of 3 nines = 30 pts. With pile cards counted → 60 >= 50 OK.
+    // Without pile cards → only the hand-original naturals count → we
+    // contribute only 20 (2 × 9 nat) from the extra meld, so 30+20=50 OK too.
+    // Rework: to actually demonstrate the flag's effect, we need an extra
+    // meld where EXCLUDING the pile cards drops us BELOW threshold.
+    // Set prior score to 1,500 so threshold = 90. Top K meld = 30 + extra
+    // meld of 2 hand 9s + 1 pile 9 = 30 → total 60 if pile card counts,
+    // 50 if not. With flag false → fails threshold; with flag true → passes.
+    const start = engine.startGame(makeConfig(4));
+    const pid = 'p1';
+    const hand = [
+      c('h1','K','hearts'), c('h2','K','spades'),   // for top K
+      c('n1','9','hearts'), c('n2','9','spades'),   // for extra meld
+      c('keep','4','hearts'),                       // leftover → post-pickup hand non-empty
+    ];
+    const state0 = seedHand(start, pid, hand);
+    const pd0 = pd(state0);
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      // Pile: 9 clubs BELOW the top K.
+      discardPile: [c('pc1','9','clubs'), c('top','K','diamonds')],
+      discardTop: c('top','K','diamonds'),
+      discardFrozen: true,
+      scoresPriorHand: { ...pd0.scoresPriorHand, A: 1500 }, // threshold 90
+      initialMeldDone: { A: false, B: false },
+      initialMeldDoneAtTurnStart: { A: false, B: false },
+      melds: { A: [], B: [] },
+      flags: { ...pd0.flags, initialMeldMayUsePileCards: flagValue },
+    };
+    return {
+      pid,
+      state: {
+        ...state0,
+        currentTurn: pid,
+        publicData: cleaned as unknown as Record<string, unknown>,
+      },
+    };
+  }
+
+  // Point accounting:
+  //   top K (10) + h1 K (10) + h2 K (10) = 30 pts (initialMeldPoints)
+  //   extra meld [n1, n2, pc1] = three 9s @ 10 each = 30 pts gross
+  //   - flag=false → only hand-original (n1,n2) count → 20 extra pts → 50 total
+  //   - flag=true  → all three cards count            → 30 extra pts → 60 total
+  // Threshold is 90 (prior score 1500). Both paths still fail the threshold,
+  // so we assert on the specific point total that got computed — that's
+  // what demonstrates the flag flipping the math.
+
+  it('default flag (false): pile cards do NOT count toward the threshold', () => {
+    const { state, pid } = buildInitialMeldScenario(false);
+    try {
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: {
+          useCardIds: ['h1', 'h2'],
+          melds: [['n1', 'n2', 'pc1']],
+        },
+      });
+      throw new Error('expected engine to throw INITIAL_MELD_NOT_MET');
+    } catch (err) {
+      if (!(err instanceof CanastaPickupError)) throw err;
+      expect(err.code).toBe('INITIAL_MELD_NOT_MET');
+      // 30 (top meld) + 20 (hand-only portion of extra meld) = 50.
+      expect(err.message).toContain('50');
+    }
+  });
+
+  it('flag=true: pile cards DO count toward the threshold', () => {
+    const { state, pid } = buildInitialMeldScenario(true);
+    try {
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: {
+          useCardIds: ['h1', 'h2'],
+          melds: [['n1', 'n2', 'pc1']],
+        },
+      });
+      throw new Error('expected engine to throw INITIAL_MELD_NOT_MET');
+    } catch (err) {
+      if (!(err instanceof CanastaPickupError)) throw err;
+      expect(err.code).toBe('INITIAL_MELD_NOT_MET');
+      // 30 (top meld) + 30 (full extra meld incl. pile card) = 60.
+      expect(err.message).toContain('60');
+    }
+  });
+});
+
+describe('CanastaEngine — forced pickup after stock exhaust', () => {
+  const engine = new CanastaEngine();
+
+  function buildStockEmptyState(opts: {
+    canExtend: boolean;
+  }): { state: GameState; pid: string } {
+    const existing: CanastaMeld | null = opts.canExtend
+      ? {
+          rank: 'K',
+          cards: [c('e1','K','hearts'), c('e2','K','spades'), c('e3','K','clubs')],
+          naturals: 3,
+          wilds: 0,
+          isCanasta: false,
+        }
+      : null;
+    const start = engine.startGame(makeConfig(4));
+    const pid = 'p1';
+    const state0 = seedHand(start, pid, [c('h1','9','hearts'), c('h2','9','spades')]);
+    const pd0 = pd(state0);
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      drawPile: [],
+      drawPileSize: 0,
+      discardPile: [c('top','K','diamonds')],
+      discardTop: c('top','K','diamonds'),
+      discardFrozen: false,
+      initialMeldDone: { A: true, B: false },
+      initialMeldDoneAtTurnStart: { A: true, B: false },
+      melds: { A: existing ? [existing] : [], B: [] },
+    };
+    return {
+      pid,
+      state: {
+        ...state0,
+        currentTurn: pid,
+        publicData: cleaned as unknown as Record<string, unknown>,
+      },
+    };
+  }
+
+  it('when stock is empty and an extension is available, handleDraw throws STOCK_EXHAUSTED_MUST_TAKE_PILE', () => {
+    const { state, pid } = buildStockEmptyState({ canExtend: true });
+    expect(expectPickupCode(() =>
+      engine.applyAction(state, pid, { type: 'draw' }),
+    )).toBe('STOCK_EXHAUSTED_MUST_TAKE_PILE');
+  });
+
+  it('when stock is empty and no extension is possible, handleDraw ends the hand (no forced pickup)', () => {
+    const { state, pid } = buildStockEmptyState({ canExtend: false });
+    const after = engine.applyAction(state, pid, { type: 'draw' });
+    // endHand re-deals a new hand when the game isn't over, so roundNumber
+    // increments; phase stays 'playing' unless cumulative score crosses 5000.
+    expect(after.roundNumber).toBe(state.roundNumber + 1);
+  });
+
+  it('flag=false disables the forced-pickup behaviour even when extension is possible', () => {
+    const { state, pid } = buildStockEmptyState({ canExtend: true });
+    const disabled: GameState = {
+      ...state,
+      publicData: {
+        ...(state.publicData as Record<string, unknown>),
+        flags: { ...pd(state).flags, forcedPickupAfterStockExhaust: false },
+      } as Record<string, unknown>,
+    };
+    // With the flag off, the draw attempt proceeds → stock empty →
+    // endHand fires (existing behaviour), rolling to the next deal.
+    const after = engine.applyAction(disabled, pid, { type: 'draw' });
+    expect(after.roundNumber).toBe(state.roundNumber + 1);
+  });
+});
+
 describe('CanastaEngine — pickup atomicity', () => {
   const engine = new CanastaEngine();
 

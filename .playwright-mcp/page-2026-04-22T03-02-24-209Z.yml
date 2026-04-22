@@ -1,0 +1,7 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e4]:
+      - text: "0"
+      - generic [ref=e5]: 👁️ 0
+    - paragraph [ref=e8]: Loading...
+  - paragraph [ref=e13]: Loading...

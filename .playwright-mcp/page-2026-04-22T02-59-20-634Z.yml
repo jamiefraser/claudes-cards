@@ -1,0 +1,260 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - navigation [ref=e4]:
+        - generic [ref=e5]:
+          - link "Home" [ref=e6] [cursor=pointer]:
+            - /url: /
+          - link "Nertz" [ref=e11] [cursor=pointer]:
+            - /url: /nertz/
+          - link "Spades" [ref=e12] [cursor=pointer]:
+            - /url: /spades/
+          - link "Gin Rummy" [ref=e13] [cursor=pointer]:
+            - /url: /ginrummy/
+          - link "Solitaire" [ref=e14] [cursor=pointer]:
+            - /url: /solitaire/
+          - link "Cribbage" [ref=e15] [cursor=pointer]:
+            - /url: /cribbage/
+          - link "Speed" [ref=e16] [cursor=pointer]:
+            - /url: /speed/
+          - link "Minesweeper" [ref=e17] [cursor=pointer]:
+            - /url: /minesweeper/
+          - link "Hearts" [ref=e18] [cursor=pointer]:
+            - /url: /hearts/
+        - generic "Full Screen" [ref=e20] [cursor=pointer]:
+          - img "Full Screen" [ref=e21]
+    - iframe [ref=e23]:
+      - paragraph [ref=f1e7]: Loading...
+  - main [ref=e24]:
+    - heading "Cribbage JD" [level=1] [ref=e26]
+    - paragraph [ref=e28]:
+      - text: Play live cribbage tournaments online at
+      - link "tournamentjd.com" [ref=e29] [cursor=pointer]:
+        - /url: https://tournamentjd.com
+      - text: with human hosts.
+    - generic [ref=e30]:
+      - paragraph [ref=e31]: Download the Cribbage app on your mobile device from the app store.
+      - link "iTunes App Download" [ref=e32] [cursor=pointer]:
+        - /url: https://itunes.apple.com/app/cribbage-the-card-game-crib/id1362318446
+        - img "iTunes App Download" [ref=e33]
+      - link "Google Play Download" [ref=e34] [cursor=pointer]:
+        - /url: https://play.google.com/store/apps/details?id=com.jdsoftwarellc.cribbage
+        - img "Google Play Download" [ref=e35]
+      - link "Facebook Cribbage" [ref=e36] [cursor=pointer]:
+        - /url: https://fb.gg/play/jimmy-cribbage
+        - img "Facebook Cribbage" [ref=e37]
+      - link "Windows Desktop Download" [ref=e38] [cursor=pointer]:
+        - /url: https://www.microsoft.com/store/apps/9ntj99b0pblj
+        - img "Windows Desktop Download" [ref=e39]
+    - generic [ref=e40]:
+      - paragraph [ref=e41]: "Play the classic card game Cribbage Online. Also known as Crib, Cribble, and Noddy. Play Cribbage online against your friends. A multiplayer card game traditionally for two players, that involves playing and grouping cards in combinations which gain points. Cribbage has several distinctive features: the cribbage board used for score keeping, the crib, box, or kitty, a separate hand counting for the dealer, two distinct scoring stages (the play and the show), aces low, and a unique scoring system including points for groups of cards that total fifteen. Cribbage is a Trump style Card game for free."
+      - paragraph [ref=e42]: This free Cribbage app lets you play the classic card game Cribage Online anywhere without needing your wooden Cribbage pegging board. The playing cards are large so Grandpa will have no trouble playing his favorite board game. All the scoring is automatic using the built-in Cribbage calculator including a breakdown of the point details.
+      - heading "Scoring" [level=2] [ref=e43]
+      - list [ref=e44]:
+        - listitem [ref=e45]:
+          - img "Cribbage Scoring Calculator" [ref=e46]
+          - link "Cribbage Scoring Calculator" [ref=e47] [cursor=pointer]:
+            - /url: https://cribbagecalculator.com
+        - listitem [ref=e48]:
+          - text: How to play Cribbage Rules
+          - link "www.pagat.com" [ref=e49] [cursor=pointer]:
+            - /url: https://www.pagat.com/adders/crib6.html
+      - heading "Tournaments & Clubs" [level=2] [ref=e50]
+      - list [ref=e51]:
+        - listitem [ref=e52]:
+          - img "Cribbage tournament online" [ref=e53]
+          - text: Play live cribbage tournaments online at
+          - link "tournamentjd.com" [ref=e54] [cursor=pointer]:
+            - /url: https://tournamentjd.com
+        - listitem [ref=e55]:
+          - text: Find local cribbage clubs at
+          - link "American Cribbage Congress" [ref=e56] [cursor=pointer]:
+            - /url: https://www.cribbage.org/
+      - heading "Strategy" [level=2] [ref=e57]
+      - list [ref=e58]:
+        - listitem [ref=e59]:
+          - link "How Do I Account for Jacks in Cribbage?" [ref=e60] [cursor=pointer]:
+            - /url: ../cribbage-strategy/jacksincribbage.html#howaccountjacks
+        - listitem [ref=e61]:
+          - link "How Does a Jack Compare to Other Face Cards?" [ref=e62] [cursor=pointer]:
+            - /url: ../cribbage-strategy/jacksincribbage.html#howcomparejack
+        - listitem [ref=e63]:
+          - link "When Should I Discard a Jack to an Opponent’s Crib?" [ref=e64] [cursor=pointer]:
+            - /url: ../cribbage-strategy/jacksincribbage.html#whendiscardjack
+        - listitem [ref=e65]:
+          - link "Should I Put a Jack in My Own Crib?" [ref=e66] [cursor=pointer]:
+            - /url: ../cribbage-strategy/jacksincribbage.html#whenjackowncrib
+        - listitem [ref=e67]:
+          - link "What About a Cut Jack?" [ref=e68] [cursor=pointer]:
+            - /url: ../cribbage-strategy/jacksincribbage.html#jackcut
+        - listitem [ref=e69]:
+          - link "How Do You Count So Fast in Cribbage?" [ref=e70] [cursor=pointer]:
+            - /url: ../cribbage-strategy/quickcountingcribbage.html#HowDoYouCountSoFastinCribbage
+        - listitem [ref=e71]:
+          - link "How Many Ways Can You Make 15?" [ref=e72] [cursor=pointer]:
+            - /url: ../cribbage-strategy/quickcountingcribbage.html#HowManyWaysCanYouMake15
+        - listitem [ref=e73]:
+          - link "What Shortcuts Can I Use to Count Complex Runs?" [ref=e74] [cursor=pointer]:
+            - /url: ../cribbage-strategy/quickcountingcribbage.html#WhatShortcutsCanIUsetoCountComplexRuns
+        - listitem [ref=e75]:
+          - text: "Cribbage Strategy:"
+          - link "21 Cribbage Strategy Tips" [ref=e76] [cursor=pointer]:
+            - /url: https://huddlearoundgames.com/cribbage-strategy/
+        - listitem [ref=e77]:
+          - link "How Can I Use Shortcuts to Count Many 15s and Pairs?" [ref=e78] [cursor=pointer]:
+            - /url: ../cribbage-strategy/quickcountingcribbage-part-2.html#how-count-many-15-and-pairs
+        - listitem [ref=e79]:
+          - link "Is There a Rule of Thumb I Can Use?" [ref=e80] [cursor=pointer]:
+            - /url: ../cribbage-strategy/quickcountingcribbage-part-2.html#rule-of-thumb-cribbage
+        - listitem [ref=e81]:
+          - link "How Do I Quick-Count the Top-Scoring Hands in Cribbage?" [ref=e82] [cursor=pointer]:
+            - /url: ../cribbage-strategy/quickcountingcribbage-part-3.html#how-do-i-quick-count-top-scoring-hands-in-cribbage
+        - listitem [ref=e83]:
+          - link "How Can I Quick-Count Monster Combos in Cribbage?" [ref=e84] [cursor=pointer]:
+            - /url: ../cribbage-strategy/quickcountingcribbage-part-3.html#quick-count-monster-combos-cribbage
+        - listitem [ref=e85]:
+          - link "Quick Counting in Cribbage - Part 1" [ref=e86] [cursor=pointer]:
+            - /url: ../cribbage-strategy/quickcountingcribbage.html
+        - listitem [ref=e87]:
+          - link "Quick Counting in Cribbage - Part 2" [ref=e88] [cursor=pointer]:
+            - /url: ../cribbage-strategy/quickcountingcribbage-part-2.html
+        - listitem [ref=e89]:
+          - link "Quick Counting in Cribbage - Part 3" [ref=e90] [cursor=pointer]:
+            - /url: ../cribbage-strategy/quickcountingcribbage-part-3.html
+        - listitem [ref=e91]:
+          - link "In What Order Should I Count My Hand Points in Cribbage?" [ref=e92] [cursor=pointer]:
+            - /url: ../cribbage-strategy/howdoicountmyhandincribbage.html#howdoicountmyhandincribbage
+        - listitem [ref=e93]:
+          - link "Why Does Cribbage Use Two Pegs?" [ref=e94] [cursor=pointer]:
+            - /url: ../cribbage-strategy/howdoicountmyhandincribbage.html#whydoescribbageusetwopegs
+        - listitem [ref=e95]:
+          - link "How Do I Use the Two Pegs to Keep Score?" [ref=e96] [cursor=pointer]:
+            - /url: ../cribbage-strategy/howdoicountmyhandincribbage.html#howdoiusethetwopegstokeepscore
+        - listitem [ref=e97]:
+          - link "What is the Third Peg in Cribbage used for?" [ref=e98] [cursor=pointer]:
+            - /url: ../cribbage-strategy/howdoicountmyhandincribbage.html#whataboutthethirdpeg
+        - listitem [ref=e99]:
+          - link "How Many Different Hands Are there in Cribbage?" [ref=e100] [cursor=pointer]:
+            - /url: ../cribbage-strategy/howmanydifferenthandsarethereincribbage.html#HowManyDifferentHandsArethereinCribbage
+        - listitem [ref=e101]:
+          - link "What Are the Most Common and Least Common Hand Scores?" [ref=e102] [cursor=pointer]:
+            - /url: ../cribbage-strategy/howmanydifferenthandsarethereincribbage.html#WhatAretheMostCommonandLeastCommonHandScores
+        - listitem [ref=e103]:
+          - link "How Can I Figure Out My Odds of Improving?" [ref=e104] [cursor=pointer]:
+            - /url: ../cribbage-strategy/howmanydifferenthandsarethereincribbage.html#HowCanIFigureOutMyOddsofImproving
+        - listitem [ref=e105]:
+          - link "Is There An Easy Way to Find My Expected Score?" [ref=e106] [cursor=pointer]:
+            - /url: ../cribbage-strategy/howmanydifferenthandsarethereincribbage.html#IsThereAnEasyWaytoFindMyExpectedScore
+        - listitem [ref=e107]:
+          - link "What Are the Chances of Getting Certain Scores in Cribbage?" [ref=e108] [cursor=pointer]:
+            - /url: ../cribbage-strategy/chancesofgettingcertainscoreincribbage.html#What-Are-the-Chances-of-Getting-Certain-Scores-in-Cribbage
+        - listitem [ref=e109]:
+          - link "Which Cribbage Scores Are Rare?" [ref=e110] [cursor=pointer]:
+            - /url: ../cribbage-strategy/chancesofgettingcertainscoreincribbage.html#which-cribbage-scores-are-rare
+        - listitem [ref=e111]:
+          - link "What Are the Chances of What Are the Rarest Scores in Cribbage?" [ref=e112] [cursor=pointer]:
+            - /url: ../cribbage-strategy/chancesofgettingcertainscoreincribbage.html#what-are-the-rarest-scores-in-cribbage
+      - separator [ref=e113]
+      - heading "FAQ" [level=2] [ref=e114]
+      - generic [ref=e115]:
+        - heading "Where do you play Cribbage online?" [level=3] [ref=e116]
+        - paragraph [ref=e117]:
+          - text: You can play Cribbage online at
+          - link "cardsjd.com/cribbage/" [ref=e118] [cursor=pointer]:
+            - /url: https://cardsjd.com/cribbage/
+          - text: . Play using via desktop,iPhone, Android, Facebook, Windows, or web browser.
+      - generic [ref=e119]:
+        - heading "Where to download the Cribbage app?" [level=3] [ref=e120]
+        - paragraph [ref=e121]:
+          - text: You can download the
+          - link "Cribbage app for Android in the google play store" [ref=e122] [cursor=pointer]:
+            - /url: https://play.google.com/store/apps/details?id=com.jdsoftwarellc.cribbage
+          - text: and for
+          - link "Cribbage app for iPhone and iPad in the Apple App Store" [ref=e123] [cursor=pointer]:
+            - /url: https://itunes.apple.com/app/cribbage-the-card-game-crib/id1362318446
+          - text: and for
+          - link "Cribbage desktop for Windows in the Microsoft Store" [ref=e124] [cursor=pointer]:
+            - /url: https://www.microsoft.com/store/apps/9ntj99b0pblj
+          - text: . The app version for Cribbage allows you to play at any time without needing a connection to the internet.
+      - generic [ref=e125]:
+        - heading "How do you play a friend?" [level=3] [ref=e126]
+        - paragraph [ref=e127]: "To play a friend do one of the following:"
+        - list [ref=e128]:
+          - listitem [ref=e129]: The best way is to add them by their Invite Code / cribbage ID (not username). You can find your Invite Code / cribbage ID by clicking on your profile, or going to the online game and it will be in the upper right hand corner. Then go to Online->Play a Friend-> Invite Code
+          - listitem [ref=e130]: You can also invite them by email granted they entered their email into their Cribbage profile settings.
+          - listitem [ref=e131]: You can also invite them via Facebook invite if you both are friends and using the Facebook version.
+          - listitem [ref=e132]: You can also just create a private room and both join it.
+          - listitem [ref=e133]: You can also add a friend while playing someone by clicking on the "+Friends" button in game.
+        - paragraph [ref=e134]: You both need to friend each other, so exchange IDs so you both can invite each other. Inviting by ID will also allow you send notification invites to each other while offline.
+      - generic [ref=e135]:
+        - heading "Why is it called Cribbage?" [level=3] [ref=e136]
+        - paragraph [ref=e137]: In the 1600s Cribbage was invented by Sir John Suckling. Cribbage is a derived from the game “noddy”.
+      - generic [ref=e138]:
+        - heading "In what order should you count you hand in Cribbage?" [level=3] [ref=e139]
+        - paragraph [ref=e140]: "Scoring your cribbage hand in the follow order is the most common: 15s, runs, pairs, flushes, and nobs."
+      - generic [ref=e141]:
+        - heading "What is best hand in cribbage?" [level=3] [ref=e142]
+        - paragraph [ref=e143]: Cribbage is a combination of luck and skill. Luck can be managed by creating hands that are statistically highest on average. Over many rounds and games well played hands will come out ahead. The pegging stage of Cribbage is highly based on skill. The player has more control over the hand after discarding two cards of their choice. During pegging, both players try to anticipate the other players’ action making this stage highly based on skill.
+      - generic [ref=e144]:
+        - heading "What is a double pair royal?" [level=3] [ref=e145]
+        - paragraph [ref=e146]: A “Double Royal Pair” is a hand with four cards with the same denomination. Four 5s is a Double Royal Pair. The Double Royal Pair worth 12 points by itself and has the possibility of scoring many more points if the 5th card combines well, such as a 10 valued card.
+      - generic [ref=e147]:
+        - heading "How do you play cribbage for beginners?" [level=3] [ref=e148]
+        - paragraph [ref=e149]: To learn Cribbage there can be a learning curve. The best way to learn is to find an experience player that can walk you through the game. There are many online videos do a good job of explain the game. Playing a computer version of Cribbage can do an excellent job teaching a new player how to play. Some contain tutorial and hints to explain each step. If you are learning from a computer version, be sure to learn to count the cards by hand. Many computer versions will do this for you. If you do not learn how to count the cards by hand you will never be able to advance your skill as a player.
+      - generic [ref=e150]:
+        - heading "Is learning cribbage hard?" [level=3] [ref=e151]
+        - paragraph [ref=e152]: There is a learning curve to cribbage. The game consists of 2 main phases with different rules. Learning the rules of Cribbage can be learned in a few hours. Learning to win against a well-seasoned player can take years.
+      - generic [ref=e153]:
+        - heading "Why are there 3 pegs in Cribbage?" [level=3] [ref=e154]
+        - paragraph [ref=e155]: Each colored Cribbage peg set represents a player. Two pegs track the match score. They leapfrog over each other indicating the current score and last noted score. This helps the players see at a glance the amount of awarded point. The third peg is used to indicate the number of wins of a series of games.
+      - generic [ref=e156]:
+        - heading "Is Queen King Jack a run in Cribbage?" [level=3] [ref=e157]
+        - paragraph [ref=e158]: Yes. When pegging, card do not need to be in order to create a sequence as long as there is no gap between the cards breaking the sequence.
+      - generic [ref=e159]:
+        - heading "Does Nobs count in the crib?" [level=3] [ref=e160]
+        - paragraph [ref=e161]: “Nobs”, also know as “His Nobs”, is a Jack of any suit in the hand or the Crib. If the Jack is the same suit as the Starter Card the player counts one point for his nobs.
+      - generic [ref=e162]:
+        - heading "What does two for his heels mean in Cribbage?" [level=3] [ref=e163]
+        - paragraph [ref=e164]: “His Heels, or Nibs is a Jack as the Starter Card and counts for 2 points. Only the deal receives the 2 points. “His Heels” can win the player the game if they require only 2 more points to win.
+      - generic [ref=e165]:
+        - heading "Is Ace 2 3 a run in Cribbage?" [level=3] [ref=e166]
+        - paragraph [ref=e167]: Yes. An Ace represents a one for a straight of 1,2,3 for 3 points
+      - generic [ref=e168]:
+        - heading "Is Ace high or low in Cribbage?" [level=3] [ref=e169]
+        - paragraph [ref=e170]: Aces are low and represent the number 1 when creating a straight.
+      - generic [ref=e171]:
+        - heading "What happened to Yahoo Cribbage?" [level=3] [ref=e172]
+        - paragraph [ref=e173]: Yahoo Games offered a popular version of the card game Cribbage. This version featured a robust online play mode with live players. Yahoo Games was shut down in 2016. The Yahoo Cribbage game was not available after that time.
+      - generic [ref=e174]:
+        - heading "How is Cribbage related to submarines?" [level=3] [ref=e175]
+        - paragraph [ref=e176]: American submariners commonly used Cribbage as a pastime. In the United States Pacific Fleet, the oldest active submarine wardroom carries on board the personal Cribbage board of WWII Rear Admiral Dick O’Kane. The board is moved to the next oldest boat when a boat is decommissioned.
+      - heading "Screenshot" [level=2] [ref=e177]
+      - img "Cribbage the card game screen shot" [ref=e179]
+      - paragraph [ref=e180]:
+        - text: Cribbage JD was added to the list of the
+        - link "Free Offline Android Games" [ref=e181] [cursor=pointer]:
+          - /url: https://freeappsforme.com/free-offline-android-games-2020/
+    - heading "More Games" [level=2] [ref=e182]
+    - paragraph [ref=e183]:
+      - text: If you like Gin Rummy,
+      - link "Spades" [ref=e184] [cursor=pointer]:
+        - /url: ../spades/
+      - text: ", Euchre, Pinochle,"
+      - link "Nertz" [ref=e185] [cursor=pointer]:
+        - /url: ../nertz
+      - text: ","
+      - link "Speed" [ref=e186] [cursor=pointer]:
+        - /url: ../speed
+      - text: ", or"
+      - link "Solitaire" [ref=e187] [cursor=pointer]:
+        - /url: ../solitaire
+      - text: you will love Cribbage.
+  - contentinfo [ref=e188]:
+    - generic [ref=e189]:
+      - paragraph [ref=e190]:
+        - link "More games" [ref=e191] [cursor=pointer]:
+          - /url: /
+      - paragraph [ref=e192]: JD Software LLC
+      - paragraph [ref=e193]:
+        - link "cribbage@jdsoftwarellc.com" [ref=e194] [cursor=pointer]:
+          - /url: mailto:cribbage@jdsoftwarellc.com

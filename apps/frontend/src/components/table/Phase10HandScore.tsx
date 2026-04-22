@@ -12,7 +12,10 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { getGameSocket } from '@/hooks/useSocket';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { logger } from '@/utils/logger';
+import en from '@/i18n/en.json';
+import { formatScore, formatDelta } from '@/utils/formatScore';
 import type { GameActionPayload } from '@shared/socket';
 
 interface Phase10HandScoreProps {
@@ -73,12 +76,9 @@ export function Phase10HandScore({
     return () => document.removeEventListener('keydown', onKey);
   }, [haveIAcked, handleAck]);
 
-  // Auto-focus the primary button when the modal opens so keyboard users land
-  // on the ack target immediately.
+  // Focus trap — keeps Tab inside the modal and restores focus on close.
   const ackButtonRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!haveIAcked) ackButtonRef.current?.focus();
-  }, [haveIAcked]);
+  const trapRef = useFocusTrap<HTMLDivElement>(!haveIAcked, ackButtonRef);
 
   return createPortal(
     <div
@@ -92,6 +92,7 @@ export function Phase10HandScore({
         aria-hidden
       />
       <div
+        ref={trapRef}
         className={[
           'relative w-full max-w-lg',
           'bg-paper-raised border border-hairline/60 rounded-2xl shadow-float',
@@ -102,15 +103,15 @@ export function Phase10HandScore({
       >
         <div className="text-center mb-5">
           <p className="text-xs uppercase tracking-[0.25em] text-ochre/80">
-            Hand complete
+            {en.table.phase10HandComplete}
           </p>
           <h2
             id="phase10-hand-score-title"
             className="font-display text-2xl sm:text-3xl mt-1 text-ink text-balance"
           >
             {winner
-              ? `${winner.displayName} went out`
-              : 'Hand scored'}
+              ? en.table.phase10WentOut.replace('{name}', winner.displayName)
+              : en.table.phase10HandScored}
           </h2>
         </div>
 
@@ -143,7 +144,7 @@ export function Phase10HandScore({
                   </span>
                   {isWinner && (
                     <span className="text-[0.65rem] uppercase tracking-wider text-ochre px-1.5 py-0.5 rounded-full bg-ochre/15">
-                      Winner
+                      {en.table.phase10Winner}
                     </span>
                   )}
                   <span className="text-xs text-whisper flex-shrink-0">
@@ -159,13 +160,13 @@ export function Phase10HandScore({
                     ].join(' ')}
                     aria-label={`Points this hand: ${delta}`}
                   >
-                    {delta === 0 ? '±0' : `+${delta}`}
+                    {formatDelta(delta)}
                   </span>
                   <span className="font-display text-ochre tabular-nums text-lg">
-                    {p.score}
+                    {formatScore(p.score)}
                   </span>
                   <span className="text-[0.6rem] uppercase tracking-wider text-whisper">
-                    pts
+                    {en.table.phase10Pts}
                   </span>
                 </div>
               </li>
@@ -187,14 +188,16 @@ export function Phase10HandScore({
                 ].join(' ')}
               >
                 <span className="truncate inline-block max-w-full align-middle">
-                  Waiting for{' '}
-                  {waitingOnHumans.length > 0
-                    ? waitingOnHumans.map((p) => p.displayName).join(', ')
-                    : 'the next deal…'}
+                  {en.table.phase10WaitingFor.replace(
+                    '{names}',
+                    waitingOnHumans.length > 0
+                      ? waitingOnHumans.map((p) => p.displayName).join(', ')
+                      : en.table.phase10WaitingForNextDeal,
+                  )}
                 </span>
               </button>
               <p className="text-xs text-whisper text-center">
-                The next hand starts as soon as everyone&rsquo;s ready.
+                {en.table.phase10NextHandHint}
               </p>
             </>
           ) : (
@@ -212,7 +215,7 @@ export function Phase10HandScore({
                 'transition-[transform,box-shadow,filter] duration-150',
               ].join(' ')}
             >
-              Ready for next hand
+              {en.table.phase10ReadyForNextHand}
             </button>
           )}
         </div>

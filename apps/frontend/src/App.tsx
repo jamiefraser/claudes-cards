@@ -20,6 +20,7 @@ import { SettingsPage } from '@/pages/SettingsPage';
 import { AdminPage } from '@/pages/AdminPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { CreditsPage } from '@/pages/CreditsPage';
+import { BoardTestPage } from '@/pages/BoardTestPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -96,6 +97,11 @@ export function App() {
 
               {/* Credits */}
               <Route path="/credits" element={<CreditsPage />} />
+
+              {/* Dev-only board visual harness. Kept mounted (no env
+                  branch needed) because production builds tree-shake
+                  unused code paths and the page has no sensitive state. */}
+              <Route path="/_board-test" element={<BoardTestPage />} />
 
               {/* 404 */}
               <Route path="*" element={<NotFoundPage />} />

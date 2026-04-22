@@ -113,7 +113,7 @@ export function TableChat({ mutedPlayerIds = new Set(), roomId }: TableChatProps
         ].join(' ')}
       >
         <span aria-hidden>✎</span>
-        <span>{openMobile ? 'Hide chat' : 'Chat'}</span>
+        <span>{openMobile ? en.chat.toggleClose : en.chat.toggleOpen}</span>
         {!openMobile && unread > 0 && (
           <span className="text-[0.65rem] font-mono px-1.5 py-0.5 rounded-full bg-ochre/15 text-ochre">
             {unread}
@@ -125,7 +125,7 @@ export function TableChat({ mutedPlayerIds = new Set(), roomId }: TableChatProps
         <div
           id="table-chat-sheet"
           className="lg:hidden fixed inset-x-0 bottom-0 z-dock max-h-[55vh] bg-paper-raised border-t border-hairline/70 shadow-paper flex flex-col animate-seat-in"
-          aria-label="Chat"
+          aria-label={en.chat.regionLabel}
         >
           <div
             className="flex-1 overflow-y-auto p-3 space-y-1 min-h-0"
@@ -173,7 +173,7 @@ export function TableChat({ mutedPlayerIds = new Set(), roomId }: TableChatProps
       {/* Desktop: always-on right rail. */}
       <aside
         className="hidden lg:flex flex-col bg-paper-raised border-l border-hairline/70 w-72 h-full"
-        aria-label="Chat"
+        aria-label={en.chat.regionLabel}
       >
         <div
           className="flex-1 overflow-y-auto p-3 space-y-1 min-h-0"

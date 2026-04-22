@@ -40,6 +40,13 @@ interface SortableCardProps {
   total: number;
   selected: boolean;
   justDrawn: boolean;
+  /**
+   * For batch deals: ordinal position of this card within the batch
+   * of newly-drawn cards (0 = first to appear). Drives the deal-stagger
+   * animation-delay. Null/undefined when the card isn't part of a
+   * multi-card batch — single-card draws play instantly.
+   */
+  dealOrder: number | null;
   reorderEnabled: boolean;
   discardDraggable: boolean;
   overlapPx: number;
@@ -47,12 +54,18 @@ interface SortableCardProps {
   onActivate: () => void;
 }
 
+// Per-card stagger step. Cap the effective index so a 13-card canasta
+// deal finishes in ~500ms instead of stretching out to a second.
+const STAGGER_STEP_MS = 45;
+const STAGGER_CAP_INDEX = 5;
+
 function SortableCard({
   card,
   index,
   total,
   selected,
   justDrawn,
+  dealOrder,
   reorderEnabled,
   discardDraggable,
   overlapPx,
@@ -71,6 +84,14 @@ function SortableCard({
     // first card. Scroll-snap keeps the active card aligned.
     marginLeft: index === 0 ? 0 : `-${overlapPx}px`,
     zIndex: selected ? 30 : 10 + index,
+    // Deal stagger: cards arrive one-at-a-time in batch order. The
+    // `card-slide-in` keyframe uses `both` fill mode so the pre-start
+    // opacity:0 state holds during the delay window — no pop-in.
+    ...(justDrawn && dealOrder != null
+      ? {
+          animationDelay: `${Math.min(dealOrder, STAGGER_CAP_INDEX) * STAGGER_STEP_MS}ms`,
+        }
+      : {}),
   };
 
   // Note: we deliberately do NOT spread `attributes` from useSortable here.
@@ -111,18 +132,46 @@ export function HandComponent({
   const clearSelection = useGameStore(s => s.clearSelection);
 
   // Track newly-added card ids so we can animate them into the hand.
+  // Multi-card batches (a deal) stagger their slide-in animations by
+  // order-in-batch so cards appear one at a time, as if being dealt.
+  // Single-card batches (a single draw) play instantly — no delay.
   const prevIdsRef = useRef<Set<string>>(new Set(cards.map(c => c.id)));
   const [justDrawn, setJustDrawn] = useState<Set<string>>(new Set());
+  const [dealOrder, setDealOrder] = useState<Map<string, number>>(new Map());
 
   useEffect(() => {
     const currentIds = new Set(cards.map(c => c.id));
     const newIds = new Set<string>();
-    currentIds.forEach(id => {
-      if (!prevIdsRef.current.has(id)) newIds.add(id);
-    });
+    // Preserve the deal order by walking `cards` (the canonical hand
+    // order) rather than the Set above — Sets don't preserve insertion
+    // order of the id strings across re-renders.
+    const ordered: string[] = [];
+    for (const card of cards) {
+      if (!prevIdsRef.current.has(card.id)) {
+        newIds.add(card.id);
+        ordered.push(card.id);
+      }
+    }
     if (newIds.size > 0) {
       setJustDrawn(newIds);
-      const t = setTimeout(() => setJustDrawn(new Set()), 450);
+      // Only populate order for multi-card batches. A single-card draw
+      // gets `null` order so it plays instantly.
+      if (newIds.size > 1) {
+        const m = new Map<string, number>();
+        ordered.forEach((id, i) => m.set(id, i));
+        setDealOrder(m);
+      } else {
+        setDealOrder(new Map());
+      }
+      // Clear when the last staggered card has finished its animation.
+      // 260ms animation + max-stagger delay + 60ms grace for React flush.
+      const maxStagger =
+        newIds.size > 1 ? Math.min(newIds.size - 1, STAGGER_CAP_INDEX) * STAGGER_STEP_MS : 0;
+      const clearMs = 260 + maxStagger + 60;
+      const t = setTimeout(() => {
+        setJustDrawn(new Set());
+        setDealOrder(new Map());
+      }, clearMs);
       prevIdsRef.current = currentIds;
       return () => clearTimeout(t);
     }
@@ -199,6 +248,7 @@ export function HandComponent({
           total={cards.length}
           selected={selectedIds.includes(card.id)}
           justDrawn={justDrawn.has(card.id)}
+          dealOrder={dealOrder.get(card.id) ?? null}
           reorderEnabled={reorderEnabled}
           discardDraggable={draggable}
           overlapPx={overlapPx}

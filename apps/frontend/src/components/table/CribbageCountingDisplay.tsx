@@ -39,19 +39,23 @@ export interface CribbageCountingDisplayProps {
 function MiniCardRow({ cards }: { cards: Card[] }) {
   return (
     <div className="flex flex-row gap-1 items-center">
-      {cards.map((c) => (
-        <span
-          key={c.id}
-          className="inline-flex items-center justify-center min-w-[1.6rem] h-6 px-1 rounded border border-slate-600 bg-slate-900 text-xs font-semibold"
-          style={{
-            color:
-              c.suit === 'hearts' || c.suit === 'diamonds' ? '#f87171' : '#e2e8f0',
-          }}
-        >
-          {c.rank}
-          {suitGlyph(c.suit)}
-        </span>
-      ))}
+      {cards.map((c) => {
+        const isRed = c.suit === 'hearts' || c.suit === 'diamonds';
+        return (
+          <span
+            key={c.id}
+            className="inline-flex items-center justify-center min-w-[1.6rem] h-6 px-1 rounded border border-hairline bg-paper text-xs font-semibold font-mono"
+            style={{
+              color: isRed
+                ? 'rgb(var(--board-milestone))'
+                : 'rgb(var(--ink))',
+            }}
+          >
+            {c.rank}
+            {suitGlyph(c.suit)}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -69,14 +73,14 @@ function suitGlyph(suit: Card['suit']): string {
 function BreakdownEntries({ entries }: { entries: ScoreEntry[] }) {
   if (entries.length === 0) {
     return (
-      <p className="text-sm italic text-slate-400">
+      <p className="text-sm italic text-whisper">
         Nineteen — no points in this hand.
       </p>
     );
   }
   let running = 0;
   return (
-    <ol className="flex flex-col gap-1.5 text-sm text-slate-200">
+    <ol className="flex flex-col gap-1.5 text-sm text-ink-soft">
       {entries.map((e, idx) => {
         running += e.points;
         return (
@@ -84,12 +88,12 @@ function BreakdownEntries({ entries }: { entries: ScoreEntry[] }) {
             key={`${e.kind}-${idx}`}
             className="flex flex-row items-center gap-3 flex-wrap"
           >
-            <span className="min-w-[2.5rem] text-right tabular-nums font-semibold text-amber-300">
+            <span className="min-w-[2.5rem] text-right tabular-nums font-mono font-semibold text-ochre">
               {running}
             </span>
-            <span className="min-w-[6rem] text-slate-300">
+            <span className="min-w-[6rem] text-ink">
               {e.label}{' '}
-              <span className="text-slate-500">+{e.points}</span>
+              <span className="text-whisper">+{e.points}</span>
             </span>
             <MiniCardRow cards={e.cards} />
           </li>
@@ -142,33 +146,37 @@ export function CribbageCountingDisplay({
 
   return (
     <div
-      className="flex flex-col gap-3 p-3 sm:p-4 rounded-md bg-slate-800/80 border border-slate-700 w-full max-w-2xl"
+      className="flex flex-col gap-3 p-3 sm:p-4 rounded-xl bg-paper-raised/85 border border-hairline/70 shadow-paper w-full max-w-2xl"
       aria-label="Cribbage counting"
     >
       <div className="flex flex-row items-center gap-3">
-        <div className="flex flex-col items-center">
-          <span className="text-xs uppercase text-slate-400">Starter</span>
+        <div className="flex flex-col items-center gap-1">
+          <span className="text-[0.65rem] uppercase tracking-[0.18em] text-whisper">
+            Starter
+          </span>
           {cutCard ? (
             <CardComponent card={cutCard} faceUp={true} selected={false} />
           ) : (
-            <div className="w-12 h-[4.5rem] sm:w-16 sm:h-24 rounded-md border-2 border-dashed border-slate-600 bg-slate-900" />
+            <div className="w-12 h-[4.5rem] sm:w-16 sm:h-24 rounded-md border-2 border-dashed border-hairline bg-paper-deep/40" />
           )}
         </div>
         <div className="flex flex-col flex-1 min-w-0">
-          <h3 className="text-base sm:text-lg font-semibold text-amber-300">
+          <h3 className="font-display text-base sm:text-lg font-semibold text-ink">
             {step === 'hand'
               ? `${counterName}${counterIsDealer ? ' (dealer)' : ''} counts`
               : "Dealer's crib"}
           </h3>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-whisper mt-0.5">
             {step === 'hand'
               ? 'Hand sorted by rank. Pegs advance on acknowledge.'
               : 'The crib counts for the dealer.'}
           </p>
         </div>
-        <div className="flex flex-col items-end">
-          <span className="text-xs uppercase text-slate-400">Points</span>
-          <span className="text-2xl sm:text-3xl font-bold text-amber-300">
+        <div className="flex flex-col items-end gap-1">
+          <span className="text-[0.65rem] uppercase tracking-[0.18em] text-whisper">
+            Points
+          </span>
+          <span className="font-display text-3xl sm:text-4xl font-semibold tabular-nums text-ochre">
             {step === 'hand' ? counterScore : cribScore}
           </span>
         </div>
@@ -177,22 +185,21 @@ export function CribbageCountingDisplay({
       {step === 'hand' && <CardRow cards={counterHand} />}
       {step === 'crib' && <CardRow cards={sortedCrib} />}
 
-      {/* Breakdown — a hand stuffed with 15s + double-runs can easily produce
-          a dozen scoring entries (4-card double run + four 15s + pair = 9+
-          rows). Cap the entry list at ~40vh and scroll inside it; the grand
-          total stays pinned below so it's always visible. */}
-      <div className="mt-1 pt-3 border-t border-slate-700 flex flex-col gap-2">
+      {/* Breakdown — long scoring hands can produce 9+ rows. Cap the
+          entry list at 40vh and scroll inside it; the grand total stays
+          pinned below so it's always visible. */}
+      <div className="mt-1 pt-3 border-t border-hairline/60 flex flex-col gap-2">
         <div
           className="max-h-[40vh] overflow-y-auto pr-1"
           aria-label="Scoring breakdown"
         >
           <BreakdownEntries entries={breakdown.entries} />
         </div>
-        <div className="pt-2 border-t border-slate-700 flex flex-row items-center gap-3">
-          <span className="min-w-[2.5rem] text-right tabular-nums font-bold text-amber-300">
+        <div className="pt-2 border-t border-hairline/60 flex flex-row items-center gap-3">
+          <span className="min-w-[2.5rem] text-right tabular-nums font-mono font-semibold text-ochre">
             {breakdown.total}
           </span>
-          <span className="font-semibold text-slate-100">Total</span>
+          <span className="font-display font-semibold text-ink">Total</span>
         </div>
       </div>
     </div>

@@ -11,6 +11,7 @@ import { apiFetch } from '@/api/client';
 import { useLobbyStore } from '@/store/lobbyStore';
 import type { GameCatalogEntry } from '@shared/admin';
 import en from '@/i18n/en.json';
+import { pluralise } from '@/utils/formatScore';
 import { logger } from '@/utils/logger';
 
 export function GameBrowser() {
@@ -53,7 +54,10 @@ export function GameBrowser() {
             {en.lobby.gameBrowserTitle}
           </h2>
           <span className="text-xs text-whisper font-mono hidden sm:inline" aria-live="polite">
-            {visibleGames.length} {visibleGames.length === 1 ? 'game' : 'games'}
+            {pluralise(visibleGames.length, {
+              one: en.lobby.gameCountOne,
+              other: en.lobby.gameCountOther,
+            })}
           </span>
         </header>
 

@@ -39,7 +39,9 @@ export function Phase10Objective({ phase, laidDown }: Phase10ObjectiveProps) {
           className="ml-1 text-xs text-ochre hover:text-ochre-hi underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi rounded whitespace-nowrap"
           aria-expanded={showChart}
         >
-          {showChart ? 'Hide phases' : 'Show all phases'}
+          {showChart
+            ? en.table.phase10HideAllPhases
+            : en.table.phase10ShowAllPhases}
         </button>
       </div>
       {showChart && (

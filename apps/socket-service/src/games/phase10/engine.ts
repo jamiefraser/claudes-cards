@@ -605,6 +605,59 @@ export class Phase10Engine implements IGameEngine {
       }
     }
 
+    // House rule — a meld may never empty the player's hand. Going out
+    // in Phase 10 must happen through the standard discard path (which
+    // rotates currentTurn to null, attaches handScores/handWinnerId,
+    // and drives the scoring phase). If the submitted hit would
+    // consume every card in hand, split the action:
+    //   - meld all cards EXCEPT the last one (possibly zero),
+    //   - then discard the last card via handleDiscard, which flags
+    //     wentOut and handles skip-card-on-discard semantics.
+    if (cardIds.length >= player.hand.length) {
+      const lastCardId = cardIds[cardIds.length - 1]!;
+      const meldCardIds = cardIds.slice(0, -1);
+
+      let afterMeld: GameState = state;
+      if (meldCardIds.length > 0) {
+        const meldedFaceUp = cardsToHit
+          .filter((c) => meldCardIds.includes(c.id))
+          .map((c) => ({ ...c, faceUp: true }));
+        const updatedGroup: PhaseGroup = {
+          ...group,
+          cardIds: [...group.cardIds, ...meldCardIds],
+          cards: [...(group.cards ?? []), ...meldedFaceUp],
+        };
+        const updatedGroups = [...targetGroups];
+        updatedGroups[groupIndex] = updatedGroup;
+
+        const handAfterMeld = player.hand.filter((c) => !meldCardIds.includes(c.id));
+
+        afterMeld = {
+          ...state,
+          version: state.version + 1,
+          players: state.players.map((p) =>
+            p.playerId === playerId ? { ...p, hand: handAfterMeld } : p,
+          ),
+          publicData: {
+            ...pd,
+            laidDownPhases: {
+              ...pd.laidDownPhases,
+              [targetPlayerId]: updatedGroups,
+            },
+          } as unknown as Record<string, unknown>,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      const pdForDiscard = afterMeld.publicData as unknown as Phase10PublicData;
+      return this.handleDiscard(
+        afterMeld,
+        playerId,
+        { type: 'discard', cardIds: [lastCardId] },
+        pdForDiscard,
+      );
+    }
+
     // Add cards to group. We update BOTH `cardIds` and `cards` — the
     // client builds its meld card-catalogue from each group's `cards`
     // array, so failing to mirror the append here used to make every

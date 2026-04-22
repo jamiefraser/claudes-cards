@@ -1738,6 +1738,280 @@ describe('Phase10Engine', () => {
   });
 });
 
+// ------------------------------------------------------------------
+// Rule: a meld may never empty the player's hand. If a hit-meld
+// action would leave the player at zero cards, the last card is
+// auto-discarded instead — the player goes out through the standard
+// discard path (which attaches scoring state, rotates the turn to
+// null, etc.) rather than through a meld.
+//
+// Lives in its own describe block so the tests run after the main
+// Phase10Engine suite without shifting the RNG order those tests
+// depend on (Phase 1 auto-arrange in particular is order-sensitive
+// because startGame uses the global Math.random).
+// ------------------------------------------------------------------
+
+describe('Phase10Engine — meld cannot empty hand', () => {
+  let engine: Phase10Engine;
+  beforeEach(() => { engine = new Phase10Engine(); });
+
+  it('hit-meld: single last card is discarded, not melded — player goes out via discard', () => {
+    const make = (id: string, value: number, color: 'red' | 'blue' | 'green' | 'yellow' = 'red') => ({
+      id,
+      deckType: 'phase10' as const,
+      phase10Type: 'number' as const,
+      phase10Color: color,
+      value,
+      faceUp: false,
+    });
+    const fives = [make('5a', 5, 'red'), make('5b', 5, 'blue'), make('5c', 5, 'green')];
+    const hit = make('5d', 5, 'yellow');
+
+    const seeded: GameState = {
+      version: 1,
+      roomId: 'r',
+      gameId: 'phase10',
+      phase: 'playing',
+      players: [
+        {
+          playerId: 'p1',
+          displayName: 'P1',
+          hand: [hit],
+          score: 0,
+          isOut: false,
+          isBot: false,
+          currentPhase: 1,
+          phaseLaidDown: true,
+        },
+        {
+          playerId: 'p2',
+          displayName: 'P2',
+          hand: [make('1', 1, 'red')],
+          score: 0,
+          isOut: false,
+          isBot: false,
+          currentPhase: 1,
+          phaseLaidDown: false,
+        },
+      ],
+      currentTurn: 'p1',
+      turnNumber: 1,
+      roundNumber: 1,
+      publicData: {
+        drawPile: [],
+        discardPile: [make('7', 7)],
+        discardTop: make('7', 7),
+        drawPileSize: 0,
+        turnPhase: 'discard',
+        skippedPlayers: [],
+        laidDownPhases: {
+          p1: [
+            {
+              type: 'set',
+              cardIds: fives.map((c) => c.id),
+              cards: fives.map((c) => ({ ...c, faceUp: true })),
+            },
+          ],
+        },
+      },
+      updatedAt: new Date().toISOString(),
+    };
+
+    const after = engine.applyAction(seeded, 'p1', {
+      type: 'hit-meld',
+      payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['5d'] },
+    });
+
+    // Hand is empty, player marked out, phase -> scoring.
+    const p1After = after.players.find((p) => p.playerId === 'p1')!;
+    expect(p1After.hand).toEqual([]);
+    expect(p1After.isOut).toBe(true);
+    expect(after.phase).toBe('scoring');
+    expect(after.currentTurn).toBeNull();
+
+    // The 5d ended up on the discard pile, NOT appended to the meld.
+    const pd = after.publicData as unknown as {
+      laidDownPhases: Record<string, Array<{ cardIds: string[] }>>;
+      discardTop: { id: string };
+    };
+    expect(pd.discardTop.id).toBe('5d');
+    expect(pd.laidDownPhases['p1']![0]!.cardIds).toEqual(['5a', '5b', '5c']);
+
+    // Winner + hand scores populated by the standard discard-goes-out path.
+    const scoring = after.publicData as unknown as {
+      handWinnerId?: string;
+      handScores?: Record<string, number>;
+    };
+    expect(scoring.handWinnerId).toBe('p1');
+    expect(scoring.handScores).toBeDefined();
+    expect(scoring.handScores!['p1']).toBe(0);
+    expect(scoring.handScores!['p2']).toBeGreaterThan(0);
+  });
+
+  it('hit-meld: multi-card hit that would empty the hand melds all-but-the-last and discards the last', () => {
+    const make = (id: string, value: number, color: 'red' | 'blue' | 'green' | 'yellow' = 'red') => ({
+      id,
+      deckType: 'phase10' as const,
+      phase10Type: 'number' as const,
+      phase10Color: color,
+      value,
+      faceUp: false,
+    });
+    const fives = [make('5a', 5, 'red'), make('5b', 5, 'blue'), make('5c', 5, 'green')];
+    const hand = [make('5d', 5, 'yellow'), make('5e', 5, 'red'), make('5f', 5, 'blue')];
+
+    const seeded: GameState = {
+      version: 1,
+      roomId: 'r',
+      gameId: 'phase10',
+      phase: 'playing',
+      players: [
+        {
+          playerId: 'p1',
+          displayName: 'P1',
+          hand,
+          score: 0,
+          isOut: false,
+          isBot: false,
+          currentPhase: 1,
+          phaseLaidDown: true,
+        },
+        {
+          playerId: 'p2',
+          displayName: 'P2',
+          hand: [make('1', 1)],
+          score: 0,
+          isOut: false,
+          isBot: false,
+          currentPhase: 1,
+          phaseLaidDown: false,
+        },
+      ],
+      currentTurn: 'p1',
+      turnNumber: 1,
+      roundNumber: 1,
+      publicData: {
+        drawPile: [],
+        discardPile: [make('7', 7)],
+        discardTop: make('7', 7),
+        drawPileSize: 0,
+        turnPhase: 'discard',
+        skippedPlayers: [],
+        laidDownPhases: {
+          p1: [
+            {
+              type: 'set',
+              cardIds: fives.map((c) => c.id),
+              cards: fives.map((c) => ({ ...c, faceUp: true })),
+            },
+          ],
+        },
+      },
+      updatedAt: new Date().toISOString(),
+    };
+
+    const after = engine.applyAction(seeded, 'p1', {
+      type: 'hit-meld',
+      payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['5d', '5e', '5f'] },
+    });
+
+    const p1After = after.players.find((p) => p.playerId === 'p1')!;
+    expect(p1After.hand).toEqual([]);
+    expect(p1After.isOut).toBe(true);
+    expect(after.phase).toBe('scoring');
+
+    const pd = after.publicData as unknown as {
+      laidDownPhases: Record<string, Array<{ cardIds: string[] }>>;
+      discardTop: { id: string };
+    };
+    // 5d and 5e joined the meld; 5f (the last of the submitted ids) hit the discard pile.
+    expect(pd.laidDownPhases['p1']![0]!.cardIds).toEqual(['5a', '5b', '5c', '5d', '5e']);
+    expect(pd.discardTop.id).toBe('5f');
+  });
+
+  it('hit-meld: when a non-emptying subset is submitted the normal path still runs unchanged', () => {
+    const make = (id: string, value: number, color: 'red' | 'blue' | 'green' | 'yellow' = 'red') => ({
+      id,
+      deckType: 'phase10' as const,
+      phase10Type: 'number' as const,
+      phase10Color: color,
+      value,
+      faceUp: false,
+    });
+    const fives = [make('5a', 5, 'red'), make('5b', 5, 'blue'), make('5c', 5, 'green')];
+    // Player keeps a 7 in hand so the hit does not empty them.
+    const hand = [make('5d', 5, 'yellow'), make('7', 7)];
+
+    const seeded: GameState = {
+      version: 1,
+      roomId: 'r',
+      gameId: 'phase10',
+      phase: 'playing',
+      players: [
+        {
+          playerId: 'p1',
+          displayName: 'P1',
+          hand,
+          score: 0,
+          isOut: false,
+          isBot: false,
+          currentPhase: 1,
+          phaseLaidDown: true,
+        },
+        {
+          playerId: 'p2',
+          displayName: 'P2',
+          hand: [make('1', 1)],
+          score: 0,
+          isOut: false,
+          isBot: false,
+          currentPhase: 1,
+          phaseLaidDown: false,
+        },
+      ],
+      currentTurn: 'p1',
+      turnNumber: 1,
+      roundNumber: 1,
+      publicData: {
+        drawPile: [],
+        discardPile: [],
+        discardTop: null,
+        drawPileSize: 0,
+        turnPhase: 'discard',
+        skippedPlayers: [],
+        laidDownPhases: {
+          p1: [
+            {
+              type: 'set',
+              cardIds: fives.map((c) => c.id),
+              cards: fives.map((c) => ({ ...c, faceUp: true })),
+            },
+          ],
+        },
+      },
+      updatedAt: new Date().toISOString(),
+    };
+
+    const after = engine.applyAction(seeded, 'p1', {
+      type: 'hit-meld',
+      payload: { targetPlayerId: 'p1', groupIndex: 0, cardIds: ['5d'] },
+    });
+
+    const p1After = after.players.find((p) => p.playerId === 'p1')!;
+    // Hand still holds the 7 — hit did NOT auto-discard.
+    expect(p1After.hand.map((c) => c.id)).toEqual(['7']);
+    expect(p1After.isOut).toBe(false);
+    expect(after.phase).toBe('playing');
+
+    const pd = after.publicData as unknown as {
+      laidDownPhases: Record<string, Array<{ cardIds: string[] }>>;
+      discardTop: { id: string } | null;
+    };
+    expect(pd.laidDownPhases['p1']![0]!.cardIds).toEqual(['5a', '5b', '5c', '5d']);
+    expect(pd.discardTop).toBeNull();
+  });
+});
+
 // -------------------------------------------------------------------
 // Additional coverage tests
 // -------------------------------------------------------------------

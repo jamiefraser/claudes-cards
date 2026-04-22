@@ -1,0 +1,23 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - heading "Cribbage board — test harness" [level=1] [ref=e5]
+    - radiogroup "Board state" [ref=e6]:
+      - radio "Game start" [checked] [ref=e7] [cursor=pointer]
+      - radio "Mid-game" [ref=e8] [cursor=pointer]
+      - radio "Score landing" [ref=e9] [cursor=pointer]
+  - main [ref=e10]:
+    - generic [ref=e11]:
+      - status [ref=e12]: Alice is at 0. Bob is at 0. Carol is at 0.
+      - img "Cribbage scoring board" [ref=e13]:
+        - generic [ref=e144]: ♥
+        - generic [ref=e274]: ♠
+        - generic [ref=e404]: ♦
+        - generic [ref=e408]: SS
+        - generic [ref=e411]: S
+      - list "Current scores" [ref=e427]:
+        - listitem [ref=e428]:
+          - generic [ref=e430]: "Alice: 0 points"
+        - listitem [ref=e431]:
+          - generic [ref=e433]: "Bob: 0 points"
+        - listitem [ref=e434]:
+          - generic [ref=e436]: "Carol: 0 points"

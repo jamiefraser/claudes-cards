@@ -1,0 +1,27 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - heading "Cribbage board — test harness" [level=1] [ref=e5]
+    - navigation [ref=e6]:
+      - button "Game start" [ref=e7] [cursor=pointer]
+      - button "Mid-game" [ref=e8] [cursor=pointer]
+      - button "Score landing" [ref=e9] [cursor=pointer]
+  - main [ref=e10]:
+    - generic [ref=e11]:
+      - status [ref=e12]: Alice scored 14, now at 62.
+      - img "Cribbage scoring board" [ref=e13]:
+        - generic [ref=e144]: ♥
+        - generic [ref=e274]: ♠
+        - generic [ref=e1134]: ♦
+        - generic [ref=e408]: SS
+        - generic [ref=e411]: S
+        - generic [ref=e412]:
+          - generic "Alice trailing peg, hole 48 of 121." [ref=e1136]
+          - generic "Alice peg, hole 62 of 121." [ref=e1138]
+        - generic [ref=e417]:
+          - generic "Bob trailing peg, hole 62 of 121." [ref=e1139]
+          - generic "Bob peg, hole 70 of 121." [ref=e1140]
+      - list "Current scores" [ref=e427]:
+        - listitem [ref=e428]:
+          - generic [ref=e430]: "Alice: 62 points"
+        - listitem [ref=e431]:
+          - generic [ref=e433]: "Bob: 70 points"

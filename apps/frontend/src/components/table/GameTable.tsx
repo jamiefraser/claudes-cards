@@ -40,10 +40,13 @@ import { canPhase10HitMeld } from '@/utils/phase10HitRules';
 import { CribbagePegArea } from './CribbagePegArea';
 import { CribbageBoard } from './cribbage/CribbageBoard';
 import { CribbageCountingDisplay } from './CribbageCountingDisplay';
+import { CribbagePhaseToast } from './CribbagePhaseToast';
 import { sortByRank, sortBySuit, applyHandOrder } from '@/utils/handSort';
+import { formatScore } from '@/utils/formatScore';
 import { knockEligibility } from '@/utils/ginrummyDeadwood';
 import { loadRulesForGame } from '@/utils/gameRules';
 import { TableChat } from '../chat/TableChat';
+import { ConfirmDialog } from '../shared/ConfirmDialog';
 import type { Card } from '@shared/cards';
 import type { GameActionPayload } from '@shared/socket';
 import en from '@/i18n/en.json';
@@ -88,12 +91,14 @@ export function GameTable({ roomId }: GameTableProps) {
   }, [roomId]);
 
   const [endingGame, setEndingGame] = useState(false);
-  const handleEndGame = useCallback(async () => {
+  const [endConfirmOpen, setEndConfirmOpen] = useState(false);
+  const handleEndGameRequest = useCallback(() => {
     if (endingGame) return;
-    const ok = window.confirm(
-      'End and delete this game? All progress will be lost. This cannot be undone.',
-    );
-    if (!ok) return;
+    setEndConfirmOpen(true);
+  }, [endingGame]);
+  const handleEndGameConfirm = useCallback(async () => {
+    setEndConfirmOpen(false);
+    if (endingGame) return;
     setEndingGame(true);
     try {
       await deleteRoom(roomId);
@@ -782,18 +787,20 @@ export function GameTable({ roomId }: GameTableProps) {
               if (!mySide || !meldKeys.includes(mySide)) return null;
               if (initialMeldDone[mySide]) {
                 return (
-                  <div className="inline-flex items-center gap-2 self-start px-3 py-1 rounded-full bg-night-raised/60 border border-brass/15 text-xs text-emerald-300/90">
+                  <div className="inline-flex items-center gap-2 self-start px-3 py-1 rounded-full bg-paper-raised/75 border border-hairline/70 text-xs text-sage">
                     <span aria-hidden>✓</span>
-                    <span>Initial meld complete</span>
+                    <span>{en.table.initialMeldCompleteLabel}</span>
                   </div>
                 );
               }
               const prior = scoresPriorHand[mySide] ?? 0;
               const required = prior < 0 ? 15 : prior < 1500 ? 50 : prior < 3000 ? 90 : 120;
               return (
-                <div className="inline-flex items-center gap-2 self-start px-3 py-1 rounded-full bg-night-raised/60 border border-brass/15 text-xs text-brand-secondary/90">
+                <div className="inline-flex items-center gap-2 self-start px-3 py-1 rounded-full bg-paper-raised/75 border border-hairline/70 text-xs text-ochre">
                   <span aria-hidden>⚖</span>
-                  <span>Initial meld needs {required} pts</span>
+                  <span>
+                    {en.table.initialMeldNeedsLabel.replace('{n}', String(required))}
+                  </span>
                 </div>
               );
             })()}
@@ -812,7 +819,7 @@ export function GameTable({ roomId }: GameTableProps) {
             const canEnd = amHost && otherHumans.length === 0;
             return (
               <div className="lg:absolute lg:top-5 lg:right-6 absolute top-3 right-3 z-raised">
-                <SettingsPopover onEndGame={canEnd ? handleEndGame : undefined} />
+                <SettingsPopover onEndGame={canEnd ? handleEndGameRequest : undefined} />
               </div>
             );
           })()}
@@ -842,7 +849,7 @@ export function GameTable({ roomId }: GameTableProps) {
           */}
           <div
             className="lg:hidden relative z-raised pt-2 pb-3 px-3 sm:px-5 overflow-hidden border-b border-hairline/50"
-            aria-label="Other players"
+            aria-label={en.table.otherPlayersLabel}
           >
             <div className="no-scrollbar flex flex-row gap-2 overflow-x-auto snap-x snap-mandatory">
               {radialItems
@@ -978,6 +985,12 @@ export function GameTable({ roomId }: GameTableProps) {
                         playerNames={playerNames}
                       />
                     </div>
+                  )}
+
+                  {isCribbage && (
+                    <CribbagePhaseToast
+                      phase={gameState.publicData['gamePhase'] as string | undefined}
+                    />
                   )}
 
                   {isCribbage && gameState.publicData['gamePhase'] === 'counting' && (
@@ -1152,8 +1165,8 @@ export function GameTable({ roomId }: GameTableProps) {
                 <div className="inline-flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-1.5 rounded-full bg-paper-raised/80 border border-hairline/70 font-display text-sm min-w-0">
                   <span className="text-ink truncate max-w-[10rem] min-w-0" translate="no">{myPlayer.displayName}</span>
                   <span aria-hidden className="text-whisper">·</span>
-                  <span className="font-mono text-ochre text-xs tabular-nums">
-                    {myPlayer.score ?? 0}
+                  <span className="font-mono text-ochre text-xs tabular-nums" translate="no">
+                    {formatScore(myPlayer.score ?? 0)}
                   </span>
                   {dealerId === myPlayer.playerId && (
                     <span
@@ -1168,17 +1181,17 @@ export function GameTable({ roomId }: GameTableProps) {
                   type="button"
                   onClick={() => setHandOrder(roomId, sortByRank(myPlayer.hand))}
                   className="min-h-[36px] text-xs font-medium tracking-wide text-ink-soft bg-paper-raised/60 hover:bg-paper-raised border border-hairline/60 hover:border-ochre rounded-full px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi"
-                  aria-label="Sort hand by rank"
+                  aria-label={en.table.sortHandByRank}
                 >
-                  Rank
+                  {en.table.sortRankShort}
                 </button>
                 <button
                   type="button"
                   onClick={() => setHandOrder(roomId, sortBySuit(myPlayer.hand))}
                   className="min-h-[36px] text-xs font-medium tracking-wide text-ink-soft bg-paper-raised/60 hover:bg-paper-raised border border-hairline/60 hover:border-ochre rounded-full px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi"
-                  aria-label="Sort hand by suit"
+                  aria-label={en.table.sortHandBySuit}
                 >
-                  Suit
+                  {en.table.sortSuitShort}
                 </button>
               </div>
 
@@ -1205,6 +1218,17 @@ export function GameTable({ roomId }: GameTableProps) {
           targets={phase10HitTargets}
           onPick={handleHitPick}
           onClose={() => setHitModalOpen(false)}
+        />
+
+        <ConfirmDialog
+          open={endConfirmOpen}
+          title={en.table.endGameConfirmTitle}
+          message={en.table.endGameConfirmBody}
+          confirmLabel={en.table.endGameConfirmAction}
+          cancelLabel={en.table.endGameConfirmCancel}
+          destructive
+          onConfirm={handleEndGameConfirm}
+          onCancel={() => setEndConfirmOpen(false)}
         />
       </div>
     </DndContext>

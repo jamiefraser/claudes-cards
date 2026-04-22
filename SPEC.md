@@ -750,6 +750,7 @@ The Phase 10 bot uses a priority-ordered rule set on its turn:
   - **Colour**: the card's colour must match the meld's colour (or be wild).
   - **Skip cards** may never hit any meld.
   - Enforced by `canHitMeld` in `apps/socket-service/src/games/phase10/engine.ts` and mirrored client-side in `apps/frontend/src/utils/phase10HitRules.ts`.
+- **A meld may never empty the player's hand.** If a `hit-meld` action would leave the player at zero cards, the engine splits the action: all cards except the last are added to the meld, and the last card is auto-discarded via the standard discard path. This forces going-out to happen through `discard` (which assigns `wentOut`, populates `handWinnerId`/`handScores`, and rotates `currentTurn` to `null`) rather than through a meld. Enforced in `handleHitMeld` in `apps/socket-service/src/games/phase10/engine.ts`.
 - **Never return `pass` mid-turn.** If the strategy can find no legal action, fall back through `fallbackAction` → rightmost discard. `pass` is reserved for "it isn't my turn" signals (e.g. cribbage parallel-discard already complete); using it during your own turn will strand the schedule keys and hang the bot.
 
 ### 9.6 Bot UI Representation

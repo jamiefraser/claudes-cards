@@ -1,0 +1,91 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e9]: Room A016EE · Hand 1/1
+        - generic [ref=e10]:
+          - generic [ref=e11]: ◆
+          - generic [ref=e12]: Your turn
+        - generic [ref=e13]:
+          - generic [ref=e14]: ♦
+          - generic [ref=e15]: You are the dealer (your crib)
+      - generic [ref=e17]:
+        - button "End and delete this game" [ref=e18] [cursor=pointer]:
+          - generic [ref=e19]: ⏻
+        - button "Open settings" [ref=e20] [cursor=pointer]:
+          - generic [ref=e21]: ⚙
+      - button "Open rules" [ref=e22] [cursor=pointer]:
+        - generic [ref=e23]: Rules
+        - generic [ref=e24]: ❦
+      - generic [ref=e25]:
+        - generic [ref=e28]:
+          - generic [ref=e29]:
+            - button "Draw pile — 0 cards remaining" [ref=e30] [cursor=pointer]:
+              - generic [ref=e31]: "0"
+            - button "Empty discard pile" [ref=e33] [cursor=pointer]:
+              - generic [ref=e34]: Loading…
+          - generic [ref=e36]:
+            - status [ref=e37]
+            - img "Cribbage scoring board" [ref=e38]:
+              - generic [ref=e41]:
+                - generic [ref=e169]: ♥
+                - generic [ref=e171]: "121"
+              - generic [ref=e300]: ♠
+              - generic [ref=e430]: ♦
+              - generic [ref=e433]: SS
+              - generic [ref=e435]: S
+            - list "Current scores" [ref=e450]:
+              - listitem [ref=e451]:
+                - generic [ref=e453]: "TestPlayer1: 0 points"
+              - listitem [ref=e454]:
+                - generic [ref=e456]: "Bot 1: 0 points"
+        - generic "Bot 1 (Bot) seat" [ref=e460]:
+          - generic "Bot is playing for Bot 1 — they may return" [ref=e461]: BOT
+          - img [ref=e462]
+          - generic [ref=e475]: Bot 1(Bot)
+          - generic [ref=e476]: 4 cards
+          - img "4 cards face down" [ref=e477]:
+            - img [ref=e479]
+            - img [ref=e481]
+            - img [ref=e483]
+            - img [ref=e485]
+          - generic [ref=e486]:
+            - generic [ref=e487]: "0"
+            - generic [ref=e488]: pts
+      - generic [ref=e489]:
+        - toolbar "Game actions" [ref=e490]:
+          - button "Send selected cards to the crib" [disabled] [ref=e491]: Send to your crib
+          - generic [ref=e492]: Crib needs 2 more card(s)
+        - list "Your hand" [ref=e493]:
+          - listitem [ref=e494]:
+            - button "Card 1 of 6" [ref=e495] [cursor=pointer]:
+              - img "5 of hearts" [ref=e496]
+          - listitem [ref=e497]:
+            - button "Card 2 of 6" [ref=e498] [cursor=pointer]:
+              - img "10 of hearts" [ref=e499]
+          - listitem [ref=e500]:
+            - button "Card 3 of 6" [ref=e501] [cursor=pointer]:
+              - img "3 of hearts" [ref=e502]
+          - listitem [ref=e503]:
+            - button "Card 4 of 6" [ref=e504] [cursor=pointer]:
+              - img "J of clubs" [ref=e505]
+          - listitem [ref=e506]:
+            - button "Card 5 of 6" [ref=e507] [cursor=pointer]:
+              - img "2 of spades" [ref=e508]
+          - listitem [ref=e509]:
+            - button "Card 6 of 6" [ref=e510] [cursor=pointer]:
+              - img "J of hearts" [ref=e511]
+        - generic [ref=e512]:
+          - generic [ref=e513]:
+            - generic [ref=e514]: TestPlayer1
+            - generic [ref=e515]: ·
+            - generic [ref=e516]: "0"
+            - generic "Dealer — collects the crib this hand" [ref=e517]: D
+          - button "Sort hand by rank" [ref=e518] [cursor=pointer]: Rank
+          - button "Sort hand by suit" [ref=e519] [cursor=pointer]: Suit
+    - complementary "Chat" [ref=e520]:
+      - paragraph [ref=e522]: No messages yet.
+      - generic [ref=e523]:
+        - textbox "Type a message…" [ref=e524]
+        - button "Send" [disabled] [ref=e525]
+  - status [ref=e526]

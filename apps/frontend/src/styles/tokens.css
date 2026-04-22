@@ -58,6 +58,19 @@
   /* Bot */
   --bot:             124 106 154;  /* #7c6a9a — quiet plum */
 
+  /* Cribbage board — Heirloom direction. These are deliberately kept as
+     their own tokens so the board has a consistent material language
+     inside each theme without every component needing to know about
+     "substrate-deep" or "brass-inlay". */
+  --board-substrate:      226 212 184;  /* warm wood slab */
+  --board-substrate-deep: 70  55  38;   /* routed groove */
+  --board-bezel:          181 123 45;   /* brass pinstripe */
+  --board-hole:           58  48  39;
+  --board-hole-rim:       201 185 151;  /* brass hole rim */
+  --board-start:          210 153 69;
+  --board-finish:         181 123 45;
+  --board-milestone:      123 30  29;
+
   /* Status & game-card swatches (anchored per theme for identity) */
   --color-online:        34  148 94;
   --color-in-game:       181 123 45;
@@ -133,6 +146,16 @@
   --sage:            156 211 182;  /* #9cd3b6 mint → "sage" slot = success */
   --accent-fg:       248 238 211;  /* Riso: cream on tomato for contrast */
 
+  /* Cribbage board — Riso variant: lighter sycamore with tomato brass */
+  --board-substrate:      234 212 156;
+  --board-substrate-deep: 98  76  54;
+  --board-bezel:          226 77  42;
+  --board-hole:           59  50  42;
+  --board-hole-rim:       236 179 62;
+  --board-start:          226 77  42;
+  --board-finish:         236 179 62;
+  --board-milestone:      182 40  58;
+
   /* Table felt — deep teal (distinctive) */
   --felt:            14  78  84;   /* #0e4e54 */
   --felt-deep:       8  54  60;
@@ -201,6 +224,16 @@
   --burgundy:        255 107 61;   /* #ff6b3d ember */
   --sage:            139 180 52;   /* dim chartreuse */
   --accent-fg:       11  13  16;   /* Obsidian: near-black on acid chartreuse */
+
+  /* Cribbage board — Obsidian variant: ebonised oak with brass + chartreuse glow */
+  --board-substrate:      35  40  49;
+  --board-substrate-deep: 8  10  14;
+  --board-bezel:          197 255 74;
+  --board-hole:           8  10  14;
+  --board-hole-rim:       110 106 98;
+  --board-start:          223 255 137;
+  --board-finish:         197 255 74;
+  --board-milestone:      255 107 61;
 
   /* Table felt — deepest emerald-black */
   --felt:            5  35  31;    /* #05231f */

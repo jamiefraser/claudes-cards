@@ -1,0 +1,12 @@
+- generic [ref=e51]:
+  - heading "Level" [level=1] [ref=e54]
+  - list [ref=e55]:
+    - listitem [ref=e56]:
+      - generic [ref=e57] [cursor=pointer]: Easy
+    - listitem [ref=e58]:
+      - generic [ref=e59] [cursor=pointer]: Medium
+    - listitem [ref=e60]:
+      - generic [ref=e61] [cursor=pointer]: Hard
+    - listitem
+    - listitem [ref=e62]:
+      - paragraph [ref=e63]: "*More levels will unlock if you win against the highest level at a 60% win rate or higher with at least 10 matches."

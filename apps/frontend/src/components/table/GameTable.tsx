@@ -26,7 +26,6 @@ import { PlayerSeat } from './PlayerSeat';
 import { BotSeat } from './BotSeat';
 import { ActionBar } from './ActionBar';
 import { TableFelt } from './TableFelt';
-import { RadialSeats } from './RadialSeats';
 import { RulesPanel } from './RulesPanel';
 import { SettingsPopover } from './SettingsPopover';
 import { RoomInfoPill } from './RoomInfoPill';
@@ -60,13 +59,6 @@ interface GameTableProps {
 
 const FELT_W = 880;
 const FELT_H = 520;
-const SEAT_RX = FELT_W / 2 + 96;
-// Radial Y sits the opponent seat's TOP edge right at the felt's top edge
-// — the pill docks INTO the upper band of the felt rather than floating
-// above it. That's what keeps the bot visible on shorter viewports
-// without scrollbars, at the cost of overlapping the upper felt (which
-// the user explicitly accepts).
-const SEAT_RY = FELT_H / 2;
 
 export function GameTable({ roomId }: GameTableProps) {
   const [rulesOpen, setRulesOpen] = useState(false);
@@ -938,7 +930,74 @@ export function GameTable({ roomId }: GameTableProps) {
               }}
             >
               <TableFelt width={FELT_W} height={FELT_H}>
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 py-6 overflow-hidden">
+                <div className="absolute inset-0 flex flex-col items-stretch gap-3 px-8 py-6 overflow-hidden">
+                  {/* Top band: opponent pills + melds.
+                      Rendered INSIDE the felt's flex-col so flex layout
+                      physically separates the zones — no matter how many
+                      opponents or how long a meld gets, the middle band
+                      below is guaranteed free for the draw/discard piles.
+                      Capped at 42% of the felt height with overflow-hidden
+                      so pathological cases (many canastas, tiny viewport)
+                      stay contained. flex-wrap handles 3-4p variants by
+                      flowing opponents to a second row when needed. */}
+                  <div
+                    className="w-full flex flex-row flex-wrap gap-5 items-start justify-center overflow-hidden shrink-0"
+                    style={{ maxHeight: '42%' }}
+                  >
+                    {radialItems
+                      .filter((i) => i.kind === 'opponent')
+                      .map((item) => {
+                        const p = item.player;
+                        const melds = meldsByPlayer(p.playerId);
+                        const isBot =
+                          activeBots.some((b) => b.playerId === p.playerId) || p.isBot;
+                        const isCurrentTurn = gameState.currentTurn === p.playerId;
+                        return (
+                          <div
+                            key={p.playerId}
+                            className="flex flex-col items-center gap-2 min-w-0"
+                          >
+                            {isBot ? (
+                              <BotSeat
+                                playerState={p}
+                                originalDisplayName={p.displayName}
+                                isCurrentTurn={isCurrentTurn}
+                                deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
+                                isDealer={dealerId === p.playerId}
+                                compact={isRummyFamily}
+                              />
+                            ) : (
+                              <PlayerSeat
+                                playerState={p}
+                                isCurrentTurn={isCurrentTurn}
+                                isSelf={false}
+                                deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
+                                isDealer={dealerId === p.playerId}
+                                compact={isRummyFamily}
+                              />
+                            )}
+                            {melds.length > 0 && (
+                              <MeldsArea
+                                groups={melds}
+                                cardCatalogue={cardCatalogue}
+                                label={`${p.displayName}'s melds`}
+                                scale="medium"
+                                dropTargetPlayerId={
+                                  gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
+                                    ? p.playerId
+                                    : undefined
+                                }
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                  {/* Middle band: piles + game-specific content.
+                      flex-grow takes whatever vertical space remains after
+                      the top meld band, and justify-center keeps the draw/
+                      discard pile vertically centred within that region. */}
+                  <div className="flex-grow w-full flex flex-col items-center justify-center gap-3 min-h-0">
                   <div className="flex flex-row flex-wrap gap-6 items-center justify-center">
                     <PileComponent
                       type="draw"
@@ -1064,87 +1123,17 @@ export function GameTable({ roomId }: GameTableProps) {
                       />
                     </div>
                   )}
+                  </div>
                 </div>
               </TableFelt>
 
-              {/* Radial opponent seats pinned to the felt's geometric centre.
-                  Desktop only — below lg the opponents render as the mobile
-                  strip above the felt instead.
-                  Each seat renders as ONE flex-col stack anchored at the
-                  ellipse point: seat pill on top, melds (full size, same
-                  as the player's melds below the felt) below the pill.
-                  The ellipse Y is set to FELT_H/2 so the stack docks at
-                  the felt's top edge — the pill sits on the upper felt
-                  rather than floating above, which keeps everything
-                  inside the viewport at shorter heights. `width:
-                  max-content` stops the absolute wrapper from shrinking
-                  to a single-card-wide column. */}
-              <div
-                className="hidden lg:block absolute pointer-events-auto"
-                style={{ left: FELT_W / 2, top: FELT_H / 2, width: 0, height: 0 }}
-              >
-                <RadialSeats
-                  items={radialItems}
-                  rx={SEAT_RX}
-                  ry={SEAT_RY}
-                  cx={0}
-                  cy={0}
-                  seatWidth={0}
-                  seatHeight={0}
-                  getKey={(item) => item.player.playerId}
-                  renderSeat={(item) => {
-                    if (item.kind === 'self') return null;
-                    const p = item.player;
-                    const isBot = activeBots.some(b => b.playerId === p.playerId) || p.isBot;
-                    const isCurrentTurn = gameState.currentTurn === p.playerId;
-                    const melds = meldsByPlayer(p.playerId);
-                    const seatNode = isBot ? (
-                      <BotSeat
-                        playerState={p}
-                        originalDisplayName={p.displayName}
-                        isCurrentTurn={isCurrentTurn}
-                        deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
-                        isDealer={dealerId === p.playerId}
-                        compact={isRummyFamily}
-                      />
-                    ) : (
-                      <PlayerSeat
-                        playerState={p}
-                        isCurrentTurn={isCurrentTurn}
-                        isSelf={false}
-                        deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
-                        isDealer={dealerId === p.playerId}
-                        compact={isRummyFamily}
-                      />
-                    );
-                    return (
-                      <div
-                        className="flex flex-col items-center gap-2"
-                        style={{
-                          transform: 'translate(-50%, 0)',
-                          width: 'max-content',
-                          maxWidth: FELT_W - 80,
-                        }}
-                      >
-                        {seatNode}
-                        {melds.length > 0 && (
-                          <MeldsArea
-                            groups={melds}
-                            cardCatalogue={cardCatalogue}
-                            label={`${p.displayName}'s melds`}
-                            scale="full"
-                            dropTargetPlayerId={
-                              gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
-                                ? p.playerId
-                                : undefined
-                            }
-                          />
-                        )}
-                      </div>
-                    );
-                  }}
-                />
-              </div>
+              {/* Opponent pills + melds now render inside the felt's
+                  flex-col top band (see "Top band" above). The radial
+                  layer was removed: with the flex layout enforcing
+                  vertical separation between opponents / piles / board
+                  content, the absolute ellipse positioning no longer
+                  adds anything, and kept producing overlap with the
+                  piles whenever the meld strip got tall. */}
             </div>
           </div>
 

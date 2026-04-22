@@ -668,15 +668,53 @@ export class CanastaEngine implements IGameEngine {
   // -------------------------------------------------------------------------
 
   /**
-   * Guarantee pd.flags is populated. Game states persisted before the
-   * CanastaVariantFlags field shipped in batch 2 lack the property; without
-   * this backfill, any handler that reads `pd.flags.xxx` crashes with a
-   * TypeError on the first action the bot tries to take after redeploy.
-   * Applied in applyAction before any handler runs.
+   * Normalise incoming publicData before any handler runs. Two responsibilities:
+   *
+   *  1. Backfill `flags` when the persisted state pre-dates CanastaVariantFlags
+   *     (batch 2). Without this, pd.flags.xxx reads would throw TypeError on
+   *     the first action after redeploy.
+   *
+   *  2. Merge any duplicate same-rank melds per side. Canasta rules require
+   *     at most one open meld per rank per side. Pre-fix states could persist
+   *     two Q melds side-by-side after a bot emitted {type:'meld',
+   *     cardIds:[Q,Q,Q]} without `extend`. We collapse those on entry so the
+   *     rest of the engine never sees an invalid duplicate.
    */
   private ensureFlags(pd: CanastaPublicData): CanastaPublicData {
-    if (pd.flags) return pd;
-    return { ...pd, flags: defaultCanastaFlags() };
+    const withFlags = pd.flags ? pd : { ...pd, flags: defaultCanastaFlags() };
+    const ranksInPlay = new Set<string>();
+    for (const sideMelds of Object.values(withFlags.melds ?? {})) {
+      for (const m of sideMelds) {
+        if (!m.blackThrees) ranksInPlay.add(m.rank);
+      }
+    }
+    if (ranksInPlay.size === 0) return withFlags;
+    let changed = false;
+    const normalisedMelds: typeof withFlags.melds = {};
+    for (const [side, sideMelds] of Object.entries(withFlags.melds ?? {})) {
+      let next = sideMelds;
+      for (const rank of ranksInPlay) {
+        // mergeSameRankMelds throws MERGED_MELD_INVALID if the combined
+        // wild count would exceed the cap. That's the right runtime
+        // behaviour for a fresh pickup, but for a best-effort
+        // normalisation of already-persisted state we swallow the throw
+        // and leave the duplicates in place — better to render an
+        // imperfect table than to crash every subsequent action.
+        try {
+          const merged = mergeSameRankMelds(next, rank);
+          if (merged !== next) changed = true;
+          next = merged;
+        } catch (err) {
+          logger.warn('CanastaEngine: normalisation skipped invalid merge', {
+            side,
+            rank,
+            err: String(err),
+          });
+        }
+      }
+      normalisedMelds[side] = next;
+    }
+    return changed ? { ...withFlags, melds: normalisedMelds } : withFlags;
   }
 
   private handleDraw(state: GameState, playerId: string, pd: CanastaPublicData): GameState {
@@ -1076,10 +1114,50 @@ export class CanastaEngine implements IGameEngine {
         // Extending does NOT count toward initial meld threshold (initial
         // must be NEW melds).
       } else {
+        // "New meld" group. Canasta rules allow at most one meld per rank
+        // per side, so if the side already has an open meld of this rank
+        // we auto-extend it instead of creating a duplicate record. This
+        // covers the common path: the bot strategy (and naive clients)
+        // submits {type:'meld', cardIds:[Q,Q,Q]} without an explicit
+        // `extend` flag. Pre-fix, that spawned a second Q meld alongside
+        // an already-laid Q meld; the UI rendered two "Queen sets"
+        // side-by-side, which the user flagged as invalid Canasta.
         const check = validateNewMeld(cs, { goingOut: group.goingOut });
         if (!check.ok) throw new Error(`Meld invalid: ${check.error}`);
-        initialPointsThisTurn += meldNaturalPoints(cs);
-        newMeldsForSide = [...newMeldsForSide, meldFromCards(cs, check as MeldCheckOk)];
+        const sameRankExisting = check.isBlackThrees
+          ? undefined
+          : newMeldsForSide.find(
+              (m) => !m.blackThrees && m.rank === check.rank,
+            );
+        if (sameRankExisting) {
+          // Same natural-canasta guard as the explicit-extend branch — a
+          // client can't bypass it by omitting `extend`.
+          if (
+            !pd.flags.allowConvertingNaturalCanasta &&
+            sameRankExisting.isCanasta &&
+            sameRankExisting.canastaType === 'natural' &&
+            cs.some(isWild)
+          ) {
+            throw new CanastaPickupError(
+              'WOULD_CONVERT_NATURAL_CANASTA',
+              'Cannot add a wild to a natural canasta (would convert to mixed)',
+            );
+          }
+          const extCheck = validateMeldExtension(sameRankExisting, cs);
+          if (!extCheck.ok) throw new Error(`Extension invalid: ${extCheck.error}`);
+          const updated = extendMeld(sameRankExisting, cs, extCheck as MeldCheckOk);
+          newMeldsForSide = newMeldsForSide.map((m) =>
+            m === sameRankExisting ? updated : m,
+          );
+          // Cards ARE newly laid down this turn (just merged into an
+          // existing meld for bookkeeping) — count toward initial meld
+          // threshold so a side that hasn't yet melded can legally
+          // satisfy it by adding to a meld created in the same action.
+          initialPointsThisTurn += meldNaturalPoints(cs);
+        } else {
+          initialPointsThisTurn += meldNaturalPoints(cs);
+          newMeldsForSide = [...newMeldsForSide, meldFromCards(cs, check as MeldCheckOk)];
+        }
       }
       workHand = workHand.filter((c) => !group.cardIds.includes(c.id));
     }

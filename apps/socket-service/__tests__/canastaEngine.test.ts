@@ -1725,6 +1725,174 @@ describe('canTakeDiscardPile — pure validator', () => {
 });
 
 // ===========================================================================
+// Regression: handleMeld auto-merges same-rank duplicates + applyAction
+// normalises any persisted duplicates on entry. Canasta allows at most one
+// open meld per rank per side.
+// ===========================================================================
+
+describe('CanastaEngine — no duplicate same-rank melds', () => {
+  const engine = new CanastaEngine();
+
+  it('handleMeld: a new-meld group of the same rank merges into the existing meld (single meld emerges, 6 naturals)', () => {
+    const existing: CanastaMeld = {
+      rank: 'Q',
+      cards: [c('e1','Q','hearts'), c('e2','Q','spades'), c('e3','Q','clubs')],
+      naturals: 3,
+      wilds: 0,
+      isCanasta: false,
+    };
+    const start = engine.startGame(makeConfig(4));
+    const pid = 'p1';
+    const hand = [
+      c('h1','Q','diamonds'), c('h2','Q','hearts'), c('h3','Q','spades'),
+      c('bye','5','hearts'),
+    ];
+    const state0 = forceMeldPhase(seedHand(start, pid, hand), pid);
+    const pd0 = pd(state0);
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      initialMeldDone: { A: true, B: false },
+      melds: { A: [existing], B: [] },
+    };
+    const state: GameState = {
+      ...state0,
+      publicData: cleaned as unknown as Record<string, unknown>,
+    };
+    const after = engine.applyAction(state, pid, {
+      type: 'meld',
+      payload: { melds: [{ cardIds: ['h1','h2','h3'] }] },
+    });
+    const sideMelds = pd(after).melds.A!;
+    expect(sideMelds).toHaveLength(1);
+    expect(sideMelds[0]!.rank).toBe('Q');
+    expect(sideMelds[0]!.naturals).toBe(6);
+    expect(sideMelds[0]!.wilds).toBe(0);
+  });
+
+  it('handleMeld: two same-rank new-meld groups in ONE action merge into one meld', () => {
+    // Side has no prior Q meld. Client (or bot) submits two groups of Qs
+    // in a single action. Both are "new melds" by the client's frame, but
+    // the engine must collapse them into a single 6-card meld.
+    const start = engine.startGame(makeConfig(4));
+    const pid = 'p1';
+    const hand = [
+      c('a1','Q','hearts'), c('a2','Q','spades'), c('a3','Q','clubs'),
+      c('b1','Q','diamonds'), c('b2','Q','hearts'), c('b3','Q','spades'),
+      c('bye','5','hearts'),
+    ];
+    const state0 = forceMeldPhase(seedHand(start, pid, hand), pid);
+    const pd0 = pd(state0);
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      scoresPriorHand: { ...pd0.scoresPriorHand, A: -1 }, // threshold drops to 15
+      initialMeldDone: { A: false, B: false },
+      melds: { A: [], B: [] },
+    };
+    const state: GameState = {
+      ...state0,
+      publicData: cleaned as unknown as Record<string, unknown>,
+    };
+    const after = engine.applyAction(state, pid, {
+      type: 'meld',
+      payload: { melds: [
+        { cardIds: ['a1','a2','a3'] },
+        { cardIds: ['b1','b2','b3'] },
+      ] },
+    });
+    const sideMelds = pd(after).melds.A!;
+    expect(sideMelds).toHaveLength(1);
+    expect(sideMelds[0]!.naturals).toBe(6);
+    // Initial-meld threshold satisfied (60 points of Qs, threshold 15).
+    expect(pd(after).initialMeldDone.A).toBe(true);
+  });
+
+  it('handleMeld: explicit extend on natural canasta with wild still blocks (guard applies to auto-merge too)', () => {
+    const natural: CanastaMeld = {
+      rank: 'Q',
+      cards: [
+        c('e1','Q','hearts'), c('e2','Q','spades'), c('e3','Q','clubs'),
+        c('e4','Q','diamonds'), c('e5','Q','hearts'), c('e6','Q','spades'),
+        c('e7','Q','clubs'),
+      ],
+      naturals: 7,
+      wilds: 0,
+      isCanasta: true,
+      canastaType: 'natural',
+    };
+    const start = engine.startGame(makeConfig(4));
+    const pid = 'p1';
+    const hand = [
+      c('h1','Q','diamonds'), c('h2','Q','hearts'), c('w','2','clubs'),
+    ];
+    const state0 = forceMeldPhase(seedHand(start, pid, hand), pid);
+    const pd0 = pd(state0);
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      initialMeldDone: { A: true, B: false },
+      melds: { A: [natural], B: [] },
+    };
+    const state: GameState = {
+      ...state0,
+      publicData: cleaned as unknown as Record<string, unknown>,
+    };
+    // Client omits `extend` — engine should STILL block the wild-on-
+    // natural-canasta conversion via the auto-merge path.
+    expect(() =>
+      engine.applyAction(state, pid, {
+        type: 'meld',
+        payload: { melds: [{ cardIds: ['h1','h2','w'] }] },
+      }),
+    ).toThrow(/natural canasta/i);
+  });
+
+  it('applyAction normalises an input state that already holds two same-rank melds', () => {
+    // Simulate a pre-fix persisted state: side A has TWO Q melds. The
+    // normalisation pass in applyAction should collapse them to one
+    // before any handler runs. We trigger the pass by calling a valid
+    // action (draw), then inspect the melds on the resulting state.
+    const dup1: CanastaMeld = {
+      rank: 'Q',
+      cards: [c('q1','Q','hearts'), c('q2','Q','spades'), c('q3','Q','clubs')],
+      naturals: 3,
+      wilds: 0,
+      isCanasta: false,
+    };
+    const dup2: CanastaMeld = {
+      rank: 'Q',
+      cards: [c('q4','Q','diamonds'), c('q5','Q','hearts'), c('q6','Q','spades')],
+      naturals: 3,
+      wilds: 0,
+      isCanasta: false,
+    };
+    const start = engine.startGame(makeConfig(4));
+    const pid = start.currentTurn!;
+    const pd0 = pd(start);
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      initialMeldDone: { A: true, B: false },
+      melds: { A: [dup1, dup2], B: [] },
+    };
+    const state: GameState = {
+      ...start,
+      publicData: cleaned as unknown as Record<string, unknown>,
+    };
+    const after = engine.applyAction(state, pid, { type: 'draw' });
+    const sidePid = sideOfForTest(pd0.variant, start.players.map((p) => p.playerId), pid);
+    void sidePid;
+    // A-side always holds the Qs in this test setup.
+    const sideMelds = pd(after).melds.A!;
+    expect(sideMelds).toHaveLength(1);
+    expect(sideMelds[0]!.naturals).toBe(6);
+  });
+});
+
+// Tiny local helper so the test above doesn't need to reach into the engine's
+// private sideOf (which isn't exported). Mirrors the 4p mapping used in tests.
+function sideOfForTest(_variant: string | undefined, _playerIds: string[], playerId: string): string {
+  return playerId;
+}
+
+// ===========================================================================
 // Discard-pickup UX: auto-infer hand selection when useCardIds is empty.
 // Clicking the discard pile / "Take Top" with nothing selected must Just Work
 // in the common cases (extend an existing open meld; use two naturals).

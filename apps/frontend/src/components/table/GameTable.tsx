@@ -449,9 +449,19 @@ export function GameTable({ roomId }: GameTableProps) {
     }
   }
   // Canasta + Rummy meld card sources (each game keeps its own shape).
+  // Canasta melds carry canasta-completion metadata (isCanasta flag +
+  // canastaType) so the UI can collapse them into a single-pile badge.
   const canastaSideMelds = gameState.gameId === 'canasta'
     ? ((gameState.publicData['melds'] as
-        | Record<string, Array<{ rank: string; cards?: Card[] }>>
+        | Record<
+            string,
+            Array<{
+              rank: string;
+              cards?: Card[];
+              isCanasta?: boolean;
+              canastaType?: 'natural' | 'mixed';
+            }>
+          >
         | undefined) ?? {})
     : {};
   for (const sideMelds of Object.values(canastaSideMelds)) {
@@ -491,10 +501,15 @@ export function GameTable({ roomId }: GameTableProps) {
         side = idx === 0 || idx === 2 ? 'A' : 'B';
       }
       const sideMelds = canastaSideMelds[side] ?? [];
-      // Canasta melds are sets-only (no runs); render as 'set'.
+      // Canasta melds are sets-only (no runs); render as 'set'. We also
+      // propagate the canasta-completion metadata so MeldsArea can
+      // collapse 7+ card melds into a single badge+pile rather than a
+      // long fan of cards.
       return sideMelds.map((m) => ({
         type: 'set' as const,
         cardIds: (m.cards ?? []).map((c) => c.id),
+        isCanasta: m.isCanasta ?? false,
+        canastaType: m.canastaType,
       }));
     }
     if (gameState.gameId === 'rummy') {

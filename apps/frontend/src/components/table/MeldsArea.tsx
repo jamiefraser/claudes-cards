@@ -11,6 +11,10 @@ import { CardComponent } from '../cards/CardComponent';
 export interface MeldGroup {
   type: 'set' | 'run' | 'color';
   cardIds: string[];
+  /** Canasta metadata. Optional because Phase 10 / Rummy don't use it. */
+  isCanasta?: boolean;
+  /** 'natural' = 7+ cards all naturals (500 bonus); 'mixed' = includes a wild (300 bonus). */
+  canastaType?: 'natural' | 'mixed';
 }
 
 export interface MeldsAreaProps {
@@ -62,6 +66,97 @@ function GroupDropZone({
       ].join(' ')}
     >
       {children}
+    </div>
+  );
+}
+
+/**
+ * Collapsed canasta pile. Once a meld becomes a canasta (7+ cards), we
+ * stop fanning every card and render a compact 3-card "shingle" plus a
+ * NATURAL / MIXED ribbon. The colour split deliberately mirrors the
+ * scoring bonus — ochre for natural (500 pts), burgundy for mixed
+ * (300 pts) — so an opponent can read the table's value from across
+ * the room.
+ */
+function CanastaPile({
+  cards,
+  canastaType,
+  scaleFactor,
+}: {
+  cards: Card[];
+  canastaType: 'natural' | 'mixed';
+  scaleFactor: number;
+}) {
+  const cardW = 3 * scaleFactor; // rem
+  const cardH = 4.5 * scaleFactor; // rem
+  // The first card in the meld's cardIds order is a natural of the rank
+  // (canasta invariant: at least 2 naturals). Render it face-up on top.
+  const topCard = cards[0];
+  if (!topCard) return null;
+
+  const isNatural = canastaType === 'natural';
+  const ribbon = isNatural ? 'Natural' : 'Mixed';
+  const ribbonClasses = isNatural
+    ? 'bg-ochre text-accent-fg border-ochre-hi'
+    : 'bg-burgundy text-white border-burgundy';
+
+  return (
+    <div
+      className="flex flex-col items-center gap-1"
+      aria-label={`${ribbon} canasta of ${cards.length} cards`}
+    >
+      {/* Scoring-value ribbon — the whole point of collapsing is that
+          the badge, not the card fan, is the visual focus. */}
+      <span
+        className={[
+          'px-2 py-0.5 rounded-full border font-display uppercase tracking-[0.14em]',
+          'text-[0.6rem] leading-none shadow-[0_1px_2px_rgba(0,0,0,0.2)]',
+          ribbonClasses,
+        ].join(' ')}
+      >
+        {ribbon} · {cards.length}
+      </span>
+      {/* Shingle: three layered card faces with a slight rotation so
+          the pile reads as "a stack" rather than "one card". The top
+          card is the most-rotated, catching the eye. */}
+      <div
+        className="relative"
+        style={{
+          width: `calc(${cardW}rem + 8px)`,
+          height: `calc(${cardH}rem + 8px)`,
+        }}
+      >
+        {[
+          { rot: '-6deg', offset: '-4px', z: 1 },
+          { rot: '0deg', offset: '0px', z: 2 },
+          { rot: '5deg', offset: '4px', z: 3 },
+        ].map((slot, i) => (
+          <div
+            key={i}
+            className="absolute top-0 left-0"
+            style={{
+              width: `${cardW}rem`,
+              height: `${cardH}rem`,
+              transform: `translateX(${slot.offset}) rotate(${slot.rot})`,
+              transformOrigin: 'center center',
+              zIndex: slot.z,
+            }}
+          >
+            <div
+              style={
+                scaleFactor < 1
+                  ? {
+                      transform: `scale(${scaleFactor})`,
+                      transformOrigin: 'top left',
+                    }
+                  : undefined
+              }
+            >
+              <CardComponent card={topCard} faceUp={true} selected={false} />
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -132,16 +227,30 @@ export function MeldsArea({
           const cards = group.cardIds
             .map(id => cardCatalogue[id])
             .filter((c): c is Card => !!c);
-          const body = (
+          // Canasta (7+ cards): render a COLLAPSED pile. Fanning 7-12
+          // cards horizontally takes too much room and a completed
+          // canasta is effectively a single scoring unit — the badge
+          // shows natural/mixed status, which is all the opponent needs
+          // to read at a glance.
+          const body = group.isCanasta ? (
+            <CanastaPile
+              cards={cards}
+              canastaType={group.canastaType ?? 'natural'}
+              scaleFactor={scaleFactor}
+            />
+          ) : (
             <div
               className="flex flex-col items-center"
               aria-label={`${group.type} of ${cards.length}`}
             >
               <GroupTypeBadge type={group.type} />
-              {/* flex-wrap so a long meld (e.g. phase 8 of 7+ cards after a
-                  few hits) wraps to a second row instead of overflowing
-                  the seat horizontally. */}
-              <div className={`flex flex-row flex-wrap ${overlapClass}`}>
+              {/* flex-nowrap: every card in one meld must stay on the
+                  same row (the engine treats them as a single group; if
+                  they wrap visually the UI suggests they're two
+                  separate melds, which they aren't). The outer `groups`
+                  container already wraps BETWEEN melds when the row
+                  overflows, which is the correct break-point. */}
+              <div className={`flex flex-row flex-nowrap ${overlapClass}`}>
                 {cards.map(card => (
                   <div
                     key={card.id}

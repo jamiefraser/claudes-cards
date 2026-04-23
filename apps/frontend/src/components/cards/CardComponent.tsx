@@ -97,8 +97,8 @@ export function CardComponent({
         'transition-[transform,box-shadow,border-color] duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)]',
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi focus-visible:ring-offset-2 focus-visible:ring-offset-paper',
         selected
-          ? 'border-ochre -translate-y-[10px] shadow-lift'
-          : 'border-hairline/80 hover:-translate-y-[4px] hover:border-ochre/60',
+          ? 'border-ochre -translate-y-[10px] shadow-lift origin-bottom'
+          : 'border-hairline/80 hover:-translate-y-[4px] hover:shadow-lift hover:border-ochre/60 hover:z-[31]',
         !faceUp ? 'bg-[#1f2530]' : 'bg-[#ffffff]',
       ].join(' ')}
     >

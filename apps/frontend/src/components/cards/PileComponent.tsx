@@ -23,6 +23,10 @@ export interface PileComponentProps {
   isDropTarget?: boolean;
   /** Deck type controls which card-back art the draw pile shows. */
   deckType?: DeckType;
+  /** For discard pile: total count of cards in the pile (DEF-007). */
+  discardPileCount?: number;
+  /** For discard pile: whether the pile is currently frozen (DEF-013). */
+  isFrozen?: boolean;
 }
 
 export function PileComponent({
@@ -32,6 +36,8 @@ export function PileComponent({
   onClick,
   isDropTarget = false,
   deckType = 'standard',
+  discardPileCount,
+  isFrozen = false,
 }: PileComponentProps) {
   if (type === 'draw') {
     const backUrl = getCardBackUrl(deckType);
@@ -86,14 +92,16 @@ export function PileComponent({
     <button
       type="button"
       onClick={onClick}
-      aria-label={topCard ? 'Discard pile' : 'Empty discard pile'}
+      aria-label={topCard ? `Discard pile${discardPileCount != null ? ` — ${discardPileCount} cards` : ''}${isFrozen ? ' (frozen)' : ''}` : 'Empty discard pile'}
       aria-dropeffect={isDropTarget ? 'move' : 'none'}
       className={[
         'relative w-16 h-24 rounded-md border-2 cursor-pointer overflow-hidden',
         'flex items-center justify-center',
         isDropTarget
           ? 'border-sage ring-2 ring-sage/40'
-          : 'border-hairline',
+          : isFrozen
+            ? 'border-sky-400 ring-1 ring-sky-400/40'
+            : 'border-hairline',
         !topCard ? 'bg-paper-deep border-dashed' : 'bg-[#ffffff]',
         'transition-[border-color,box-shadow,background-color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi focus-visible:ring-offset-2 focus-visible:ring-offset-paper',
       ].join(' ')}
@@ -114,6 +122,21 @@ export function PileComponent({
       ) : (
         <span className="text-whisper text-xs text-center px-1 font-mono">
           {topCard ? '' : en.app.loading}
+        </span>
+      )}
+      {/* DEF-007: Discard pile count badge */}
+      {discardPileCount != null && (
+        <span className="absolute bottom-1 right-1 bg-ink/80 text-paper text-xs rounded px-1 font-mono tabular-nums">
+          {discardPileCount}
+        </span>
+      )}
+      {/* DEF-013: Freeze indicator */}
+      {isFrozen && (
+        <span
+          className="absolute top-1 left-1 bg-sky-400/90 text-paper text-[0.6rem] rounded px-1 font-bold"
+          aria-label="Pile is frozen"
+        >
+          *
         </span>
       )}
     </button>

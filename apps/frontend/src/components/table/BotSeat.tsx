@@ -59,7 +59,11 @@ export function BotSeat({
   const tooltipText = en.table.botTooltip.replace('{name}', originalDisplayName);
   const backUrl = getCardBackUrl(deckType);
   const needsCrop = backImageNeedsLeftCrop(deckType);
-  const visibleCards = Math.min(playerState.hand.length, 7);
+  // DEF-012: Scale the visible face-down stack to roughly correlate with
+  // the actual hand count. Show ceil(handLength/2) cards capped at 14 so
+  // the visual stack grows/shrinks proportionally. The numeric text below
+  // remains the source of truth for the exact count.
+  const visibleCards = Math.min(Math.ceil(playerState.hand.length / 2), 14);
   const cardBackSizeClass = compact ? 'w-4 h-6' : 'w-5 h-7';
   const cardBackOverlap = compact ? '-8px' : '-10px';
 

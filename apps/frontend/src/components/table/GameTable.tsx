@@ -388,6 +388,11 @@ export function GameTable({ roomId }: GameTableProps) {
     (gameState.publicData['discardTop'] as Card | null | undefined) ??
     (gameState.publicData['topDiscard'] as Card | null | undefined) ??
     null;
+  // DEF-007: discard pile count (Canasta exposes discardPile array).
+  const discardPileRaw = gameState.publicData['discardPile'] as Card[] | undefined;
+  const discardPileCount = discardPileRaw?.length;
+  // DEF-013: discard pile frozen state (Canasta).
+  const discardFrozen = (gameState.publicData['discardFrozen'] as boolean | undefined) ?? false;
 
   // Player names for cribbage board
   const playerNames = Object.fromEntries(
@@ -1021,6 +1026,8 @@ export function GameTable({ roomId }: GameTableProps) {
                         topCard={topDiscard}
                         isDropTarget={true}
                         deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
+                        discardPileCount={discardPileCount}
+                        isFrozen={discardFrozen}
                         onClick={() => {
                           if (!isMyTurn) return;
                           const socket = getGameSocket();

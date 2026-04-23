@@ -438,8 +438,17 @@ function extendMeld(existing: CanastaMeld, added: Card[], check: MeldCheckOk): C
   };
 }
 
-/** Sum of natural card-point values in a meld (excluding bonus items). */
-function meldNaturalPoints(cards: Card[]): number {
+/**
+ * Sum of card-point values across every card in a meld — naturals AND wilds
+ * (Joker = 50, two = 20). Used for initial-meld threshold math: every card
+ * laid down contributes its face value, including the top card when forming
+ * a pickup meld. Bonuses (red 3s, canasta, going-out) are NOT included here —
+ * they're applied at hand end, not toward the initial-meld threshold.
+ *
+ * The old name (`meldNaturalPoints`) was misleading; the body has always
+ * summed wilds via `canastaCardPoints`, but the name suggested otherwise.
+ */
+function meldCardPointTotal(cards: Card[]): number {
   return cards.reduce((sum, c) => sum + canastaCardPoints(c), 0);
 }
 
@@ -977,13 +986,30 @@ export class CanastaEngine implements IGameEngine {
       const cards = [top, ...handSelected];
       const check = validateNewMeld(cards) as MeldCheckOk;
       newMelds[side] = [...newMelds[side]!, meldFromCards(cards, check)];
-      initialMeldPoints = meldNaturalPoints(cards);
+      initialMeldPoints = meldCardPointTotal(cards);
     }
 
-    // If a new meld was made AND side had not yet made initial meld, we need
-    // to honour the initial-meld threshold including any extra melds declared
-    // in the same action. Unified into the single return below so the merge
-    // (E6) and undischargeable-hand (E19) checks run regardless of path.
+    // Step 4 — initial-meld threshold on discard pickup.
+    //
+    //   threshold_sum =
+    //     card_point_value(top) + Σ card_point_value(c) for c in pickupMeld.hand
+    //                           + Σ Σ card_point_value(c) for each extra meld
+    //                             in action.payload.melds, over every card in
+    //                             that meld
+    //
+    // Rules:
+    //   - Wilds (Joker = 50, two = 20) count at their full face value.
+    //   - The top card counts at its face value.
+    //   - Every new meld in the plan contributes — the pickup meld plus all
+    //     additional melds the player lays down in the same action.
+    //   - Bonuses (red-3 = 100, canasta = 300/500, going-out = 100/200) do
+    //     NOT contribute; those are applied at hand end, not to the threshold.
+    //   - If `flags.initialMeldMayUsePileCards` is false (default), cards
+    //     pulled from under the top of the discard pile don't contribute
+    //     even though they land in the meld — gated below.
+    //
+    // See regression suite "CanastaEngine — initial-meld threshold on discard
+    // pickup" in canastaEngine.test.ts for the 13 anchored cases.
     let newInitialMeldDone = { ...pd.initialMeldDone };
     let handAfter = [...newHand];
     if (!pd.initialMeldDone[side]) {
@@ -1007,7 +1033,7 @@ export class CanastaEngine implements IGameEngine {
         const countableCards = pd.flags.initialMeldMayUsePileCards
           ? cs
           : cs.filter((c) => !pileCardIds.has(c.id));
-        extraPoints += meldNaturalPoints(countableCards);
+        extraPoints += meldCardPointTotal(countableCards);
         handAfter = handAfter.filter((c) => !group.includes(c.id));
         newMelds[side] = [...newMelds[side]!, meldFromCards(cs, check as MeldCheckOk)];
       }
@@ -1153,9 +1179,9 @@ export class CanastaEngine implements IGameEngine {
           // existing meld for bookkeeping) — count toward initial meld
           // threshold so a side that hasn't yet melded can legally
           // satisfy it by adding to a meld created in the same action.
-          initialPointsThisTurn += meldNaturalPoints(cs);
+          initialPointsThisTurn += meldCardPointTotal(cs);
         } else {
-          initialPointsThisTurn += meldNaturalPoints(cs);
+          initialPointsThisTurn += meldCardPointTotal(cs);
           newMeldsForSide = [...newMeldsForSide, meldFromCards(cs, check as MeldCheckOk)];
         }
       }

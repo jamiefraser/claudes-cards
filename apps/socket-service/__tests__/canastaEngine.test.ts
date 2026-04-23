@@ -2043,3 +2043,356 @@ describe('CanastaEngine — rollback via snapshot', () => {
     expect(JSON.stringify(state)).toBe(JSON.stringify(snapshot));
   });
 });
+
+// ===========================================================================
+// Initial-meld threshold on discard pickup — 12 regression cases covering the
+// Step 4 validator. The rule: sum card_point_value across every card in every
+// meld being laid down (pickup meld + any additional melds), including wilds
+// and the top card. Bonuses (red-3, canasta, going-out) do not contribute.
+// Under a frozen pile, Step 3's "two naturals from hand" requirement for the
+// pickup meld is independent of the threshold sum; wilds may still be added
+// to a meld already anchored by those two naturals, and those wilds count
+// toward the threshold.
+// ===========================================================================
+
+describe('CanastaEngine — initial-meld threshold on discard pickup', () => {
+  const engine = new CanastaEngine();
+
+  /**
+   * Builds a state where side A has not yet made its initial meld and the
+   * discard pile is a single top card. Seeds the player's hand exactly as
+   * supplied (plus one leftover 4 by default, so the post-pickup hand is
+   * never empty — the E19 undischargeable-hand guard would otherwise fire).
+   */
+  function buildThresholdScenario(opts: {
+    top: Card;
+    hand: Card[];
+    buriedPile?: Card[];
+    frozen?: boolean;
+    priorScore?: number;
+    existingMeldsA?: CanastaMeld[];
+    flagMayUsePileCards?: boolean;
+  }): { state: GameState; pid: string } {
+    const start = engine.startGame(makeConfig(4));
+    const pid = 'p1';
+    // Leftover guarantees handAfter.length > 0. Never referenced by plans.
+    const leftover = c('leftover-4','4','hearts');
+    const handWithLeftover = [...opts.hand, leftover];
+    const state0 = seedHand(start, pid, handWithLeftover);
+    const pd0 = pd(state0);
+    const buried = opts.buriedPile ?? [];
+    const topFaceUp = { ...opts.top, faceUp: true };
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      discardPile: [...buried, topFaceUp],
+      discardTop: topFaceUp,
+      discardFrozen: !!opts.frozen,
+      scoresPriorHand: { ...pd0.scoresPriorHand, A: opts.priorScore ?? 0 },
+      initialMeldDone: { A: false, B: false },
+      initialMeldDoneAtTurnStart: { A: false, B: false },
+      melds: { A: opts.existingMeldsA ?? [], B: [] },
+      flags: {
+        ...pd0.flags,
+        initialMeldMayUsePileCards: !!opts.flagMayUsePileCards,
+      },
+    };
+    return {
+      pid,
+      state: {
+        ...state0,
+        currentTurn: pid,
+        publicData: cleaned as unknown as Record<string, unknown>,
+      },
+    };
+  }
+
+  // --- 1. Threshold met by pickup meld with wilds (top K, K+K+Joker) -------
+  it('1. accepts pickup meld whose wilds push it to threshold', () => {
+    const { state, pid } = buildThresholdScenario({
+      top: c('top','K','hearts'),
+      hand: [c('k1','K','spades'), c('k2','K','clubs'), JOKER('j1')],
+    });
+    const after = engine.applyAction(state, pid, {
+      type: 'take-discard',
+      payload: { useCardIds: ['k1','k2','j1'] },
+    });
+    const meld = pd(after).melds.A![0]!;
+    expect(meld.naturals).toBe(3);
+    expect(meld.wilds).toBe(1);
+    expect(pd(after).initialMeldDone.A).toBe(true);
+  });
+
+  // --- 2. Threshold met across multiple melds (pickup + second meld) -------
+  it('2. accepts when sum across pickup meld + extra meld >= threshold', () => {
+    const { state, pid } = buildThresholdScenario({
+      top: c('top','5','hearts'),
+      hand: [
+        c('h5a','5','spades'), c('h5b','5','clubs'),
+        c('hq1','Q','hearts'), c('hq2','Q','diamonds'),
+        c('hq3','Q','clubs'),  c('hq4','Q','spades'),
+      ],
+    });
+    const after = engine.applyAction(state, pid, {
+      type: 'take-discard',
+      payload: {
+        useCardIds: ['h5a','h5b'],
+        melds: [['hq1','hq2','hq3','hq4']],
+      },
+    });
+    expect(pd(after).melds.A).toHaveLength(2);
+    expect(pd(after).initialMeldDone.A).toBe(true);
+  });
+
+  // --- 3. Multi-meld with a wild in the non-pickup meld --------------------
+  it('3. accepts when a wild in a non-pickup meld carries its full value', () => {
+    const { state, pid } = buildThresholdScenario({
+      top: c('top','4','hearts'),
+      hand: [
+        c('h4a','4','spades'), c('h4b','4','clubs'),
+        c('h9a','9','hearts'), c('h9b','9','diamonds'), c('h9c','9','clubs'),
+        c('w2s','2','spades'), // wild = 20 pts
+      ],
+    });
+    const after = engine.applyAction(state, pid, {
+      type: 'take-discard',
+      payload: {
+        useCardIds: ['h4a','h4b'],
+        melds: [['h9a','h9b','h9c','w2s']],
+      },
+    });
+    expect(pd(after).melds.A).toHaveLength(2);
+    expect(pd(after).initialMeldDone.A).toBe(true);
+  });
+
+  // --- 4. Frozen pile, pickup meld includes a wild alongside 2 naturals ---
+  it('4. accepts under frozen pile when 2-naturals anchor holds AND wilds count', () => {
+    const { state, pid } = buildThresholdScenario({
+      top: c('top','A','hearts'),
+      hand: [
+        c('ha1','A','spades'), c('ha2','A','clubs'),
+        c('w2d','2','diamonds'), // wild
+      ],
+      frozen: true,
+    });
+    const after = engine.applyAction(state, pid, {
+      type: 'take-discard',
+      payload: { useCardIds: ['ha1','ha2','w2d'] },
+    });
+    const meld = pd(after).melds.A![0]!;
+    expect(meld.naturals).toBe(3);
+    expect(meld.wilds).toBe(1);
+    expect(pd(after).initialMeldDone.A).toBe(true);
+  });
+
+  // --- 5. Threshold not met even with wilds and multi-meld ---------------
+  it('5. rejects INITIAL_MELD_NOT_MET when sum across all melds falls short', () => {
+    const { state, pid } = buildThresholdScenario({
+      top: c('top','4','hearts'),
+      hand: [
+        c('h4a','4','spades'), c('h4b','4','clubs'),
+        c('h6a','6','diamonds'), c('h6b','6','clubs'), c('h6c','6','spades'),
+      ],
+    });
+    const code = expectPickupCode(() =>
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: {
+          useCardIds: ['h4a','h4b'],
+          melds: [['h6a','h6b','h6c']],
+        },
+      }),
+    );
+    expect(code).toBe('INITIAL_MELD_NOT_MET');
+  });
+
+  // --- 6. Frozen, composition still enforced even if threshold would pass --
+  it('6. rejects FROZEN_WILD_MATCH_FORBIDDEN before threshold (1 natural + 2 wilds)', () => {
+    const { state, pid } = buildThresholdScenario({
+      top: c('top','K','hearts'),
+      hand: [
+        c('k1','K','spades'),  // only 1 natural match
+        JOKER('j1'), JOKER('j2'),
+      ],
+      frozen: true,
+    });
+    const code = expectPickupCode(() =>
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: { useCardIds: ['k1','j1','j2'] },
+      }),
+    );
+    expect(code).toBe('FROZEN_WILD_MATCH_FORBIDDEN');
+  });
+
+  // --- 7. Unfrozen, one-natural + one-wild pickup meld (Step 3 method 2) --
+  // SPEC DEVIATION: the bug spec specifies this test under "side has not yet
+  // made its initial meld", but the engine enforces Hoyle's rule that a side
+  // which has NOT yet melded must treat the pile as effectively frozen
+  // (engine.ts:828 `effectivelyFrozen = discardFrozen || !initialMeldDone`).
+  // Under that rule, 1-nat + 1-wild pickup is illegal pre-initial-meld
+  // regardless of threshold — Step 3 method 2 only activates once the side
+  // has melded. We verify the method-2 pickup in the regime where it IS
+  // legal (post-initial-meld). The threshold summing behaviour is still
+  // covered by tests 1–6 and 8–12.
+  it('7. accepts unfrozen pickup via one-natural + one-wild (post-initial-meld)', () => {
+    const { state: base, pid } = buildThresholdScenario({
+      top: c('top','K','hearts'),
+      hand: [c('k1','K','spades'), JOKER('j1')],
+    });
+    // Flip initial-meld-done so the effectively-frozen-until-meld rule lifts.
+    const state: GameState = {
+      ...base,
+      publicData: {
+        ...(base.publicData as Record<string, unknown>),
+        initialMeldDone: { A: true, B: false },
+        initialMeldDoneAtTurnStart: { A: true, B: false },
+      } as Record<string, unknown>,
+    };
+    const after = engine.applyAction(state, pid, {
+      type: 'take-discard',
+      payload: { useCardIds: ['k1','j1'] },
+    });
+    const meld = pd(after).melds.A![0]!;
+    expect(meld.naturals).toBe(2);
+    expect(meld.wilds).toBe(1);
+  });
+
+  // --- 8. Red-three bonus on the board does not contribute to threshold ---
+  it('8. rejects when only a red-3 bonus would lift the side to threshold', () => {
+    const red3Meld: CanastaMeld = {
+      rank: '3',
+      cards: [c('r3h','3','hearts')],
+      naturals: 0, // red 3s are a bonus marker, not a rank meld
+      wilds: 0,
+      isCanasta: false,
+      redThrees: true,
+    } as CanastaMeld;
+    const { state, pid } = buildThresholdScenario({
+      top: c('top','4','hearts'),
+      hand: [c('h4a','4','spades'), c('h4b','4','clubs')],
+      existingMeldsA: [red3Meld],
+    });
+    const code = expectPickupCode(() =>
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: { useCardIds: ['h4a','h4b'] },
+      }),
+    );
+    expect(code).toBe('INITIAL_MELD_NOT_MET');
+  });
+
+  // --- 9. Canasta bonus does not contribute to threshold ------------------
+  it('9. rejects seven-7s meld (35 raw pts) even though it forms a canasta', () => {
+    const { state, pid } = buildThresholdScenario({
+      top: c('top','7','hearts'),
+      hand: [
+        c('h7a','7','spades'), c('h7b','7','clubs'), c('h7c','7','diamonds'),
+        c('h7d','7','hearts'), c('h7e','7','spades'), c('h7f','7','clubs'),
+      ],
+    });
+    const code = expectPickupCode(() =>
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: {
+          useCardIds: ['h7a','h7b','h7c','h7d','h7e','h7f'],
+        },
+      }),
+    );
+    expect(code).toBe('INITIAL_MELD_NOT_MET');
+  });
+
+  // --- 10. Boundary: exactly at threshold --------------------------------
+  it('10. accepts when sum equals the threshold exactly', () => {
+    const { state, pid } = buildThresholdScenario({
+      top: c('top','5','hearts'),
+      hand: [
+        c('h5a','5','spades'), c('h5b','5','clubs'), c('h5c','5','diamonds'),
+        c('h8a','8','diamonds'), c('h8b','8','hearts'), c('h8c','8','spades'),
+      ],
+    });
+    const after = engine.applyAction(state, pid, {
+      type: 'take-discard',
+      payload: {
+        useCardIds: ['h5a','h5b','h5c'],
+        melds: [['h8a','h8b','h8c']],
+      },
+    });
+    expect(pd(after).initialMeldDone.A).toBe(true);
+    expect(pd(after).melds.A).toHaveLength(2);
+  });
+
+  // --- 11. A structurally-invalid meld in the plan halts the pickup ------
+  it('11. rejects MELD_STRUCTURE_INVALID on illegal extra meld even if sum would pass', () => {
+    const { state, pid } = buildThresholdScenario({
+      top: c('top','K','hearts'),
+      hand: [
+        c('k1','K','spades'), c('k2','K','clubs'),
+        c('w2d','2','diamonds'), c('w2h','2','hearts'), JOKER('j1'),
+      ],
+    });
+    expect(() =>
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: {
+          useCardIds: ['k1','k2'],
+          // Three wilds, zero naturals — illegal new meld.
+          melds: [['w2d','w2h','j1']],
+        },
+      }),
+    ).toThrow(/meld/i);
+    // And the side's initial meld must not flip to done on rejection.
+    expect(pd(state).initialMeldDone.A).toBe(false);
+  });
+
+  // --- 12a. Flag OFF: buried pile cards are excluded from the sum --------
+  it('12a. with initialMeldMayUsePileCards=false, buried cards do not count', () => {
+    const { state, pid } = buildThresholdScenario({
+      top: c('top','K','hearts'),
+      // buried 9 under the top; player adds it to a hand-built 9-meld.
+      buriedPile: [c('pc1','9','clubs')],
+      hand: [
+        c('k1','K','spades'), c('k2','K','clubs'),
+        c('h9a','9','hearts'), c('h9b','9','diamonds'),
+      ],
+      priorScore: 1500, // threshold bumps to 90
+      frozen: true,
+      flagMayUsePileCards: false,
+    });
+    // Top K meld = 30. Extra meld [h9a,h9b,pc1]: without pc1 → 20 pts → 50 < 90.
+    const code = expectPickupCode(() =>
+      engine.applyAction(state, pid, {
+        type: 'take-discard',
+        payload: {
+          useCardIds: ['k1','k2'],
+          melds: [['h9a','h9b','pc1']],
+        },
+      }),
+    );
+    expect(code).toBe('INITIAL_MELD_NOT_MET');
+  });
+
+  // --- 12b. Flag ON: buried pile cards contribute to the sum -------------
+  it('12b. with initialMeldMayUsePileCards=true, buried cards contribute', () => {
+    // Same geometry, but now pile cards count. Top K meld = 30; extra 3x9
+    // with pile card included = 30; total 60. Threshold 50 (default prior).
+    const { state, pid } = buildThresholdScenario({
+      top: c('top','K','hearts'),
+      buriedPile: [c('pc1','9','clubs')],
+      hand: [
+        c('k1','K','spades'), c('k2','K','clubs'),
+        c('h9a','9','hearts'), c('h9b','9','diamonds'),
+      ],
+      frozen: true,
+      flagMayUsePileCards: true,
+    });
+    const after = engine.applyAction(state, pid, {
+      type: 'take-discard',
+      payload: {
+        useCardIds: ['k1','k2'],
+        melds: [['h9a','h9b','pc1']],
+      },
+    });
+    expect(pd(after).initialMeldDone.A).toBe(true);
+    expect(pd(after).melds.A).toHaveLength(2);
+  });
+});

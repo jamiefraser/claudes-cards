@@ -18,4 +18,34 @@ describe('<OpponentRoster />', () => {
     expect(roster).toHaveClass('flex-row');
     expect(roster).toHaveClass('justify-center');
   });
+
+  it('applies negative bottom margin when tuckOverlap is provided', () => {
+    render(
+      <OpponentRoster tuckOverlap={48}>
+        <span>Opponent</span>
+      </OpponentRoster>,
+    );
+    const roster = screen.getByTestId('opponent-roster');
+    expect(roster.style.marginBottom).toBe('-48px');
+  });
+
+  it('does not apply negative margin when tuckOverlap is 0', () => {
+    render(
+      <OpponentRoster tuckOverlap={0}>
+        <span>Opponent</span>
+      </OpponentRoster>,
+    );
+    const roster = screen.getByTestId('opponent-roster');
+    expect(roster.style.marginBottom).toBe('');
+  });
+
+  it('has z-10 class for layering above the felt', () => {
+    render(
+      <OpponentRoster>
+        <span>Opponent</span>
+      </OpponentRoster>,
+    );
+    const roster = screen.getByTestId('opponent-roster');
+    expect(roster).toHaveClass('z-10');
+  });
 });

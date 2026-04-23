@@ -1134,9 +1134,11 @@ export function GameTable({ roomId }: GameTableProps) {
           {floatingChromeRight}
           {rulesDrawer}
 
-          {/* Top opponents — badges + melds above the felt */}
+          {/* Top opponents — badges + melds above the felt.
+              tuckOverlap=48 makes the melds panel overlap into the
+              felt's top edge by 48px (desktop). */}
           {topOpponents.length > 0 && (
-            <OpponentRoster>
+            <OpponentRoster tuckOverlap={48}>
               {topOpponents.map(({ player: p }) => (
                 <div key={p.playerId} className="flex flex-col items-center gap-2 min-w-0">
                   <OpponentBadge orientation="top" displayName={p.displayName}>
@@ -1173,19 +1175,6 @@ export function GameTable({ roomId }: GameTableProps) {
               className="relative w-full max-w-[880px]"
               style={{ aspectRatio: `${FELT_W} / ${FELT_H}` }}
             >
-              {/* Top meld tuck — meld panels overlap into the felt's top edge
-                  by 48px (desktop). overflow:visible on TableSurface prevents
-                  clipping. */}
-              {topOpponents.length > 0 && topOpponents.some(({ player: p }) => meldsByPlayer(p.playerId).length > 0) && (
-                <div
-                  className="absolute left-0 right-0 z-10 flex flex-row flex-wrap gap-3 justify-center pointer-events-auto"
-                  style={{ top: '-48px' }}
-                >
-                  {/* Melds already rendered in OpponentRoster above; this
-                      tuck is handled by the roster's bottom margin and the
-                      felt's relative positioning. */}
-                </div>
-              )}
               <TableFelt width={FELT_W} height={FELT_H}>
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 py-6">
                   <StockDiscardArea>

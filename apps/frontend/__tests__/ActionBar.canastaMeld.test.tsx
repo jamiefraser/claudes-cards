@@ -24,11 +24,40 @@ vi.mock('@/hooks/useSocket', () => ({
   }),
 }));
 
-// Mock gameStore with clearSelection
+// Mock gameStore with clearSelection + canasta pickup-mode state.
+// ActionBar drives pickup mode through the store now (the Take Top button
+// is gone — the discard pile click in GameTable calls startCanastaPickup),
+// so the tests drive it the same way: flip `pickupState.active` before
+// rendering to simulate "user clicked the pile".
 const mockClearSelection = vi.fn();
+let pickupState: {
+  active: boolean;
+  stagedMelds: Array<{
+    id: string;
+    cards: Array<{ id: string; rank?: string; suit?: string }>;
+    includesTop: boolean;
+  }>;
+} = { active: false, stagedMelds: [] };
+const mockSetCanastaStagedMelds = vi.fn(
+  (melds: typeof pickupState.stagedMelds) => {
+    pickupState = { ...pickupState, stagedMelds: melds };
+  },
+);
+const mockCancelCanastaPickup = vi.fn(() => {
+  pickupState = { active: false, stagedMelds: [] };
+});
+const mockStartCanastaPickup = vi.fn(() => {
+  pickupState = { active: true, stagedMelds: [] };
+});
 vi.mock('@/store/gameStore', () => ({
   useGameStore: (selector: (s: Record<string, unknown>) => unknown) =>
-    selector({ clearSelection: mockClearSelection }),
+    selector({
+      clearSelection: mockClearSelection,
+      canastaPickup: pickupState,
+      setCanastaStagedMelds: mockSetCanastaStagedMelds,
+      cancelCanastaPickup: mockCancelCanastaPickup,
+      startCanastaPickup: mockStartCanastaPickup,
+    }),
 }));
 
 // Stub Toast
@@ -77,6 +106,10 @@ function renderCanasta(props: {
 beforeEach(() => {
   mockEmit.mockClear();
   mockClearSelection.mockClear();
+  mockSetCanastaStagedMelds.mockClear();
+  mockCancelCanastaPickup.mockClear();
+  mockStartCanastaPickup.mockClear();
+  pickupState = { active: false, stagedMelds: [] };
 });
 
 afterEach(() => {
@@ -380,8 +413,12 @@ function renderCanastaDraw(props: {
   );
 }
 
-describe('ActionBar — Canasta Take Top enters pickup mode', () => {
-  it('clicking Take Top with pre-initial-meld side enters pickup mode (no emit)', () => {
+// Pickup mode is now triggered by the discard-pile click in GameTable
+// (which calls the store's startCanastaPickup action). These tests drive
+// the store action directly to verify ActionBar's pickup-mode rendering.
+describe('ActionBar — Canasta pickup mode entry', () => {
+  it('renders the pickup banner when pickupState.active is set', () => {
+    pickupState = { active: true, stagedMelds: [] };
     renderCanastaDraw({
       discardTopRank: 'K',
       selectedCardIds: ['k1', 'k2'],
@@ -391,19 +428,21 @@ describe('ActionBar — Canasta Take Top enters pickup mode', () => {
       ],
       initialMeldDone: false,
     });
-    fireEvent.click(screen.getByLabelText(/take top/i));
     expect(mockEmit).not.toHaveBeenCalled();
     expect(screen.getByText(/pickup:/i)).toBeInTheDocument();
   });
 
-  it('Take Top is enabled whenever it is my turn in the draw phase', () => {
+  it('renders the draw-phase hint (no buttons) when not in pickup mode', () => {
     renderCanastaDraw({
       discardTopRank: 'K',
       selectedCardIds: [],
       selectedCards: [],
     });
-    const btn = screen.getByLabelText(/take top/i);
-    expect(btn).not.toBeDisabled();
+    // No Draw Deck / Take Top buttons any more — they live on the piles.
+    expect(screen.queryByLabelText(/draw from deck/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/take top card/i)).not.toBeInTheDocument();
+    // The bar still hints at what to do.
+    expect(screen.getByText(/click the deck/i)).toBeInTheDocument();
   });
 });
 
@@ -414,7 +453,11 @@ describe('ActionBar — Canasta Take Top enters pickup mode', () => {
 // the compiled plan auto-submits as a single take-discard action.
 // ---------------------------------------------------------------------------
 
-describe('ActionBar — Canasta pickup staging (Take Top iterative flow)', () => {
+describe('ActionBar — Canasta pickup staging (iterative flow)', () => {
+  // Pickup mode is entered via the store action startCanastaPickup (called
+  // from GameTable's discard-pile onClick). In this unit test we set the
+  // pickup-state flag directly and render ActionBar, simulating that the
+  // pile has just been clicked.
   function enterPickupMode(opts: {
     selectedCards?: Array<{ id: string; rank?: string; suit?: string }>;
     selectedCardIds?: string[];
@@ -422,29 +465,8 @@ describe('ActionBar — Canasta pickup staging (Take Top iterative flow)', () =>
     initialMeldDone?: boolean;
     sideScorePrior?: number;
   }) {
-    const { rerender, ...rest } = render(
-      <ActionBar
-        roomId="room-1"
-        isMyTurn={true}
-        selectedCardIds={[]}
-        gameId="canasta"
-        canasta={{
-          phase: 'draw',
-          selectedCards: [],
-          extendableMelds: [],
-          handSize: 11,
-          sideCanastaCount: 0,
-          goOutRequirement: 1,
-          discardTopRank: opts.discardTopRank,
-          discardFrozen: false,
-          initialMeldDone: opts.initialMeldDone ?? false,
-          sideScorePrior: opts.sideScorePrior ?? 0,
-        }}
-      />,
-    );
-    fireEvent.click(screen.getByLabelText(/take top/i));
-    // Re-render with the caller's selection so Stage Meld has input.
-    rerender(
+    pickupState = { active: true, stagedMelds: [] };
+    return render(
       <ActionBar
         roomId="room-1"
         isMyTurn={true}
@@ -464,10 +486,9 @@ describe('ActionBar — Canasta pickup staging (Take Top iterative flow)', () =>
         }}
       />,
     );
-    return rest;
   }
 
-  it('Take Top enters pickup mode — progress banner appears, no emit yet', () => {
+  it('pickup mode shows progress banner and Cancel, no emit yet', () => {
     enterPickupMode({ discardTopRank: 'K' });
     expect(mockEmit).not.toHaveBeenCalled();
     expect(screen.getByText(/pickup: 0 \/ 50 pts/i)).toBeInTheDocument();
@@ -516,13 +537,11 @@ describe('ActionBar — Canasta pickup staging (Take Top iterative flow)', () =>
     );
   });
 
-  it('Cancel Pickup returns to the draw phase without emit', () => {
+  it('Cancel Pickup calls the store action and does not emit', () => {
     enterPickupMode({ discardTopRank: 'K' });
     fireEvent.click(screen.getByLabelText(/cancel pickup/i));
     expect(mockEmit).not.toHaveBeenCalled();
-    // Back to the default draw phase bar.
-    expect(screen.getByLabelText(/draw from deck/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/take top/i)).toBeInTheDocument();
+    expect(mockCancelCanastaPickup).toHaveBeenCalled();
   });
 
   it('rejects a top-card meld with fewer than 2 naturals of the top rank', () => {
@@ -542,40 +561,8 @@ describe('ActionBar — Canasta pickup staging (Take Top iterative flow)', () =>
     expect(screen.getByText(/top-card meld still needed/i)).toBeInTheDocument();
   });
 
-  it('quick-extend path: post-initial-meld + empty selection + extendable of top rank submits directly', () => {
-    // Side has made initial meld and already has a K meld → old one-click
-    // auto-extend behaviour is preserved.
-    render(
-      <ActionBar
-        roomId="room-1"
-        isMyTurn={true}
-        selectedCardIds={[]}
-        gameId="canasta"
-        canasta={{
-          phase: 'draw',
-          selectedCards: [],
-          extendableMelds: [{ rank: 'K', naturals: 3, wilds: 0, isCanasta: false }],
-          handSize: 11,
-          sideCanastaCount: 0,
-          goOutRequirement: 1,
-          discardTopRank: 'K',
-          discardFrozen: false,
-          initialMeldDone: true,
-          sideScorePrior: 0,
-        }}
-      />,
-    );
-    fireEvent.click(screen.getByLabelText(/take top/i));
-    // No pickup banner — direct emit.
-    expect(mockEmit).toHaveBeenCalledWith(
-      'game_action',
-      expect.objectContaining({
-        action: expect.objectContaining({
-          type: 'take-discard',
-          payload: { useCardIds: [] },
-        }),
-      }),
-    );
-    expect(screen.queryByText(/pickup:/i)).not.toBeInTheDocument();
-  });
+  // The quick-extend fast path (post-initial-meld + empty selection +
+  // extendable of top rank → direct take-discard with useCardIds=[]) used
+  // to live in ActionBar's Take Top handler. It now lives in GameTable's
+  // discard-pile onClick and is covered at that layer.
 });

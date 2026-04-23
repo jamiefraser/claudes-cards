@@ -162,6 +162,36 @@ describe('gameStore', () => {
     expect(useGameStore.getState().selectedCardIds).toHaveLength(1);
   });
 
+  it('pruneSelection removes ids that are not in the valid set', () => {
+    // Regression: after a card is melded/discarded or a new hand is dealt,
+    // selectedCardIds must not retain stale ids — otherwise engines that
+    // validate card membership (canasta take-discard, phase10 lay-down)
+    // reject actions with "card not in hand".
+    const { selectCard, pruneSelection } = useGameStore.getState();
+    selectCard('card-1');
+    selectCard('card-2');
+    selectCard('card-3');
+    pruneSelection(['card-2']);
+    expect(useGameStore.getState().selectedCardIds).toEqual(['card-2']);
+  });
+
+  it('pruneSelection is a no-op when every selected id is still valid', () => {
+    const { selectCard, pruneSelection } = useGameStore.getState();
+    selectCard('card-1');
+    selectCard('card-2');
+    const before = useGameStore.getState().selectedCardIds;
+    pruneSelection(['card-1', 'card-2', 'card-3']);
+    // Reference equality preserved so no-op calls don't trigger re-renders.
+    expect(useGameStore.getState().selectedCardIds).toBe(before);
+  });
+
+  it('pruneSelection returns early on an empty selection', () => {
+    const { pruneSelection } = useGameStore.getState();
+    const before = useGameStore.getState().selectedCardIds;
+    pruneSelection(['card-1', 'card-2']);
+    expect(useGameStore.getState().selectedCardIds).toBe(before);
+  });
+
   it('setConnectionStatus updates status', () => {
     const { setConnectionStatus } = useGameStore.getState();
     setConnectionStatus('connected');

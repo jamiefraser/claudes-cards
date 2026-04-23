@@ -9,6 +9,32 @@ import type { ChatMessage } from '@shared/chat';
 import type { BotSeatInfo } from '@shared/bot';
 import { logger } from '@/utils/logger';
 
+/**
+ * A single meld in the Canasta pickup-staging plan. The first staged meld
+ * must include the pile's top card (`includesTop=true`); subsequent melds
+ * are additional single-rank groups from hand that contribute toward the
+ * initial-meld threshold.
+ */
+export interface CanastaStagedMeld {
+  id: string;
+  cards: Array<{ id: string; rank?: string; suit?: string }>;
+  includesTop: boolean;
+}
+
+/**
+ * Canasta pickup-staging UI state. Clicking the discard pile during the
+ * draw phase (when an auto-extend isn't available) puts the local player
+ * into this mode: the top card is reserved, the player stages one meld at
+ * a time, and when the running total crosses the initial-meld threshold
+ * the plan auto-submits as a single `take-discard` action. Lives in the
+ * store so the pile click in GameTable and the staging UI in ActionBar
+ * share one source of truth.
+ */
+export interface CanastaPickupState {
+  active: boolean;
+  stagedMelds: CanastaStagedMeld[];
+}
+
 export interface GameStoreState {
   room: Room | null;
   gameState: GameState | null;
@@ -21,6 +47,7 @@ export interface GameStoreState {
   soundEnabled: boolean;
   animationSpeed: 'fast' | 'normal' | 'slow';
   colorBlindMode: boolean;
+  canastaPickup: CanastaPickupState;
   /** Per-room user-controlled hand ordering (ids in display order). New cards
    * dealt that aren't yet in the order are appended on the right. */
   handOrder: Record<string, string[]>;
@@ -31,6 +58,26 @@ export interface GameStoreState {
   selectCard: (cardId: string) => void;
   deselectCard: (cardId: string) => void;
   clearSelection: () => void;
+  /**
+   * Remove any selected ids that don't appear in `validIds`. Called whenever
+   * the local player's hand changes so a selection left over from a previous
+   * hand (or from cards that have just been melded/discarded) can't leak into
+   * the next action payload. Without this, engines that validate card
+   * membership (canasta take-discard, phase10 lay-down, etc.) reject the
+   * request with "card not in hand" even though the user's current
+   * selection is visually valid.
+   */
+  pruneSelection: (validIds: readonly string[]) => void;
+  /**
+   * Enter Canasta pickup mode. Clears any previously staged melds so a
+   * cancelled plan can't leak into the new pickup. Called by the pile
+   * click in GameTable when a simple auto-extend isn't available.
+   */
+  startCanastaPickup: () => void;
+  /** Replace the pickup-staging plan (called after each Stage Meld click). */
+  setCanastaStagedMelds: (melds: CanastaStagedMeld[]) => void;
+  /** Exit pickup mode and discard the staged plan. */
+  cancelCanastaPickup: () => void;
   setConnectionStatus: (s: 'connected' | 'reconnecting' | 'disconnected') => void;
   addChatMessage: (msg: ChatMessage) => void;
   lockAnimation: () => void;
@@ -55,6 +102,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   soundEnabled: true,
   animationSpeed: 'normal',
   colorBlindMode: false,
+  canastaPickup: { active: false, stagedMelds: [] },
   handOrder: {},
 
   setRoom: (room) => {
@@ -132,6 +180,30 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
   clearSelection: () => {
     set({ selectedCardIds: [] });
+  },
+
+  pruneSelection: (validIds) => {
+    const current = get().selectedCardIds;
+    if (current.length === 0) return;
+    const valid = new Set(validIds);
+    const next = current.filter((id) => valid.has(id));
+    if (next.length !== current.length) {
+      set({ selectedCardIds: next });
+    }
+  },
+
+  startCanastaPickup: () => {
+    set({ canastaPickup: { active: true, stagedMelds: [] } });
+  },
+
+  setCanastaStagedMelds: (melds) => {
+    set(state => ({
+      canastaPickup: { ...state.canastaPickup, stagedMelds: melds },
+    }));
+  },
+
+  cancelCanastaPickup: () => {
+    set({ canastaPickup: { active: false, stagedMelds: [] } });
   },
 
   setConnectionStatus: (s) => {

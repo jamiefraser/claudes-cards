@@ -254,6 +254,7 @@
     "drawDeckAria": "Draw from deck",
     "takeTop": "Take Top",
     "takeTopAria": "Take top card",
+    "drawHint": "Click the deck to draw, or the discard pile to take the top.",
     "layDown": "Lay Down",
     "layDownAria": "Lay down selected cards",
     "discard": "Discard",

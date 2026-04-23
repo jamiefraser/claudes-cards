@@ -11,8 +11,14 @@ vi.mock('@/hooks/useSocket', () => ({
 }));
 
 vi.mock('@/store/gameStore', () => ({
-  useGameStore: (selector: (s: { clearSelection: () => void }) => unknown) =>
-    selector({ clearSelection: vi.fn() }),
+  useGameStore: (selector: (s: Record<string, unknown>) => unknown) =>
+    selector({
+      clearSelection: vi.fn(),
+      canastaPickup: { active: false, stagedMelds: [] },
+      setCanastaStagedMelds: vi.fn(),
+      cancelCanastaPickup: vi.fn(),
+      startCanastaPickup: vi.fn(),
+    }),
 }));
 
 vi.mock('@/utils/logger', () => ({
@@ -30,7 +36,9 @@ const baseProps = {
 };
 
 describe('<ActionBar /> — Canasta', () => {
-  it('shows Draw Deck and Take Top in the draw phase', () => {
+  it('shows a draw-phase hint (no Draw Deck / Take Top buttons) in the draw phase', () => {
+    // Draw Deck and Take Top moved from the ActionBar to the draw pile
+    // and discard pile respectively (see GameTable pile onClick handlers).
     render(
       <ActionBar
         {...baseProps}
@@ -38,8 +46,9 @@ describe('<ActionBar /> — Canasta', () => {
         canasta={{ phase: 'draw', selectedCards: [], extendableMelds: [], handSize: 11, sideCanastaCount: 0, goOutRequirement: 1 }}
       />,
     );
-    expect(screen.getByRole('button', { name: /draw from deck/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /take top card/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /draw from deck/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /take top card/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/click the deck/i)).toBeInTheDocument();
   });
 
   it('shows Meld and Discard in the meld-discard phase', () => {

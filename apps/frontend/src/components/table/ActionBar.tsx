@@ -2,11 +2,12 @@
  * ActionBar — bottom action bar for game controls.
  * SPEC.md §15
  */
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { getGameSocket } from '@/hooks/useSocket';
 import { useGameStore } from '@/store/gameStore';
 import { logger } from '@/utils/logger';
 import type { GameActionPayload } from '@shared/socket';
+import type { CanastaStagedMeld } from '@/store/gameStore';
 import en from '@/i18n/en.json';
 import {
   CanastaMeldTargetModal,
@@ -126,7 +127,22 @@ export function ActionBar({
   onPhase10HitRequest,
 }: ActionBarProps) {
   const clearSelection = useGameStore(s => s.clearSelection);
+  const pickupMode = useGameStore(s => s.canastaPickup.active);
+  const stagedMelds = useGameStore(s => s.canastaPickup.stagedMelds);
+  const setCanastaStagedMelds = useGameStore(s => s.setCanastaStagedMelds);
+  const cancelCanastaPickupStore = useGameStore(s => s.cancelCanastaPickup);
   const [extendModalOpen, setExtendModalOpen] = useState(false);
+
+  // Auto-exit pickup mode when the engine has moved us out of the draw
+  // phase (e.g. the plan was accepted and we're now in meld-discard), or
+  // when the turn passes to another player. Prevents the staging UI from
+  // lingering once it's no longer actionable.
+  useEffect(() => {
+    if (!pickupMode) return;
+    const stillActionable =
+      isMyTurn && gameId === 'canasta' && canasta?.phase === 'draw';
+    if (!stillActionable) cancelCanastaPickupStore();
+  }, [pickupMode, isMyTurn, gameId, canasta?.phase, cancelCanastaPickupStore]);
 
   const emitAction = useCallback(
     (type: string, cardIds?: string[], payload?: Record<string, unknown>) => {
@@ -158,36 +174,14 @@ export function ActionBar({
   ]);
   const isTrickGame = gameId !== undefined && TRICK_GAMES.has(gameId);
 
-  const handleDrawDeck = () => {
-    if (isMyTurn) emitAction('draw', undefined, { source: 'deck' });
-  };
-  const handleDrawDiscard = () => {
-    if (!isMyTurn) return;
-    // Canasta's pickup has its own UX: clicking Take Top enters pickup mode
-    // so the player can build the required melds iteratively. Fast path:
-    // if the side has already made initial meld, nothing is selected, and
-    // an extendable meld of the top rank exists, submit directly so the
-    // engine auto-extends (the old one-click behaviour). Otherwise enter
-    // pickup mode and let the player stage melds one by one.
-    if (isCanasta) {
-      const canExtend =
-        canasta?.initialMeldDone === true &&
-        canastaSelected.length === 0 &&
-        !!canasta.discardTopRank &&
-        canasta.extendableMelds.some((m) => m.rank === canasta.discardTopRank);
-      if (canExtend) {
-        emitAction('take-discard', undefined, { useCardIds: [] });
-        return;
-      }
-      setPickupMode(true);
-      setStagedMelds([]);
-      return;
-    }
-    emitAction('draw', undefined, { source: 'discard' });
-  };
+  // Draw-phase actions (Draw Deck, Take Top) are no longer buttons — the
+  // user clicks the draw pile and discard pile directly. The pile click
+  // handlers live in GameTable; Canasta's pickup-mode entry is a store
+  // action (startCanastaPickup) that this component reacts to below.
+
   // Pickup-staging handlers.
   const submitPickupPlan = useCallback(
-    (plan: StagedMeld[]) => {
+    (plan: CanastaStagedMeld[]) => {
       const topMeld = plan.find((m) => m.includesTop);
       if (!topMeld) return;
       const useCardIds = topMeld.cards.map((c) => c.id);
@@ -197,10 +191,9 @@ export function ActionBar({
       const payload: Record<string, unknown> = { useCardIds };
       if (melds.length > 0) payload.melds = melds;
       emitAction('take-discard', undefined, payload);
-      setPickupMode(false);
-      setStagedMelds([]);
+      cancelCanastaPickupStore();
     },
-    [emitAction],
+    [emitAction, cancelCanastaPickupStore],
   );
 
   const handleStageMeld = () => {
@@ -233,7 +226,7 @@ export function ActionBar({
         logger.warn('Pickup: first meld may only contain top-rank naturals and wilds');
         return;
       }
-      const newMeld: StagedMeld = {
+      const newMeld: CanastaStagedMeld = {
         id: `stg-${Date.now()}-${stagedMelds.length}`,
         cards: selection,
         includesTop: true,
@@ -248,7 +241,7 @@ export function ActionBar({
       if (newTotal >= pickupThreshold) {
         submitPickupPlan(next);
       } else {
-        setStagedMelds(next);
+        setCanastaStagedMelds(next);
       }
       return;
     }
@@ -271,7 +264,7 @@ export function ActionBar({
       logger.warn('Pickup: additional meld must have more naturals than wilds');
       return;
     }
-    const newMeld: StagedMeld = {
+    const newMeld: CanastaStagedMeld = {
       id: `stg-${Date.now()}-${stagedMelds.length}`,
       cards: selection,
       includesTop: false,
@@ -285,13 +278,12 @@ export function ActionBar({
     if (newTotal >= pickupThreshold) {
       submitPickupPlan(next);
     } else {
-      setStagedMelds(next);
+      setCanastaStagedMelds(next);
     }
   };
 
   const handleCancelPickup = () => {
-    setPickupMode(false);
-    setStagedMelds([]);
+    cancelCanastaPickupStore();
   };
 
   const handleLayDown = () => {
@@ -413,32 +405,25 @@ export function ActionBar({
     if (priorScore < 3000) return 90;
     return 120;
   };
-  // Take-Top gate: enabled in the draw phase on the player's turn. The
-  // button enters pickup mode (or takes the fast extend path). All plan
-  // validation happens at stage time, not at button-click time.
-  const canastaCanTakeTop = isMyTurn && canasta?.phase === 'draw';
-
   // Wild distribution modal state (multi-rank + wilds).
   const [distributeModalOpen, setDistributeModalOpen] = useState(false);
   const [distributeRankGroups, setDistributeRankGroups] = useState<RankGroup[]>([]);
   const [distributeWildIds, setDistributeWildIds] = useState<string[]>([]);
 
   // ── Canasta pickup-staging state ────────────────────────────────────────
-  // Clicking Take Top in the draw phase enters *pickup mode*: the top card
-  // of the discard pile is reserved, and the player builds the melds they
-  // want to lay down using the pile's top card iteratively. The first
-  // staged meld must include the top card (via naturals of its rank from
-  // hand + optional wilds). Additional melds are staged from hand only.
-  // When the running point total crosses the initial-meld threshold, the
-  // compiled plan is auto-submitted as a `take-discard` action and the
-  // engine picks up the rest of the pile.
-  type StagedMeld = {
-    id: string;
-    cards: Array<{ id: string; rank?: string; suit?: string }>;
-    includesTop: boolean;
-  };
-  const [pickupMode, setPickupMode] = useState(false);
-  const [stagedMelds, setStagedMelds] = useState<StagedMeld[]>([]);
+  // Pickup mode is triggered by clicking the discard pile during the draw
+  // phase (see GameTable's pile onClick). The top card of the discard pile
+  // is reserved, and the player builds the melds they want to lay down
+  // using the pile's top card iteratively. The first staged meld must
+  // include the top card (via naturals of its rank from hand + optional
+  // wilds). Additional melds are staged from hand only. When the running
+  // point total crosses the initial-meld threshold, the compiled plan is
+  // auto-submitted as a `take-discard` action and the engine picks up the
+  // rest of the pile.
+  //
+  // Pickup state lives in the Zustand store (canastaPickup) so GameTable's
+  // pile click and this component share one source of truth — see
+  // gameStore.ts CanastaPickupState.
   const stagedCardIds = new Set(stagedMelds.flatMap((m) => m.cards.map((c) => c.id)));
   const pickupHasTopMeld = stagedMelds.some((m) => m.includesTop);
   const pickupTotalPoints = (() => {
@@ -775,15 +760,8 @@ export function ActionBar({
             Play
           </button>
         )}
-        <button
-          type="button"
-          onClick={handleDrawDeck}
-          disabled={!isMyTurn}
-          className={`${btnBase} ${isMyTurn ? btnGhost : btnDisabled}`}
-          aria-label={en.table.drawDeckAria}
-        >
-          {en.table.drawDeck}
-        </button>
+        {/* Draw Deck is handled by clicking the draw pile directly (see
+            GameTable pile onClick). No button needed here. */}
         {!isMyTurn && (
           <span className="text-parchment/50 text-sm ml-2 italic font-display">
             {en.table.waitingForPlayers}
@@ -827,29 +805,14 @@ export function ActionBar({
     if (phase === 'draw') {
       return (
         <div className={barBase} role="toolbar" aria-label={en.table.gameActions}>
-          <button
-            type="button"
-            onClick={handleDrawDeck}
-            disabled={!isMyTurn}
-            className={`${btnBase} ${isMyTurn ? btnEnabled : btnDisabled}`}
-            aria-label={en.table.drawDeckAria}
+          {/* Draw Deck / Take Top are handled by clicking the piles
+              directly (see GameTable draw/discard pile onClick). */}
+          <span
+            className={`text-parchment/70 text-sm font-display italic ${isMyTurn ? '' : 'opacity-60'}`}
+            aria-live="polite"
           >
-            {en.table.drawDeck}
-          </button>
-          <button
-            type="button"
-            onClick={handleDrawDiscard}
-            disabled={!isMyTurn}
-            className={`${btnBase} ${isMyTurn ? btnGhost : btnDisabled}`}
-            aria-label={en.table.takeTopAria}
-          >
-            {en.table.takeTop}
-          </button>
-          {!isMyTurn && (
-            <span className="text-parchment/50 text-sm ml-2 italic font-display">
-              {en.table.waitingForPlayers}
-            </span>
-          )}
+            {isMyTurn ? en.table.drawHint : en.table.waitingForPlayers}
+          </span>
         </div>
       );
     }
@@ -976,29 +939,15 @@ export function ActionBar({
     if (phase === 'draw') {
       return (
         <div className={barBase} role="toolbar" aria-label={en.table.gameActions}>
-          <button
-            type="button"
-            onClick={handleDrawDeck}
-            disabled={!isMyTurn}
-            className={`${btnBase} ${isMyTurn ? btnEnabled : btnDisabled}`}
-            aria-label={en.table.drawDeckAria}
+          {/* Draw Deck / Take Top are handled by clicking the piles
+              directly (see GameTable draw/discard pile onClick).
+              Clicking the discard pile enters pickup mode for canasta. */}
+          <span
+            className={`text-parchment/70 text-sm font-display italic ${isMyTurn ? '' : 'opacity-60'}`}
+            aria-live="polite"
           >
-            {en.table.drawDeck}
-          </button>
-          <button
-            type="button"
-            onClick={handleDrawDiscard}
-            disabled={!canastaCanTakeTop}
-            className={`${btnBase} ${canastaCanTakeTop ? btnGhost : btnDisabled}`}
-            aria-label={en.table.takeTopAria}
-          >
-            {en.table.takeTop}
-          </button>
-          {!isMyTurn && (
-            <span className="text-parchment/50 text-sm ml-2 italic font-display">
-              {en.table.waitingForPlayers}
-            </span>
-          )}
+            {isMyTurn ? en.table.drawHint : en.table.waitingForPlayers}
+          </span>
         </div>
       );
     }
@@ -1052,25 +1001,8 @@ export function ActionBar({
       role="toolbar"
       aria-label={en.table.gameActions}
     >
-      <button
-        type="button"
-        onClick={handleDrawDeck}
-        disabled={!isMyTurn}
-        className={`${btnBase} ${isMyTurn ? btnEnabled : btnDisabled}`}
-        aria-label={en.table.drawDeckAria}
-      >
-        {en.table.drawDeck}
-      </button>
-
-      <button
-        type="button"
-        onClick={handleDrawDiscard}
-        disabled={!isMyTurn}
-        className={`${btnBase} ${isMyTurn ? btnEnabled : btnDisabled}`}
-        aria-label={en.table.takeTopAria}
-      >
-        {en.table.takeTop}
-      </button>
+      {/* Draw Deck / Take Top are handled by clicking the piles directly
+          (see GameTable draw/discard pile onClick). */}
 
       {phase10LaidDown ? (
         <button

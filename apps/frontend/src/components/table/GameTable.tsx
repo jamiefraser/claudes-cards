@@ -85,6 +85,8 @@ export function GameTable({ roomId }: GameTableProps) {
   const selectCard = useGameStore(s => s.selectCard);
   const deselectCard = useGameStore(s => s.deselectCard);
   const clearSelection = useGameStore(s => s.clearSelection);
+  const pruneSelection = useGameStore(s => s.pruneSelection);
+  const startCanastaPickup = useGameStore(s => s.startCanastaPickup);
   const connectionStatus = useGameStore(s => s.connectionStatus);
   const handOrderMap = useGameStore(s => s.handOrder);
   const setHandOrder = useGameStore(s => s.setHandOrder);
@@ -157,6 +159,19 @@ export function GameTable({ roomId }: GameTableProps) {
   // Subscribe to game socket events
   useGameState(roomId);
   useGameError(roomId);
+
+  // Prune stale ids from the card-selection store whenever the local
+  // player's hand changes. Without this, a selection left over from a
+  // previous hand or from cards that were just melded/discarded leaks into
+  // the next action payload — engines that validate card membership
+  // (canasta take-discard, phase10 lay-down, etc.) then reject the request
+  // with "card not in hand" even though the visible selection looks valid.
+  useEffect(() => {
+    if (!gameState || !player) return;
+    const me = gameState.players.find(p => p.playerId === player.id);
+    if (!me) return;
+    pruneSelection(me.hand.map(c => c.id));
+  }, [gameState, player, pruneSelection]);
 
   // Cribbage auto-Go: if it's my turn during pegging and I have no playable
   // card (every card would push the count over 31), emit 'go' automatically.
@@ -929,13 +944,32 @@ export function GameTable({ roomId }: GameTableProps) {
           if (!isMyTurn) return;
           const socket = getGameSocket();
           if (gameState.gameId === 'canasta') {
-            socket.emit('game_action', {
-              roomId,
-              action: {
-                type: 'take-discard',
-                payload: { useCardIds: [...selectedCardIds] },
-              },
-            } satisfies GameActionPayload);
+            // Fast auto-extend path: if the side has already made initial
+            // meld, nothing is selected, and an extendable meld of the
+            // pile's top rank exists, submit take-discard with empty
+            // useCardIds so the engine extends the matching meld with just
+            // the top card. Otherwise enter pickup mode — the player
+            // builds the plan iteratively via the ActionBar staging UI
+            // until the initial-meld threshold is met, then the plan
+            // auto-submits as a single take-discard action.
+            const cp = actionBarProps?.canasta;
+            const canExtend =
+              cp?.initialMeldDone === true &&
+              selectedCardIds.length === 0 &&
+              !!cp.discardTopRank &&
+              cp.extendableMelds.some((m) => m.rank === cp.discardTopRank);
+            if (canExtend) {
+              socket.emit('game_action', {
+                roomId,
+                action: {
+                  type: 'take-discard',
+                  payload: { useCardIds: [] },
+                },
+              } satisfies GameActionPayload);
+              clearSelection();
+              return;
+            }
+            startCanastaPickup();
             return;
           }
           socket.emit('game_action', {

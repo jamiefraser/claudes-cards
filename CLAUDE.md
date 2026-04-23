@@ -1,7 +1,7 @@
 # Card Platform — CLAUDE.md
 
 ## What This Project Is
-A multiplayer browser-based card game platform. Full spec is in SPEC.md at the repo root.
+A multiplayer browser-based card game platform. Full spec is in SPEC.md at the repo root. 
 Read SPEC.md in full before writing any code.
 
 ## Absolute Rules (Never Break These)

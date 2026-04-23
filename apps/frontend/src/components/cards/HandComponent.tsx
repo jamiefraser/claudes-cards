@@ -212,16 +212,26 @@ export function HandComponent({
   // Fan overlap scales with hand size — tighter overlap for bigger hands
   // so the whole hand fits on screen without wrapping on mobile. Cards
   // always lift cleanly from a scroll-snap strip.
+  //
+  // DEF-006: On phone widths (<640px / Tailwind `sm`), overlap is capped
+  // so each card's visible strip is >= 44px (the minimum tap target per
+  // Apple/Google HIG). Card width on mobile is 48px, so max overlap is
+  // 48 - 44 = 4px. The hand scrolls horizontally when it overflows.
+  const isPhone = typeof window !== 'undefined' && window.innerWidth < 640;
   const overlapPx = useMemo(() => {
-    // CardComponent width: 48px (mobile), 64px (sm+). We overlap up to
-    // ~45% of the width so hands of 15 cards still strap within ~420px
-    // total (fits 375px viewport comfortably).
     const n = Math.max(cards.length, 1);
-    if (n <= 7)  return 4;        // no overlap, just a gap
+    if (isPhone) {
+      // On phone: minimal overlap to guarantee 44px tap targets.
+      // Even for large hands, the scroll strip handles overflow.
+      if (n <= 7)  return 2;
+      return 4; // 48px card width - 4px overlap = 44px exposed per card
+    }
+    // Tablet+: CardComponent is 64px wide at sm+. More generous overlap.
+    if (n <= 7)  return 4;
     if (n <= 10) return 14;
     if (n <= 13) return 22;
     return 28;
-  }, [cards.length]);
+  }, [cards.length, isPhone]);
 
   const list = (
     <ul

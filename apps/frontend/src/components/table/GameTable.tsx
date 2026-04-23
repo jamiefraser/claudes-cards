@@ -943,7 +943,7 @@ export function GameTable({ roomId }: GameTableProps) {
                       stay contained. flex-wrap handles 3-4p variants by
                       flowing opponents to a second row when needed. */}
                   <div
-                    className="w-full flex flex-row flex-wrap gap-5 items-start justify-center overflow-hidden shrink-0"
+                    className="hidden lg:flex w-full flex-row flex-wrap gap-5 items-start justify-center overflow-hidden shrink-0"
                     style={{ maxHeight: '42%' }}
                   >
                     {radialItems

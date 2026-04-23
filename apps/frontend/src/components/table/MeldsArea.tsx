@@ -190,10 +190,13 @@ export function MeldsArea({
   // we scale visually via CSS transform AND clamp the wrapper's layout box to
   // the target size. Without the explicit wrapper size the scaled card still
   // reserves its full 48×72, producing comically large gaps between melds.
+  // DEF-004: medium scale was 0.75, making in-felt bot melds unreadable at
+  // desktop sizes. Now renders at full size — the container's flex layout
+  // handles the space naturally. Tiny and compact remain scaled for mobile
+  // and condensed contexts.
   const scaleFactor =
     scale === 'tiny' ? 0.33
     : scale === 'compact' ? 0.5
-    : scale === 'medium' ? 0.75
     : 1;
   // Negative space-x values overlap each card on top of its left neighbour.
   // We keep the overlap modest enough that the top-left rank+suit glyph of
@@ -268,7 +271,7 @@ export function MeldsArea({
                         scaleFactor < 1
                           ? {
                               transform: `scale(${scaleFactor})`,
-                              transformOrigin: 'top left',
+                              transformOrigin: 'center',
                             }
                           : undefined
                       }

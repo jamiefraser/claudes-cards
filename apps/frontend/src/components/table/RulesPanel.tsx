@@ -88,7 +88,7 @@ export function RulesPanel({
         'absolute left-0 top-0 bottom-0 z-30',
         'w-[min(420px,92vw)]',
         'flex flex-col',
-        'bg-parchment text-parchment-ink',
+        'bg-paper text-parchment-ink',
         'shadow-drawer border-r border-parchment-rule/50',
         'animate-drawer-in',
       ].join(' ')}
@@ -112,9 +112,9 @@ export function RulesPanel({
           className={[
             'absolute top-5 right-4 w-9 h-9 rounded-full',
             'flex items-center justify-center',
-            'bg-parchment-warm text-parchment-ink/70',
+            'bg-paper-raised text-parchment-ink/70',
             'border border-parchment-rule/60',
-            'hover:text-parchment-ink hover:bg-parchment',
+            'hover:text-parchment-ink hover:bg-paper',
             'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-secondary',
             'transition-colors',
           ].join(' ')}
@@ -129,9 +129,9 @@ export function RulesPanel({
           placeholder={en.rules.searchPlaceholder}
           className={[
             'w-full px-4 py-2 rounded-full',
-            'bg-parchment-warm border border-parchment-rule/50',
+            'bg-paper-raised border border-parchment-rule/50',
             'font-sans text-sm text-parchment-ink placeholder:text-parchment-ink/45',
-            'focus:outline-none focus:border-brass/70 focus:bg-parchment',
+            'focus:outline-none focus:border-brass/70 focus:bg-paper',
             'transition-colors',
           ].join(' ')}
         />
@@ -151,8 +151,8 @@ export function RulesPanel({
                 className={[
                   'rounded-lg border transition-colors',
                   open
-                    ? 'border-brass/60 bg-parchment-warm/70'
-                    : 'border-parchment-rule/30 bg-parchment-warm/30 hover:bg-parchment-warm/60',
+                    ? 'border-brass/60 bg-paper-raised/70'
+                    : 'border-parchment-rule/30 bg-paper-raised/30 hover:bg-paper-raised/60',
                 ].join(' ')}
               >
                 <button
@@ -188,7 +188,7 @@ export function RulesPanel({
         )}
       </div>
 
-      <footer className="px-6 py-4 border-t border-parchment-rule/40 bg-parchment-warm/60">
+      <footer className="px-6 py-4 border-t border-parchment-rule/40 bg-paper-raised/60">
         <p className="font-sans text-[0.7rem] uppercase tracking-[0.2em] text-parchment-ink/55">
           {attribution ?? en.rules.attributionFallback}
         </p>

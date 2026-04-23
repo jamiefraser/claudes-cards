@@ -4,22 +4,43 @@ import { render, screen } from '@testing-library/react';
 import { TableSurface } from './TableSurface';
 
 describe('<TableSurface />', () => {
-  it('renders children in a relative positioned container', () => {
+  it('renders the stage slot in the middle of a 3-column grid', () => {
     render(
-      <TableSurface>
-        <div data-testid="felt">Felt</div>
-      </TableSurface>,
+      <TableSurface stage={<div data-testid="felt">Felt</div>} />,
     );
     const surface = screen.getByTestId('table-surface');
+    expect(surface).toBeInTheDocument();
     expect(surface).toHaveClass('relative');
+    expect(surface).toHaveClass('grid');
     expect(screen.getByTestId('felt')).toBeInTheDocument();
   });
 
-  it('has overflow: visible to avoid clipping tucked meld panels', () => {
+  it('renders left and right slots alongside the stage', () => {
     render(
-      <TableSurface>
-        <div>Content</div>
-      </TableSurface>,
+      <TableSurface
+        leftSlot={<div data-testid="left">L</div>}
+        stage={<div data-testid="stage">S</div>}
+        rightSlot={<div data-testid="right">R</div>}
+      />,
+    );
+    expect(screen.getByTestId('left')).toBeInTheDocument();
+    expect(screen.getByTestId('stage')).toBeInTheDocument();
+    expect(screen.getByTestId('right')).toBeInTheDocument();
+  });
+
+  it('renders empty left / right slot wrappers even when no content is passed', () => {
+    // Empty slots must still exist so the grid columns reserve viewport
+    // space and the felt stays centred at every player count.
+    render(
+      <TableSurface stage={<div data-testid="stage">S</div>} />,
+    );
+    expect(screen.getByTestId('table-surface').querySelector('[data-slot="opp-left"]')).not.toBeNull();
+    expect(screen.getByTestId('table-surface').querySelector('[data-slot="opp-right"]')).not.toBeNull();
+  });
+
+  it('has overflow: visible so animations anchored just outside the felt are not clipped', () => {
+    render(
+      <TableSurface stage={<div>Content</div>} />,
     );
     const surface = screen.getByTestId('table-surface');
     expect(surface.style.overflow).toBe('visible');

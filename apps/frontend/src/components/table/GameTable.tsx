@@ -70,6 +70,13 @@ interface GameTableProps {
 const FELT_W = 880;
 const FELT_H = 520;
 
+// Rummy-family felt is a tight container for the stock + discard pair only.
+// Sized so the two 64x96 piles sit centred with generous padding; the rest of
+// the viewport is reserved for opponent slots and the bottom dock. Height kept
+// under 260 so a 720px viewport still fits everything without document scroll.
+const RUMMY_FELT_W = 400;
+const RUMMY_FELT_H = 240;
+
 export function GameTable({ roomId }: GameTableProps) {
   const [rulesOpen, setRulesOpen] = useState(false);
   const gameState = useGameStore(s => s.gameState);
@@ -1030,7 +1037,7 @@ export function GameTable({ roomId }: GameTableProps) {
   // --- Bottom dock (action bar + hand + controls) ---
   const bottomDock = myPlayer ? (
     <div className={isRummyFamily
-      ? 'relative pt-3 pb-4 sm:pb-6 z-dock flex flex-col items-center gap-2 sm:gap-3 px-2 sm:px-4'
+      ? 'relative pt-2 pb-3 z-dock flex flex-col items-center gap-1.5 sm:gap-2 px-2 sm:px-4'
       : 'lg:absolute lg:bottom-0 lg:left-0 lg:right-0 relative pt-3 pb-4 sm:pb-6 z-dock flex flex-col items-center gap-2 sm:gap-3 px-2 sm:px-4'
     }>
       {actionBarProps && <ActionBar {...actionBarProps} />}
@@ -1097,24 +1104,30 @@ export function GameTable({ roomId }: GameTableProps) {
   );
 
   // =====================================================================
-  // RUMMY-FAMILY LAYOUT — centered-column with clock-face seat placement
+  // RUMMY-FAMILY LAYOUT — CSS-grid page with reserved slots for every seat.
+  // The felt is a content-sized container for the stock + discard pair only;
+  // opponent badges and melds live in their own named grid cells so no
+  // opponent can be clipped regardless of player count.
   // =====================================================================
   if (isRummyFamily) {
-    // Filter opponents into top-oriented vs side-oriented.
-    const topOpponents: Array<{ player: typeof otherPlayers[0]; seatIndex: number }> = [];
-    const leftOpponents: Array<{ player: typeof otherPlayers[0]; seatIndex: number }> = [];
-    const rightOpponents: Array<{ player: typeof otherPlayers[0]; seatIndex: number }> = [];
-
+    // Bucket opponents by their seatMap `position` so the grid slots are
+    // populated deterministically regardless of player count (see
+    // layout/seatMap.ts for the per-count mapping).
+    type OppEntry = { player: typeof otherPlayers[0]; seatIndex: number };
+    const slots: {
+      'top-left'?: OppEntry;
+      'top-center'?: OppEntry;
+      'top-right'?: OppEntry;
+      'left'?: OppEntry;
+      'right'?: OppEntry;
+    } = {};
     otherPlayers.forEach((p, i) => {
       const placement = seatPlacements[i];
       if (!placement) return;
-      const entry = { player: p, seatIndex: i };
-      if (placement.orientation === 'left') leftOpponents.push(entry);
-      else if (placement.orientation === 'right') rightOpponents.push(entry);
-      else topOpponents.push(entry);
+      slots[placement.position] = { player: p, seatIndex: i };
     });
 
-    const renderOpponentBadge = (p: typeof otherPlayers[0], orientation: 'top' | 'left' | 'right') => {
+    const renderOpponentBadge = (p: typeof otherPlayers[0]) => {
       const isBot = activeBots.some(b => b.playerId === p.playerId) || p.isBot;
       const isCurrentTurn = gameState.currentTurn === p.playerId;
       return isBot ? (
@@ -1156,6 +1169,55 @@ export function GameTable({ roomId }: GameTableProps) {
       );
     };
 
+    // Each seat slot gets badge stacked over melds panel. Rotated containers
+    // (left/right) read bottom-to-top and top-to-bottom respectively, so their
+    // melds visually face the table centre. The outer max-height on side slots
+    // keeps an overly long meld panel from pushing the felt off-screen; the
+    // panel itself scrolls internally past that point.
+    const renderSeatSlot = (
+      entry: OppEntry | undefined,
+      orientation: 'top' | 'left' | 'right',
+    ) => {
+      if (!entry) return null;
+      const { player: p } = entry;
+      return (
+        <div className="flex flex-col items-center gap-2 min-w-0 max-w-full">
+          <OpponentBadge orientation={orientation} displayName={p.displayName}>
+            {renderOpponentBadge(p)}
+          </OpponentBadge>
+          <OpponentMeldsPanel orientation={orientation}>
+            {renderOpponentMelds(p)}
+          </OpponentMeldsPanel>
+        </div>
+      );
+    };
+
+    const topRosterPresent =
+      !!(slots['top-left'] || slots['top-center'] || slots['top-right']);
+
+    // Felt: intrinsic-width container so the green surface shrinks to just
+    // the stock + discard pair plus padding, leaving the rest of the viewport
+    // for opponent slots and the bottom dock.
+    const felt = (
+      <div
+        className="relative shrink-0"
+        style={{
+          width: RUMMY_FELT_W,
+          height: RUMMY_FELT_H,
+          maxWidth: '100%',
+        }}
+      >
+        <TableFelt width={RUMMY_FELT_W} height={RUMMY_FELT_H}>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 py-6">
+            <StockDiscardArea>
+              {drawPileEl}
+              {discardPileEl}
+            </StockDiscardArea>
+          </div>
+        </TableFelt>
+      </div>
+    );
+
     return (
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <GameScreen>
@@ -1164,9 +1226,9 @@ export function GameTable({ roomId }: GameTableProps) {
           {floatingChromeRight}
           {rulesDrawer}
 
-          {/* ---- MOBILE (<640px): all opponents un-rotated in a
-              scrollable row above the felt. No tuck, no rotation.
-              Hidden at sm+ where the desktop/tablet layout takes over. ---- */}
+          {/* ---- MOBILE (<640px): opponents in a single horizontal strip
+              above the felt. No rotation, no grid — a horizontally-scrollable
+              row so every opponent remains reachable even with 5 or 6. ---- */}
           <div
             className="sm:hidden relative z-raised pt-2 pb-3 px-3 overflow-hidden border-b border-hairline/50"
             aria-label={en.table.otherPlayersLabel}
@@ -1180,7 +1242,7 @@ export function GameTable({ roomId }: GameTableProps) {
                     className="flex-none snap-start flex flex-col items-center gap-1.5"
                     style={{ minWidth: melds.length > 0 ? 200 : 140 }}
                   >
-                    {renderOpponentBadge(p, 'top')}
+                    {renderOpponentBadge(p)}
                     {melds.length > 0 && (
                       <MeldsArea
                         groups={melds}
@@ -1200,74 +1262,25 @@ export function GameTable({ roomId }: GameTableProps) {
             </div>
           </div>
 
-          {/* ---- DESKTOP/TABLET (sm+): top opponents with tuck,
-              side opponents with rotation. Hidden at mobile. ---- */}
-          {topOpponents.length > 0 && (
-            <div className="hidden sm:block">
-              <OpponentRoster tuckOverlap={48}>
-                {topOpponents.map(({ player: p }) => (
-                  <div key={p.playerId} className="flex flex-col items-center gap-2 min-w-0">
-                    <OpponentBadge orientation="top" displayName={p.displayName}>
-                      {renderOpponentBadge(p, 'top')}
-                    </OpponentBadge>
-                    <OpponentMeldsPanel orientation="top">
-                      {renderOpponentMelds(p)}
-                    </OpponentMeldsPanel>
-                  </div>
-                ))}
-              </OpponentRoster>
-            </div>
-          )}
-
-          {/* Main stage — left side opponents, felt, right side opponents */}
-          <TableSurface>
-            {/* Left-side opponents (3+p) — hidden at mobile */}
-            {leftOpponents.length > 0 && (
-              <div className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full flex-col items-center gap-4 pr-4">
-                {leftOpponents.map(({ player: p }) => (
-                  <div key={p.playerId} className="flex flex-col items-center gap-2">
-                    <OpponentBadge orientation="left" displayName={p.displayName}>
-                      {renderOpponentBadge(p, 'left')}
-                    </OpponentBadge>
-                    <OpponentMeldsPanel orientation="left">
-                      {renderOpponentMelds(p)}
-                    </OpponentMeldsPanel>
-                  </div>
-                ))}
-              </div>
+          {/* ---- TABLET / DESKTOP (sm+): grid-based layout. Top row reserves
+              three equal cells for top opponents so their horizontal position
+              stays stable across 2/3/4/5/6 player counts. The main stage
+              reserves a left and a right cell for rotated side opponents
+              even when empty, keeping the felt visually centred. ---- */}
+          <div className="hidden sm:block">
+            {topRosterPresent && (
+              <OpponentRoster
+                leftSlot={renderSeatSlot(slots['top-left'], 'top')}
+                centerSlot={renderSeatSlot(slots['top-center'], 'top')}
+                rightSlot={renderSeatSlot(slots['top-right'], 'top')}
+              />
             )}
-
-            {/* Felt surface with piles */}
-            <div
-              className="relative w-full max-w-[880px]"
-              style={{ aspectRatio: `${FELT_W} / ${FELT_H}` }}
-            >
-              <TableFelt width={FELT_W} height={FELT_H}>
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 py-6">
-                  <StockDiscardArea>
-                    {drawPileEl}
-                    {discardPileEl}
-                  </StockDiscardArea>
-                </div>
-              </TableFelt>
-            </div>
-
-            {/* Right-side opponents (4+p) — hidden at mobile */}
-            {rightOpponents.length > 0 && (
-              <div className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 translate-x-full flex-col items-center gap-4 pl-4">
-                {rightOpponents.map(({ player: p }) => (
-                  <div key={p.playerId} className="flex flex-col items-center gap-2">
-                    <OpponentBadge orientation="right" displayName={p.displayName}>
-                      {renderOpponentBadge(p, 'right')}
-                    </OpponentBadge>
-                    <OpponentMeldsPanel orientation="right">
-                      {renderOpponentMelds(p)}
-                    </OpponentMeldsPanel>
-                  </div>
-                ))}
-              </div>
-            )}
-          </TableSurface>
+            <TableSurface
+              leftSlot={renderSeatSlot(slots['left'], 'left')}
+              rightSlot={renderSeatSlot(slots['right'], 'right')}
+              stage={felt}
+            />
+          </div>
 
           {overlays}
           {bottomDock}

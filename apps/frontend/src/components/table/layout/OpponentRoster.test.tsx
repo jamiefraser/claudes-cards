@@ -4,48 +4,42 @@ import { render, screen } from '@testing-library/react';
 import { OpponentRoster } from './OpponentRoster';
 
 describe('<OpponentRoster />', () => {
-  it('renders children in a horizontal flex container', () => {
+  it('renders all three named slots in a 3-column grid', () => {
     render(
-      <OpponentRoster>
-        <span data-testid="opp1">Opponent 1</span>
-        <span data-testid="opp2">Opponent 2</span>
-      </OpponentRoster>,
+      <OpponentRoster
+        leftSlot={<span data-testid="opp-tl">TL</span>}
+        centerSlot={<span data-testid="opp-tc">TC</span>}
+        rightSlot={<span data-testid="opp-tr">TR</span>}
+      />,
     );
-    expect(screen.getByTestId('opp1')).toBeInTheDocument();
-    expect(screen.getByTestId('opp2')).toBeInTheDocument();
     const roster = screen.getByTestId('opponent-roster');
-    expect(roster).toHaveClass('flex');
-    expect(roster).toHaveClass('flex-row');
-    expect(roster).toHaveClass('justify-center');
+    expect(roster).toHaveClass('grid');
+    expect(roster).toHaveClass('grid-cols-3');
+    expect(screen.getByTestId('opp-tl')).toBeInTheDocument();
+    expect(screen.getByTestId('opp-tc')).toBeInTheDocument();
+    expect(screen.getByTestId('opp-tr')).toBeInTheDocument();
   });
 
-  it('applies negative bottom margin when tuckOverlap is provided', () => {
+  it('renders empty left / right slot wrappers to keep the center seat visually centered', () => {
     render(
-      <OpponentRoster tuckOverlap={48}>
-        <span>Opponent</span>
-      </OpponentRoster>,
+      <OpponentRoster centerSlot={<span data-testid="opp-tc">TC</span>} />,
     );
     const roster = screen.getByTestId('opponent-roster');
-    expect(roster.style.marginBottom).toBe('-48px');
+    // All three slot cells exist even though two are empty.
+    expect(roster.querySelector('[data-slot="top-left"]')).not.toBeNull();
+    expect(roster.querySelector('[data-slot="top-center"]')).not.toBeNull();
+    expect(roster.querySelector('[data-slot="top-right"]')).not.toBeNull();
   });
 
-  it('does not apply negative margin when tuckOverlap is 0', () => {
-    render(
-      <OpponentRoster tuckOverlap={0}>
-        <span>Opponent</span>
-      </OpponentRoster>,
-    );
-    const roster = screen.getByTestId('opponent-roster');
-    expect(roster.style.marginBottom).toBe('');
+  it('returns null when every slot is empty', () => {
+    const { container } = render(<OpponentRoster />);
+    expect(container.firstChild).toBeNull();
   });
 
-  it('has z-10 class for layering above the felt', () => {
+  it('sits above the felt via z-10 stacking', () => {
     render(
-      <OpponentRoster>
-        <span>Opponent</span>
-      </OpponentRoster>,
+      <OpponentRoster centerSlot={<span>tc</span>} />,
     );
-    const roster = screen.getByTestId('opponent-roster');
-    expect(roster).toHaveClass('z-10');
+    expect(screen.getByTestId('opponent-roster')).toHaveClass('z-10');
   });
 });

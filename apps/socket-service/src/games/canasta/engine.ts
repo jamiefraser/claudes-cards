@@ -298,7 +298,8 @@ export type CanastaPickupErrorCode =
   | 'INITIAL_MELD_NOT_MET'
   | 'WOULD_LEAVE_UNDISCHARGEABLE_HAND'
   | 'MERGED_MELD_INVALID'
-  | 'STOCK_EXHAUSTED_MUST_TAKE_PILE';
+  | 'STOCK_EXHAUSTED_MUST_TAKE_PILE'
+  | 'CANNOT_GO_OUT';
 
 export class CanastaPickupError extends Error {
   public readonly code: CanastaPickupErrorCode;
@@ -1193,6 +1194,33 @@ export class CanastaEngine implements IGameEngine {
       const required = initialMeldMinimum(prior);
       if (initialPointsThisTurn < required) {
         throw new Error(`Initial meld ${initialPointsThisTurn} < required ${required}`);
+      }
+    }
+
+    // Going-out post-conditions. If the client signalled `goingOut:true` on
+    // any group (required for a black-3 exit meld; also valid on any meld
+    // played as part of the exit turn), the resulting state MUST be able
+    // to complete going out:
+    //   1. Hand reduced to exactly 1 card — the final discard. Zero is not
+    //      allowed in default rules (require-discard-to-go-out).
+    //   2. Side holds >= goOutRequirement canastas (counted AFTER this
+    //      action's melds, which may have completed a canasta this turn).
+    // Without this, a player could lay down black 3s, then fail at discard
+    // time and be stuck with an invalid board.
+    const anyGoingOut = groups.some((g) => g.goingOut === true);
+    if (anyGoingOut) {
+      if (workHand.length !== 1) {
+        throw new CanastaPickupError(
+          'CANNOT_GO_OUT',
+          `Going out requires exactly 1 card left to discard; hand has ${workHand.length}`,
+        );
+      }
+      const canastaCount = newMeldsForSide.filter((m) => m.isCanasta).length;
+      if (canastaCount < pd.goOutRequirement) {
+        throw new CanastaPickupError(
+          'CANNOT_GO_OUT',
+          `Need ${pd.goOutRequirement} canasta(s) to go out; have ${canastaCount}`,
+        );
       }
     }
 

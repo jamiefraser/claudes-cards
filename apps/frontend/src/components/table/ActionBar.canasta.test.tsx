@@ -35,7 +35,7 @@ describe('<ActionBar /> — Canasta', () => {
       <ActionBar
         {...baseProps}
         selectedCardIds={[]}
-        canasta={{ phase: 'draw', selectedCards: [], extendableMelds: [] }}
+        canasta={{ phase: 'draw', selectedCards: [], extendableMelds: [], handSize: 11, sideCanastaCount: 0, goOutRequirement: 1 }}
       />,
     );
     expect(screen.getByRole('button', { name: /draw from deck/i })).toBeInTheDocument();
@@ -51,6 +51,9 @@ describe('<ActionBar /> — Canasta', () => {
           phase: 'meld-discard',
           selectedCards: [{ id: 'c1', rank: '7', suit: 'hearts' }],
           extendableMelds: [],
+          handSize: 11,
+          sideCanastaCount: 0,
+          goOutRequirement: 1,
         }}
       />,
     );
@@ -71,6 +74,9 @@ describe('<ActionBar /> — Canasta', () => {
             { id: 'c3', rank: '7', suit: 'clubs' },
           ],
           extendableMelds: [],
+          handSize: 11,
+          sideCanastaCount: 0,
+          goOutRequirement: 1,
         }}
       />,
     );
@@ -95,6 +101,9 @@ describe('<ActionBar /> — Canasta', () => {
           extendableMelds: [
             { rank: '7', naturals: 3, wilds: 0, isCanasta: false },
           ],
+          handSize: 11,
+          sideCanastaCount: 0,
+          goOutRequirement: 1,
         }}
       />,
     );
@@ -123,6 +132,9 @@ describe('<ActionBar /> — Canasta', () => {
             { rank: '7', naturals: 3, wilds: 0, isCanasta: false },
             { rank: 'K', naturals: 4, wilds: 1, isCanasta: false },
           ],
+          handSize: 11,
+          sideCanastaCount: 0,
+          goOutRequirement: 1,
         }}
       />,
     );
@@ -155,6 +167,9 @@ describe('<ActionBar /> — Canasta', () => {
             { id: 'c3', rank: '7', suit: 'clubs' },
           ],
           extendableMelds: [],
+          handSize: 11,
+          sideCanastaCount: 0,
+          goOutRequirement: 1,
         }}
       />,
     );

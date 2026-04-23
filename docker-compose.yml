@@ -145,6 +145,8 @@ services:
       args:
         VITE_AUTH_MODE: ${AUTH_MODE:-dev}
         VITE_LOG_LEVEL: ${LOG_LEVEL:-info}
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3001/api/v1}
+        VITE_SOCKET_URL: ${VITE_SOCKET_URL:-http://localhost:3002}
         VITE_B2C_CLIENT_ID: ${VITE_B2C_CLIENT_ID:-}
         VITE_B2C_AUTHORITY: ${VITE_B2C_AUTHORITY:-}
         VITE_B2C_KNOWN_AUTHORITIES: ${VITE_B2C_KNOWN_AUTHORITIES:-}

@@ -671,6 +671,19 @@ export function GameTable({ roomId }: GameTableProps) {
       phase: 'draw' | 'meld-discard' | 'ended';
       selectedCards: Array<{ id: string; rank?: string; suit?: string }>;
       extendableMelds: Array<{ rank: string; naturals: number; wilds: number; isCanasta: boolean }>;
+      // Going-out pre-conditions — consumed by ActionBar to gate the Meld
+      // button on all-black-3 selections (which are only legal when going
+      // out). See engine.ts handleMeld "Going-out post-conditions".
+      handSize: number;
+      sideCanastaCount: number;
+      goOutRequirement: number;
+      // Take-Top pre-conditions — consumed by ActionBar to partition a
+      // multi-rank selection into (pickup meld + additional melds) and to
+      // pre-validate the initial-meld threshold. Mirrors engine Step 3/4.
+      discardTopRank?: string;
+      discardFrozen: boolean;
+      initialMeldDone: boolean;
+      sideScorePrior: number;
     } | undefined;
     if (gameState.gameId === 'canasta' && myPlayer && player) {
       const pd = gameState.publicData as Record<string, unknown>;
@@ -700,7 +713,24 @@ export function GameTable({ roomId }: GameTableProps) {
         .filter((c): c is NonNullable<typeof c> => c !== undefined)
         .map((c) => ({ id: c.id, rank: c.rank, suit: c.suit }));
       const phase = (pd['gamePhase'] as 'draw' | 'meld-discard' | 'ended' | undefined) ?? 'draw';
-      canastaProps = { phase, selectedCards, extendableMelds };
+      const sideCanastaCount = sideMelds.filter((m) => m.isCanasta).length;
+      const goOutRequirement = (pd['goOutRequirement'] as number | undefined) ?? 1;
+      const discardTop = pd['discardTop'] as { rank?: string; suit?: string } | null | undefined;
+      const discardFrozen = Boolean(pd['discardFrozen']);
+      const initialMeldDoneMap = (pd['initialMeldDone'] as Record<string, boolean> | undefined) ?? {};
+      const scoresPriorHandMap = (pd['scoresPriorHand'] as Record<string, number> | undefined) ?? {};
+      canastaProps = {
+        phase,
+        selectedCards,
+        extendableMelds,
+        handSize: myPlayer.hand.length,
+        sideCanastaCount,
+        goOutRequirement,
+        discardTopRank: discardTop?.rank,
+        discardFrozen,
+        initialMeldDone: !!initialMeldDoneMap[mySide],
+        sideScorePrior: scoresPriorHandMap[mySide] ?? 0,
+      };
     }
 
     const phase10LaidDown =

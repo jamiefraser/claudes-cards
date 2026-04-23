@@ -75,6 +75,20 @@ export interface ActionBarProps {
     phase: 'draw' | 'meld-discard' | 'ended';
     selectedCards: ReadonlyArray<{ id: string; rank?: string; suit?: string }>;
     extendableMelds: readonly CanastaExtendableMeld[];
+    /** Total cards in the local player's hand (needed to gate going-out). */
+    handSize: number;
+    /** Number of canastas the local player's side already has on the board. */
+    sideCanastaCount: number;
+    /** Canastas required to go out (variant-dependent). */
+    goOutRequirement: number;
+    /** Rank of the current discard-pile top card (drives pickup partition). */
+    discardTopRank?: string;
+    /** True when the pile is frozen OR side has not yet made initial meld. */
+    discardFrozen?: boolean;
+    /** True when the local player's side has already made its initial meld. */
+    initialMeldDone?: boolean;
+    /** Local player's side score prior to this hand — drives threshold. */
+    sideScorePrior?: number;
   };
   /**
    * Phase 10 — true once the local player has laid down their phase. After
@@ -149,17 +163,137 @@ export function ActionBar({
   };
   const handleDrawDiscard = () => {
     if (!isMyTurn) return;
-    // Canasta's pickup is a separate engine action (take-discard) that
-    // requires the player to nominate which hand cards will join the top
-    // card in a meld. We forward the current selection as useCardIds; the
-    // engine returns a specific error code if the selection is invalid or
-    // missing, which the gameAction socket handler surfaces to a toast.
+    // Canasta's pickup has its own UX: clicking Take Top enters pickup mode
+    // so the player can build the required melds iteratively. Fast path:
+    // if the side has already made initial meld, nothing is selected, and
+    // an extendable meld of the top rank exists, submit directly so the
+    // engine auto-extends (the old one-click behaviour). Otherwise enter
+    // pickup mode and let the player stage melds one by one.
     if (isCanasta) {
-      emitAction('take-discard', undefined, { useCardIds: [...selectedCardIds] });
+      const canExtend =
+        canasta?.initialMeldDone === true &&
+        canastaSelected.length === 0 &&
+        !!canasta.discardTopRank &&
+        canasta.extendableMelds.some((m) => m.rank === canasta.discardTopRank);
+      if (canExtend) {
+        emitAction('take-discard', undefined, { useCardIds: [] });
+        return;
+      }
+      setPickupMode(true);
+      setStagedMelds([]);
       return;
     }
     emitAction('draw', undefined, { source: 'discard' });
   };
+  // Pickup-staging handlers.
+  const submitPickupPlan = useCallback(
+    (plan: StagedMeld[]) => {
+      const topMeld = plan.find((m) => m.includesTop);
+      if (!topMeld) return;
+      const useCardIds = topMeld.cards.map((c) => c.id);
+      const melds = plan
+        .filter((m) => !m.includesTop)
+        .map((m) => m.cards.map((c) => c.id));
+      const payload: Record<string, unknown> = { useCardIds };
+      if (melds.length > 0) payload.melds = melds;
+      emitAction('take-discard', undefined, payload);
+      setPickupMode(false);
+      setStagedMelds([]);
+    },
+    [emitAction],
+  );
+
+  const handleStageMeld = () => {
+    if (!pickupMode || !canasta || !isMyTurn) return;
+    const topRank = canasta.discardTopRank;
+    if (!topRank) return;
+    // Resolve selection to full-info cards and drop any that are already
+    // staged (prevents double-counting when the player forgets to clear).
+    const selection = canastaSelected.filter((c) => !stagedCardIds.has(c.id));
+    if (selection.length === 0) return;
+
+    const naturalsOfTopInSelection = selection.filter(
+      (c) => c.rank === topRank && (c.suit === 'hearts' || c.suit === 'diamonds' || c.suit === 'clubs' || c.suit === 'spades'),
+    );
+    const wildsInSelection = selection.filter(isWildCard);
+    const otherNaturalsInSelection = selection.filter(
+      (c) => c.rank !== topRank && c.rank !== undefined && !isWildCard(c),
+    );
+
+    // First meld in pickup mode must be the pickup meld: ≥2 naturals of the
+    // top card's rank (from hand) + top card + optional wilds. Matching the
+    // engine's frozen rule which also applies whenever the side has not yet
+    // made its initial meld (Hoyle "effectively frozen").
+    if (!pickupHasTopMeld) {
+      if (naturalsOfTopInSelection.length < 2) {
+        logger.warn('Pickup: first meld must contain >= 2 naturals of the top rank from hand');
+        return;
+      }
+      if (otherNaturalsInSelection.length > 0) {
+        logger.warn('Pickup: first meld may only contain top-rank naturals and wilds');
+        return;
+      }
+      const newMeld: StagedMeld = {
+        id: `stg-${Date.now()}-${stagedMelds.length}`,
+        cards: selection,
+        includesTop: true,
+      };
+      const next = [...stagedMelds, newMeld];
+      // Recompute total with the just-staged meld included.
+      let newTotal = canastaCardValue({ rank: topRank });
+      for (const m of next) {
+        for (const c of m.cards) newTotal += canastaCardValue(c);
+      }
+      clearSelection();
+      if (newTotal >= pickupThreshold) {
+        submitPickupPlan(next);
+      } else {
+        setStagedMelds(next);
+      }
+      return;
+    }
+
+    // Subsequent melds: single-rank group from hand, wilds ≤ naturals, ≥ 3 cards.
+    if (otherNaturalsInSelection.length === 0) {
+      logger.warn('Pickup: additional meld needs at least one non-top-rank natural');
+      return;
+    }
+    const ranks = new Set(otherNaturalsInSelection.map((c) => c.rank!));
+    if (ranks.size !== 1) {
+      logger.warn('Pickup: additional meld must be single-rank');
+      return;
+    }
+    if (selection.length < 3) {
+      logger.warn('Pickup: additional meld needs at least 3 cards');
+      return;
+    }
+    if (wildsInSelection.length >= otherNaturalsInSelection.length) {
+      logger.warn('Pickup: additional meld must have more naturals than wilds');
+      return;
+    }
+    const newMeld: StagedMeld = {
+      id: `stg-${Date.now()}-${stagedMelds.length}`,
+      cards: selection,
+      includesTop: false,
+    };
+    const next = [...stagedMelds, newMeld];
+    let newTotal = canastaCardValue({ rank: topRank });
+    for (const m of next) {
+      for (const c of m.cards) newTotal += canastaCardValue(c);
+    }
+    clearSelection();
+    if (newTotal >= pickupThreshold) {
+      submitPickupPlan(next);
+    } else {
+      setStagedMelds(next);
+    }
+  };
+
+  const handleCancelPickup = () => {
+    setPickupMode(false);
+    setStagedMelds([]);
+  };
+
   const handleLayDown = () => {
     // Phase 10: server auto-arranges from the full hand if no groups are
     // pre-selected, so we don't require selected cards here.
@@ -198,6 +332,25 @@ export function ActionBar({
   const canastaWilds = canastaSelected.filter(isWildCard);
   const canastaNaturalRanks = new Set(canastaNaturals.map((c) => c.rank!));
 
+  // All-black-3 selection: rank '3' + suit clubs/spades + no wilds. Black 3s
+  // are "stop cards" and are only legally meldable on the going-out turn —
+  // the engine rejects them otherwise. Detect here so we can both gate the
+  // Meld button (below) and send `goingOut:true` on the payload.
+  const canastaAllBlackThrees =
+    canastaSelected.length >= 3 &&
+    canastaWilds.length === 0 &&
+    canastaSelected.every(
+      (c) => c.rank === '3' && (c.suit === 'clubs' || c.suit === 'spades'),
+    );
+  // Going-out pre-conditions for any all-black-3 meld: after the meld, hand
+  // must reduce to exactly 1 card (the forced discard) AND side must hold
+  // goOutRequirement canastas. Mirrors engine.ts handleMeld post-check.
+  const canastaCanGoOutWithBlackThrees =
+    canastaAllBlackThrees &&
+    canasta !== undefined &&
+    canasta.handSize === canastaSelected.length + 1 &&
+    canasta.sideCanastaCount >= canasta.goOutRequirement;
+
   // DEF-008: Pre-validate the meld selection. Disabled when the selection
   // cannot possibly form a legal meld:
   //   - All wilds: need at least 1 wild AND an existing meld to extend.
@@ -207,6 +360,11 @@ export function ActionBar({
   //     group (>= 3 without wilds, >= 2 with wilds to fill the 3rd slot).
   const canastaCanMeld = (() => {
     if (!isMyTurn || canasta?.phase !== 'meld-discard' || canastaSelected.length === 0) return false;
+    // All-black-3 selection only permitted when the player can actually go
+    // out this turn (engine enforces the same rule on the server side).
+    if (canastaAllBlackThrees) {
+      return canastaCanGoOutWithBlackThrees;
+    }
     if (canastaAllWilds) {
       return canastaSelected.length >= 1 && (canasta?.extendableMelds.length ?? 0) > 0;
     }
@@ -238,13 +396,76 @@ export function ActionBar({
   const canastaCanDiscard =
     isMyTurn && canasta?.phase === 'meld-discard' && selectedCardIds.length === 1;
 
+  // Card-point values — used by pickup-staging to compute the running total
+  // against the initial-meld threshold. Matches canastaCardPoints in the
+  // engine (wilds count at face value, bonuses excluded).
+  const canastaCardValue = (c: { rank?: string; suit?: string }): number => {
+    if (c.rank === undefined && c.suit === undefined) return 50;
+    if (c.rank === '2') return 20;
+    if (c.rank === 'A') return 20;
+    if (c.rank === '3') return 5;
+    if (c.rank && ['J', 'Q', 'K', '10', '9', '8'].includes(c.rank)) return 10;
+    return 5;
+  };
+  const initialMeldMinimum = (priorScore: number): number => {
+    if (priorScore < 0) return 15;
+    if (priorScore < 1500) return 50;
+    if (priorScore < 3000) return 90;
+    return 120;
+  };
+  // Take-Top gate: enabled in the draw phase on the player's turn. The
+  // button enters pickup mode (or takes the fast extend path). All plan
+  // validation happens at stage time, not at button-click time.
+  const canastaCanTakeTop = isMyTurn && canasta?.phase === 'draw';
+
   // Wild distribution modal state (multi-rank + wilds).
   const [distributeModalOpen, setDistributeModalOpen] = useState(false);
   const [distributeRankGroups, setDistributeRankGroups] = useState<RankGroup[]>([]);
   const [distributeWildIds, setDistributeWildIds] = useState<string[]>([]);
 
+  // ── Canasta pickup-staging state ────────────────────────────────────────
+  // Clicking Take Top in the draw phase enters *pickup mode*: the top card
+  // of the discard pile is reserved, and the player builds the melds they
+  // want to lay down using the pile's top card iteratively. The first
+  // staged meld must include the top card (via naturals of its rank from
+  // hand + optional wilds). Additional melds are staged from hand only.
+  // When the running point total crosses the initial-meld threshold, the
+  // compiled plan is auto-submitted as a `take-discard` action and the
+  // engine picks up the rest of the pile.
+  type StagedMeld = {
+    id: string;
+    cards: Array<{ id: string; rank?: string; suit?: string }>;
+    includesTop: boolean;
+  };
+  const [pickupMode, setPickupMode] = useState(false);
+  const [stagedMelds, setStagedMelds] = useState<StagedMeld[]>([]);
+  const stagedCardIds = new Set(stagedMelds.flatMap((m) => m.cards.map((c) => c.id)));
+  const pickupHasTopMeld = stagedMelds.some((m) => m.includesTop);
+  const pickupTotalPoints = (() => {
+    if (!canasta) return 0;
+    let total = 0;
+    if (pickupHasTopMeld && canasta.discardTopRank) {
+      total += canastaCardValue({ rank: canasta.discardTopRank });
+    }
+    for (const m of stagedMelds) {
+      for (const c of m.cards) total += canastaCardValue(c);
+    }
+    return total;
+  })();
+  const pickupThreshold = canasta?.initialMeldDone
+    ? 0
+    : initialMeldMinimum(canasta?.sideScorePrior ?? 0);
+
   const handleCanastaMeld = () => {
     if (!canastaCanMeld) return;
+    if (canastaAllBlackThrees) {
+      // Black-3 exit meld. Engine requires `goingOut:true` on the group;
+      // canastaCanMeld has already validated the going-out pre-conditions.
+      emitAction('meld', undefined, {
+        melds: [{ cardIds: selectedCardIds, goingOut: true }],
+      });
+      return;
+    }
     if (canastaAllWilds) {
       // Wild-only selection needs a target meld; ask the player.
       setExtendModalOpen(true);
@@ -689,6 +910,69 @@ export function ActionBar({
   // existing meld to extend, because a brand-new meld must contain a natural.
   if (isCanasta) {
     const phase = canasta?.phase ?? 'draw';
+    if (phase === 'draw' && pickupMode) {
+      // Pickup mode: replace the draw buttons with Stage Meld + Cancel +
+      // a running threshold indicator. The player builds the meld plan
+      // iteratively; the plan auto-submits once the threshold is crossed.
+      return (
+        <div
+          className={[barBase, 'flex-col items-stretch gap-2'].join(' ')}
+          role="toolbar"
+          aria-label={en.table.gameActions}
+        >
+          <div
+            className="flex flex-row items-center gap-3 text-parchment text-sm font-display"
+            aria-live="polite"
+          >
+            <span className="font-semibold">
+              {en.table.canastaPickupProgress
+                .replace('{total}', String(pickupTotalPoints))
+                .replace('{threshold}', String(pickupThreshold))}
+            </span>
+            {canasta?.discardTopRank && (
+              <span className="opacity-80">
+                {en.table.canastaPickupTopCardLabel.replace(
+                  '{rank}',
+                  canasta.discardTopRank,
+                )}
+              </span>
+            )}
+            <span className={pickupHasTopMeld ? 'text-sage' : 'text-burgundy'}>
+              {pickupHasTopMeld
+                ? en.table.canastaPickupTopCardUsed
+                : en.table.canastaPickupTopCardPending}
+            </span>
+            <span className="opacity-70">
+              {en.table.canastaPickupStagedCount.replace(
+                '{count}',
+                String(stagedMelds.length),
+              )}
+            </span>
+          </div>
+          <div className="flex flex-row items-center gap-1.5 sm:gap-2">
+            <button
+              type="button"
+              onClick={handleStageMeld}
+              disabled={!isMyTurn || canastaSelected.length === 0}
+              className={`${btnBase} ${isMyTurn && canastaSelected.length > 0 ? btnEnabled : btnDisabled}`}
+              aria-label={en.table.canastaPickupStageAria}
+            >
+              {pickupHasTopMeld
+                ? en.table.canastaPickupStageMeld
+                : en.table.canastaPickupStageTopMeld}
+            </button>
+            <button
+              type="button"
+              onClick={handleCancelPickup}
+              className={`${btnBase} ${btnGhost}`}
+              aria-label={en.table.canastaPickupCancelAria}
+            >
+              {en.table.canastaPickupCancel}
+            </button>
+          </div>
+        </div>
+      );
+    }
     if (phase === 'draw') {
       return (
         <div className={barBase} role="toolbar" aria-label={en.table.gameActions}>
@@ -704,8 +988,8 @@ export function ActionBar({
           <button
             type="button"
             onClick={handleDrawDiscard}
-            disabled={!isMyTurn}
-            className={`${btnBase} ${isMyTurn ? btnGhost : btnDisabled}`}
+            disabled={!canastaCanTakeTop}
+            className={`${btnBase} ${canastaCanTakeTop ? btnGhost : btnDisabled}`}
             aria-label={en.table.takeTopAria}
           >
             {en.table.takeTop}

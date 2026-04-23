@@ -2396,3 +2396,169 @@ describe('CanastaEngine — initial-meld threshold on discard pickup', () => {
     expect(pd(after).melds.A).toHaveLength(2);
   });
 });
+
+// ===========================================================================
+// Going-out via a black-3 exit meld. Hoyle: black 3s may only be melded on
+// the going-out turn — the hand must reduce to exactly one card (the final
+// discard) AND the side must already hold >= goOutRequirement canastas.
+// The engine trusts the client's `goingOut` flag for the meld-composition
+// check (validateNewMeld), but handleMeld itself enforces the post-condition
+// so the board can never land in "black 3s melded but can't actually go out".
+// ===========================================================================
+
+describe('CanastaEngine — going-out post-conditions on handleMeld', () => {
+  const engine = new CanastaEngine();
+
+  /**
+   * Seed a state where side A has already made its initial meld, has a
+   * completed canasta on the board, and the player's hand contains exactly
+   * three black 3s + one extra discardable card (a 5 by default).
+   */
+  function buildGoOutScenario(opts: {
+    canastaCount?: number;      // how many canastas side A has on the board
+    extraHandCards?: Card[];    // cards beyond the three black 3s
+    goOutRequirement?: number;  // defaults to publicData value (1 for 4p)
+  }): { state: GameState; pid: string } {
+    const start = engine.startGame(makeConfig(4));
+    const pid = 'p1';
+    const threeBlacks = [
+      c('b1','3','clubs'),
+      c('b2','3','spades'),
+      c('b3','3','clubs'),
+    ];
+    const extra = opts.extraHandCards ?? [c('disc-5','5','hearts')];
+    const state0 = seedHand(start, pid, [...threeBlacks, ...extra]);
+    const pd0 = pd(state0);
+
+    // Build `opts.canastaCount` natural canastas of 7s (5 pts each card).
+    const canastas: CanastaMeld[] = [];
+    for (let i = 0; i < (opts.canastaCount ?? 1); i++) {
+      const suits: Array<Card['suit']> = ['hearts','diamonds','clubs','spades','hearts','diamonds','clubs'];
+      const cards = suits.map((s, j) => c(`c${i}-7${j}`, '7', s));
+      canastas.push({
+        rank: '7',
+        cards,
+        naturals: 7,
+        wilds: 0,
+        isCanasta: true,
+        canastaType: 'natural',
+      } as CanastaMeld);
+    }
+
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      gamePhase: 'meld-discard',
+      initialMeldDone: { A: true, B: false },
+      initialMeldDoneAtTurnStart: { A: true, B: false },
+      melds: { A: canastas, B: [] },
+      goOutRequirement: opts.goOutRequirement ?? pd0.goOutRequirement,
+    };
+    return {
+      pid,
+      state: {
+        ...state0,
+        currentTurn: pid,
+        publicData: cleaned as unknown as Record<string, unknown>,
+      },
+    };
+  }
+
+  it('accepts 3 black 3s when hand will reduce to 1 AND side has enough canastas', () => {
+    const { state, pid } = buildGoOutScenario({ canastaCount: 1 });
+    const after = engine.applyAction(state, pid, {
+      type: 'meld',
+      payload: {
+        melds: [{ cardIds: ['b1','b2','b3'], goingOut: true }],
+      },
+    });
+    // Black-3 meld is on the board.
+    const blackMeld = pd(after).melds.A!.find((m) => m.blackThrees);
+    expect(blackMeld).toBeDefined();
+    expect(blackMeld!.naturals).toBe(3);
+    expect(blackMeld!.wilds).toBe(0);
+    // Player's hand is the lone 5 (the discard that will end the turn).
+    const player = after.players.find((p) => p.playerId === pid)!;
+    expect(player.hand.map((c) => c.id)).toEqual(['disc-5']);
+  });
+
+  it('rejects black-3 meld when side has zero canastas even with goingOut:true', () => {
+    const { state, pid } = buildGoOutScenario({ canastaCount: 0 });
+    const code = expectPickupCode(() =>
+      engine.applyAction(state, pid, {
+        type: 'meld',
+        payload: {
+          melds: [{ cardIds: ['b1','b2','b3'], goingOut: true }],
+        },
+      }),
+    );
+    expect(code).toBe('CANNOT_GO_OUT');
+  });
+
+  it('rejects black-3 meld when hand would NOT reduce to 1 after the meld', () => {
+    // Two extra non-meldable cards (can't both be discarded; hand post-meld = 2).
+    const { state, pid } = buildGoOutScenario({
+      canastaCount: 1,
+      extraHandCards: [c('disc-5','5','hearts'), c('keep-6','6','diamonds')],
+    });
+    const code = expectPickupCode(() =>
+      engine.applyAction(state, pid, {
+        type: 'meld',
+        payload: {
+          melds: [{ cardIds: ['b1','b2','b3'], goingOut: true }],
+        },
+      }),
+    );
+    expect(code).toBe('CANNOT_GO_OUT');
+  });
+
+  it('rejects black-3 meld when goingOut flag is missing (existing rule)', () => {
+    const { state, pid } = buildGoOutScenario({ canastaCount: 1 });
+    expect(() =>
+      engine.applyAction(state, pid, {
+        type: 'meld',
+        payload: {
+          melds: [{ cardIds: ['b1','b2','b3'] }],
+        },
+      }),
+    ).toThrow(/going out/i);
+  });
+
+  it('allows a NON-black-3 meld whose goingOut:true satisfies conditions (sanity)', () => {
+    // Side A has 1 canasta, player holds three 9s + a discardable 4. Three 9s
+    // is a legal going-out meld (naturals, no black-3 rule involved).
+    const start = engine.startGame(makeConfig(4));
+    const pid = 'p1';
+    const hand = [
+      c('n1','9','hearts'), c('n2','9','spades'), c('n3','9','clubs'),
+      c('disc-4','4','hearts'),
+    ];
+    const state0 = seedHand(start, pid, hand);
+    const pd0 = pd(state0);
+    const canasta: CanastaMeld = {
+      rank: '7',
+      cards: ['hearts','diamonds','clubs','spades','hearts','diamonds','clubs'].map(
+        (s, i) => c(`c0-7${i}`, '7', s as Card['suit']),
+      ),
+      naturals: 7, wilds: 0, isCanasta: true, canastaType: 'natural',
+    } as CanastaMeld;
+    const cleaned: CanastaPublicData = {
+      ...pd0,
+      gamePhase: 'meld-discard',
+      initialMeldDone: { A: true, B: false },
+      initialMeldDoneAtTurnStart: { A: true, B: false },
+      melds: { A: [canasta], B: [] },
+    };
+    const state: GameState = {
+      ...state0,
+      currentTurn: pid,
+      publicData: cleaned as unknown as Record<string, unknown>,
+    };
+    const after = engine.applyAction(state, pid, {
+      type: 'meld',
+      payload: {
+        melds: [{ cardIds: ['n1','n2','n3'], goingOut: true }],
+      },
+    });
+    expect(pd(after).melds.A!.some((m) => m.rank === '9')).toBe(true);
+  });
+});

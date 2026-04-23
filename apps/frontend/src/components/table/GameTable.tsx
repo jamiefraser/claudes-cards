@@ -1134,29 +1134,66 @@ export function GameTable({ roomId }: GameTableProps) {
           {floatingChromeRight}
           {rulesDrawer}
 
-          {/* Top opponents — badges + melds above the felt.
-              tuckOverlap=48 makes the melds panel overlap into the
-              felt's top edge by 48px (desktop). */}
-          {topOpponents.length > 0 && (
-            <OpponentRoster tuckOverlap={48}>
-              {topOpponents.map(({ player: p }) => (
-                <div key={p.playerId} className="flex flex-col items-center gap-2 min-w-0">
-                  <OpponentBadge orientation="top" displayName={p.displayName}>
+          {/* ---- MOBILE (<640px): all opponents un-rotated in a
+              scrollable row above the felt. No tuck, no rotation.
+              Hidden at sm+ where the desktop/tablet layout takes over. ---- */}
+          <div
+            className="sm:hidden relative z-raised pt-2 pb-3 px-3 overflow-hidden border-b border-hairline/50"
+            aria-label={en.table.otherPlayersLabel}
+          >
+            <div className="no-scrollbar flex flex-row gap-3 overflow-x-auto snap-x snap-mandatory items-start">
+              {otherPlayers.map((p) => {
+                const melds = meldsByPlayer(p.playerId);
+                return (
+                  <div
+                    key={p.playerId}
+                    className="flex-none snap-start flex flex-col items-center gap-1.5"
+                    style={{ minWidth: melds.length > 0 ? 200 : 140 }}
+                  >
                     {renderOpponentBadge(p, 'top')}
-                  </OpponentBadge>
-                  <OpponentMeldsPanel orientation="top">
-                    {renderOpponentMelds(p)}
-                  </OpponentMeldsPanel>
-                </div>
-              ))}
-            </OpponentRoster>
+                    {melds.length > 0 && (
+                      <MeldsArea
+                        groups={melds}
+                        cardCatalogue={cardCatalogue}
+                        label={`${p.displayName}'s melds`}
+                        scale="compact"
+                        dropTargetPlayerId={
+                          gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
+                            ? p.playerId
+                            : undefined
+                        }
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ---- DESKTOP/TABLET (sm+): top opponents with tuck,
+              side opponents with rotation. Hidden at mobile. ---- */}
+          {topOpponents.length > 0 && (
+            <div className="hidden sm:block">
+              <OpponentRoster tuckOverlap={48}>
+                {topOpponents.map(({ player: p }) => (
+                  <div key={p.playerId} className="flex flex-col items-center gap-2 min-w-0">
+                    <OpponentBadge orientation="top" displayName={p.displayName}>
+                      {renderOpponentBadge(p, 'top')}
+                    </OpponentBadge>
+                    <OpponentMeldsPanel orientation="top">
+                      {renderOpponentMelds(p)}
+                    </OpponentMeldsPanel>
+                  </div>
+                ))}
+              </OpponentRoster>
+            </div>
           )}
 
           {/* Main stage — left side opponents, felt, right side opponents */}
           <TableSurface>
-            {/* Left-side opponents (3+p) */}
+            {/* Left-side opponents (3+p) — hidden at mobile */}
             {leftOpponents.length > 0 && (
-              <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full flex flex-col items-center gap-4 pr-4">
+              <div className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full flex-col items-center gap-4 pr-4">
                 {leftOpponents.map(({ player: p }) => (
                   <div key={p.playerId} className="flex flex-col items-center gap-2">
                     <OpponentBadge orientation="left" displayName={p.displayName}>
@@ -1185,9 +1222,9 @@ export function GameTable({ roomId }: GameTableProps) {
               </TableFelt>
             </div>
 
-            {/* Right-side opponents (4+p) */}
+            {/* Right-side opponents (4+p) — hidden at mobile */}
             {rightOpponents.length > 0 && (
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-full flex flex-col items-center gap-4 pl-4">
+              <div className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 translate-x-full flex-col items-center gap-4 pl-4">
                 {rightOpponents.map(({ player: p }) => (
                   <div key={p.playerId} className="flex flex-col items-center gap-2">
                     <OpponentBadge orientation="right" displayName={p.displayName}>

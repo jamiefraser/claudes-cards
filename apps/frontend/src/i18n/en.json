@@ -264,6 +264,10 @@
     "canastaExtendPrompt": "You selected only wild cards. Choose which of your melds to add them to.",
     "canastaExtendNone": "You don't have any melds to extend yet. Lay down a natural meld first.",
     "canastaExtendButton": "Extend {rank}s",
+    "canastaDistributeTitle": "Distribute wild cards",
+    "canastaDistributePrompt": "Your selection has multiple ranks and wild cards. Assign wilds to each rank group.",
+    "canastaDistributeConfirm": "Confirm melds",
+    "canastaDistributeRemaining": "{count} wild(s) unassigned",
     "phase10Hit": "Hit Meld",
     "phase10HitAria": "Add selected cards to an existing meld",
     "phase10HitTitle": "Add to which meld?",
@@ -721,6 +725,9 @@
     "regionLabel": "Chat",
     "reply": "Reply",
     "report": "Report"
+  },
+  "error": {
+    "generic": "An error occurred. Please try again."
   },
   "connection": {
     "lost": "Connection lost"

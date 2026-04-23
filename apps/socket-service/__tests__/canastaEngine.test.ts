@@ -421,6 +421,59 @@ describe('CanastaEngine \u2014 melds', () => {
     expect(m.isCanasta).toBe(true);
     expect(m.canastaType).toBe('mixed');
   });
+
+  it('multi-group action totalling >= 50 pts satisfies initial meld (DEF-002)', () => {
+    const start = engine.startGame(makeConfig(4));
+    const pid = 'p1';
+    // Three 7s (5 each = 15) + three Kings (10 each = 30) + one Ace meld
+    // (20 each = 60) across three groups = 105 pts total, clears 50.
+    const hand = [
+      c('s1','7','hearts'), c('s2','7','spades'), c('s3','7','clubs'),
+      c('k1','K','hearts'), c('k2','K','spades'), c('k3','K','clubs'),
+      c('a1','A','hearts'), c('a2','A','spades'), c('a3','A','clubs'),
+      c('x1','4','hearts'), // leftover
+    ];
+    const state = forceMeldPhase(seedHand(start, pid, hand), pid);
+    const after = engine.applyAction(state, pid, {
+      type: 'meld',
+      payload: {
+        melds: [
+          { cardIds: ['s1', 's2', 's3'] },
+          { cardIds: ['k1', 'k2', 'k3'] },
+          { cardIds: ['a1', 'a2', 'a3'] },
+        ],
+      },
+    });
+    // All three melds should appear on side A.
+    expect(pd(after).melds.A).toHaveLength(3);
+    expect(pd(after).initialMeldDone.A).toBe(true);
+    // Only the leftover card remains.
+    const newPlayer = after.players.find((p) => p.playerId === pid)!;
+    expect(newPlayer.hand.map((c) => c.id)).toEqual(['x1']);
+  });
+
+  it('multi-group action below threshold is rejected', () => {
+    const start = engine.startGame(makeConfig(4));
+    const pid = 'p1';
+    // Three 4s (5 each = 15) + three 5s (5 each = 15) = 30 pts < 50.
+    const hand = [
+      c('a1','4','hearts'), c('a2','4','spades'), c('a3','4','clubs'),
+      c('b1','5','hearts'), c('b2','5','spades'), c('b3','5','clubs'),
+      c('x1','9','hearts'),
+    ];
+    const state = forceMeldPhase(seedHand(start, pid, hand), pid);
+    expect(() =>
+      engine.applyAction(state, pid, {
+        type: 'meld',
+        payload: {
+          melds: [
+            { cardIds: ['a1', 'a2', 'a3'] },
+            { cardIds: ['b1', 'b2', 'b3'] },
+          ],
+        },
+      }),
+    ).toThrow(/Initial meld 30 < required 50/);
+  });
 });
 
 // ===========================================================================

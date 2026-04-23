@@ -12,6 +12,10 @@ import {
   CanastaMeldTargetModal,
   type CanastaExtendableMeld,
 } from './CanastaMeldTargetModal';
+import {
+  CanastaWildDistributionModal,
+  type RankGroup,
+} from './CanastaWildDistributionModal';
 
 export interface ActionBarProps {
   roomId: string;
@@ -185,15 +189,59 @@ export function ActionBar({
   //     { melds: [{ cardIds, extend: <rank> }] } because the server can't
   //     guess which existing meld to extend from a pure-wild selection.
   const canastaSelected = canasta?.selectedCards ?? [];
+  const isWildCard = (c: { rank?: string; suit?: string }) =>
+    c.rank === '2' || (c.rank === undefined && c.suit === undefined);
   const canastaAllWilds =
     canastaSelected.length > 0 &&
-    canastaSelected.every(
-      (c) => c.rank === '2' || (c.rank === undefined && c.suit === undefined),
-    );
-  const canastaCanMeld =
-    isMyTurn && canasta?.phase === 'meld-discard' && canastaSelected.length >= 1;
+    canastaSelected.every(isWildCard);
+  const canastaNaturals = canastaSelected.filter((c) => !isWildCard(c) && c.rank !== undefined);
+  const canastaWilds = canastaSelected.filter(isWildCard);
+  const canastaNaturalRanks = new Set(canastaNaturals.map((c) => c.rank!));
+
+  // DEF-008: Pre-validate the meld selection. Disabled when the selection
+  // cannot possibly form a legal meld:
+  //   - All wilds: need at least 1 wild AND an existing meld to extend.
+  //   - Single rank with extendable meld: any count >= 1 is valid (extension).
+  //   - Single rank, new meld: need >= 3 cards total with wilds < naturals.
+  //   - Multi-rank: each rank group must have enough naturals to form a legal
+  //     group (>= 3 without wilds, >= 2 with wilds to fill the 3rd slot).
+  const canastaCanMeld = (() => {
+    if (!isMyTurn || canasta?.phase !== 'meld-discard' || canastaSelected.length === 0) return false;
+    if (canastaAllWilds) {
+      return canastaSelected.length >= 1 && (canasta?.extendableMelds.length ?? 0) > 0;
+    }
+    if (canastaNaturalRanks.size === 1) {
+      const [rank] = Array.from(canastaNaturalRanks);
+      const hasExtendable = canasta?.extendableMelds.some((m) => m.rank === rank);
+      if (hasExtendable) {
+        // Extending an existing meld — any selection of 1+ cards is fine.
+        return canastaSelected.length >= 1;
+      }
+      // New meld: naturals + wilds >= 3, wilds < naturals.
+      return (
+        canastaNaturals.length + canastaWilds.length >= 3 &&
+        canastaWilds.length < canastaNaturals.length
+      );
+    }
+    // Multi-rank: each rank needs enough naturals to form a legal group.
+    const rankCounts = new Map<string, number>();
+    for (const c of canastaNaturals) {
+      rankCounts.set(c.rank!, (rankCounts.get(c.rank!) ?? 0) + 1);
+    }
+    // Without wilds, each rank needs >= 3 naturals.
+    if (canastaWilds.length === 0) {
+      return Array.from(rankCounts.values()).every((n) => n >= 3);
+    }
+    // With wilds: each rank needs >= 2 naturals (a wild can fill the 3rd slot).
+    return Array.from(rankCounts.values()).every((n) => n >= 2);
+  })();
   const canastaCanDiscard =
     isMyTurn && canasta?.phase === 'meld-discard' && selectedCardIds.length === 1;
+
+  // Wild distribution modal state (multi-rank + wilds).
+  const [distributeModalOpen, setDistributeModalOpen] = useState(false);
+  const [distributeRankGroups, setDistributeRankGroups] = useState<RankGroup[]>([]);
+  const [distributeWildIds, setDistributeWildIds] = useState<string[]>([]);
 
   const handleCanastaMeld = () => {
     if (!canastaCanMeld) return;
@@ -202,21 +250,20 @@ export function ActionBar({
       setExtendModalOpen(true);
       return;
     }
-    // If the naturals in the selection all share a rank and the side already
-    // has a meld of that rank, lay off directly as an extension. Otherwise
-    // treat the selection as a new meld (engine requires ≥ 3 cards).
-    const naturalRanks = new Set(
-      canastaSelected
-        .filter((c) => {
-          // Wild = rank '2' or joker (no rank + no suit).
-          if (c.rank === '2') return false;
-          if (c.rank === undefined && c.suit === undefined) return false;
-          return c.rank !== undefined;
-        })
-        .map((c) => c.rank!),
-    );
-    if (naturalRanks.size === 1) {
-      const [naturalRank] = Array.from(naturalRanks);
+
+    // Build rank groups from natural cards.
+    const rankGroupMap = new Map<string, string[]>();
+    for (const c of canastaSelected) {
+      if (isWildCard(c) || c.rank === undefined) continue;
+      const ids = rankGroupMap.get(c.rank!) ?? [];
+      ids.push(c.id);
+      rankGroupMap.set(c.rank!, ids);
+    }
+    const wildCardIds_ = canastaSelected.filter(isWildCard).map((c) => c.id);
+
+    if (rankGroupMap.size === 1) {
+      // Single rank path — unchanged.
+      const [naturalRank] = Array.from(rankGroupMap.keys());
       const existing = canasta?.extendableMelds.find((m) => m.rank === naturalRank);
       if (existing) {
         emitAction('meld', undefined, {
@@ -224,8 +271,40 @@ export function ActionBar({
         });
         return;
       }
+      emitAction('meld', selectedCardIds);
+      return;
     }
-    emitAction('meld', selectedCardIds);
+
+    // Multi-rank path (DEF-002 fix).
+    if (wildCardIds_.length > 0) {
+      // Wilds present alongside multiple natural ranks — open distribution modal.
+      const groups: RankGroup[] = Array.from(rankGroupMap.entries()).map(
+        ([rank, ids]) => ({ rank, naturalCardIds: ids }),
+      );
+      setDistributeRankGroups(groups);
+      setDistributeWildIds(wildCardIds_);
+      setDistributeModalOpen(true);
+      return;
+    }
+
+    // No wilds — group by rank and submit all groups at once.
+    const melds = Array.from(rankGroupMap.entries()).map(([_rank, ids]) => ({
+      cardIds: ids,
+    }));
+    emitAction('meld', undefined, { melds });
+  };
+
+  const handleWildDistributionConfirm = (distribution: Array<{ cardIds: string[]; rank: string }>) => {
+    setDistributeModalOpen(false);
+    // Check if any group extends an existing meld.
+    const melds = distribution.map((group) => {
+      const existing = canasta?.extendableMelds.find((m) => m.rank === group.rank);
+      if (existing) {
+        return { cardIds: group.cardIds, extend: group.rank };
+      }
+      return { cardIds: group.cardIds };
+    });
+    emitAction('meld', undefined, { melds });
   };
   const handleCanastaExtendPick = (rank: string) => {
     setExtendModalOpen(false);
@@ -670,6 +749,13 @@ export function ActionBar({
           melds={canasta?.extendableMelds ?? []}
           onPick={handleCanastaExtendPick}
           onClose={() => setExtendModalOpen(false)}
+        />
+        <CanastaWildDistributionModal
+          isOpen={distributeModalOpen}
+          rankGroups={distributeRankGroups}
+          wildCardIds={distributeWildIds}
+          onConfirm={handleWildDistributionConfirm}
+          onClose={() => setDistributeModalOpen(false)}
         />
       </div>
     );

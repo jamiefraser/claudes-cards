@@ -17,6 +17,7 @@ import {
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { useGameStore } from '@/store/gameStore';
 import { useGameState } from '@/hooks/useGameState';
+import { useGameError } from '@/hooks/useGameError';
 import { useAuth } from '@/auth/useAuth';
 import { getGameSocket } from '@/hooks/useSocket';
 import { logger } from '@/utils/logger';
@@ -139,6 +140,7 @@ export function GameTable({ roomId }: GameTableProps) {
 
   // Subscribe to game socket events
   useGameState(roomId);
+  useGameError(roomId);
 
   // Cribbage auto-Go: if it's my turn during pegging and I have no playable
   // card (every card would push the count over 31), emit 'go' automatically.

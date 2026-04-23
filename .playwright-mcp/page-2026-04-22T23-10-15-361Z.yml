@@ -1,0 +1,126 @@
+- generic [ref=e2]:
+  - generic [ref=e301]:
+    - generic [ref=e303]:
+      - generic [ref=e304]:
+        - generic [ref=e307]: Room C1CF9A · Hand 1/1
+        - generic [ref=e308]:
+          - generic [ref=e309]: ○
+          - generic [ref=e310]: Bot 1's turn
+        - generic [ref=e311]:
+          - generic [ref=e312]: ⚖
+          - generic [ref=e313]: Initial meld needs 50 pts
+      - generic [ref=e315]:
+        - button "End and delete this game" [ref=e316] [cursor=pointer]:
+          - generic [ref=e317]: ⏻
+        - button "Open settings" [ref=e318] [cursor=pointer]:
+          - generic [ref=e319]: ⚙
+      - button "Open rules" [ref=e320] [cursor=pointer]:
+        - generic [ref=e321]: Rules
+        - generic [ref=e322]: ❦
+      - generic [ref=e326]:
+        - generic [ref=e327]:
+          - generic "Bot 1 (Bot) seat" [ref=e329]:
+            - generic "Bot is playing for Bot 1 — they may return" [ref=e330]: BOT
+            - img [ref=e331]
+            - generic [ref=e344]: Bot 1(Bot)
+            - generic [ref=e345]: 12 cards
+            - img "12 cards face down" [ref=e346]:
+              - img [ref=e348]
+              - img [ref=e350]
+              - img [ref=e352]
+              - img [ref=e354]
+              - img [ref=e356]
+              - img [ref=e358]
+              - img [ref=e360]
+            - generic [ref=e361]:
+              - generic [ref=e362]: "0"
+              - generic [ref=e363]: pts
+            - generic [ref=e364]: Thinking…
+          - generic "Bot 2 (Bot) seat" [ref=e366]:
+            - generic "Bot is playing for Bot 2 — they may return" [ref=e367]: BOT
+            - img [ref=e368]
+            - generic [ref=e381]: Bot 2(Bot)
+            - generic [ref=e382]: 11 cards
+            - img "11 cards face down" [ref=e383]:
+              - img [ref=e385]
+              - img [ref=e387]
+              - img [ref=e389]
+              - img [ref=e391]
+              - img [ref=e393]
+              - img [ref=e395]
+              - img [ref=e397]
+            - generic [ref=e398]:
+              - generic [ref=e399]: "0"
+              - generic [ref=e400]: pts
+          - generic "Bot 3 (Bot) seat" [ref=e402]:
+            - generic "Bot is playing for Bot 3 — they may return" [ref=e403]: BOT
+            - img [ref=e404]
+            - generic [ref=e417]: Bot 3(Bot)
+            - generic [ref=e418]: 11 cards
+            - img "11 cards face down" [ref=e419]:
+              - img [ref=e421]
+              - img [ref=e423]
+              - img [ref=e425]
+              - img [ref=e427]
+              - img [ref=e429]
+              - img [ref=e431]
+              - img [ref=e433]
+            - generic [ref=e434]:
+              - generic [ref=e435]: "0"
+              - generic [ref=e436]: pts
+        - generic [ref=e438]:
+          - button "Draw pile — 60 cards remaining" [ref=e439] [cursor=pointer]:
+            - generic [ref=e440]: "60"
+          - button "Discard pile" [ref=e442] [cursor=pointer]
+      - generic [ref=e443]:
+        - toolbar "Game actions" [ref=e444]:
+          - button "Meld selected cards" [disabled] [ref=e445]: Meld
+          - button "Discard selected card" [disabled] [ref=e446]: Discard
+          - generic [ref=e447]: Waiting for players…
+        - list "Your hand" [ref=e448]:
+          - listitem [ref=e449]:
+            - button "Card 1 of 11" [ref=e450] [cursor=pointer]:
+              - img "9 of spades" [ref=e451]
+          - listitem [ref=e452]:
+            - button "Card 2 of 11" [ref=e453] [cursor=pointer]:
+              - img "K of clubs" [ref=e454]
+          - listitem [ref=e455]:
+            - button "Card 3 of 11" [ref=e456] [cursor=pointer]:
+              - img "4 of hearts" [ref=e457]
+          - listitem [ref=e458]:
+            - button "Card 4 of 11" [ref=e459] [cursor=pointer]:
+              - img "K of spades" [ref=e460]
+          - listitem [ref=e461]:
+            - button "Card 5 of 11" [ref=e462] [cursor=pointer]:
+              - img "6 of clubs" [ref=e463]
+          - listitem [ref=e464]:
+            - button "Card 6 of 11" [ref=e465] [cursor=pointer]:
+              - img "2 of hearts" [ref=e466]
+          - listitem [ref=e467]:
+            - button "Card 7 of 11" [ref=e468] [cursor=pointer]:
+              - img "8 of hearts" [ref=e469]
+          - listitem [ref=e470]:
+            - button "Card 8 of 11" [ref=e471] [cursor=pointer]:
+              - img "2 of diamonds" [ref=e472]
+          - listitem [ref=e473]:
+            - button "Card 9 of 11" [ref=e474] [cursor=pointer]:
+              - img "10 of spades" [ref=e475]
+          - listitem [ref=e476]:
+            - button "Card 10 of 11" [ref=e477] [cursor=pointer]:
+              - img "8 of diamonds" [ref=e478]
+          - listitem [ref=e479]:
+            - button "Card 11 of 11" [ref=e480] [cursor=pointer]:
+              - img "5 of spades" [ref=e481]
+        - generic [ref=e482]:
+          - generic [ref=e483]:
+            - generic [ref=e484]: TestPlayer1
+            - generic [ref=e485]: ·
+            - generic [ref=e486]: "0"
+          - button "Sort hand by rank" [ref=e487] [cursor=pointer]: Rank
+          - button "Sort hand by suit" [ref=e488] [cursor=pointer]: Suit
+    - complementary "Chat" [ref=e489]:
+      - paragraph [ref=e491]: No messages yet.
+      - generic [ref=e492]:
+        - textbox "Type a message…" [ref=e493]
+        - button "Send" [disabled] [ref=e494]
+  - status [ref=e495]

@@ -1,0 +1,19 @@
+- generic [ref=e2]:
+  - main [ref=e266]:
+    - generic [ref=e267]:
+      - button "← Back to lobby" [ref=e268] [cursor=pointer]
+      - heading "QA-1v3-Desktop" [level=1] [ref=e269]
+      - paragraph [ref=e270]: canasta — 1 of 4 seats filled
+      - region "Players in room" [ref=e271]:
+        - heading "Players" [level=2] [ref=e272]
+        - list [ref=e273]:
+          - listitem [ref=e274]:
+            - generic [ref=e276]: TestPlayer1
+            - generic [ref=e277]: HOST
+          - listitem [ref=e278]: Empty seat
+          - listitem [ref=e279]: Empty seat
+          - listitem [ref=e280]: Empty seat
+      - button "Start Game" [ref=e281] [cursor=pointer]
+  - status [ref=e283]:
+    - generic [ref=e284]: Create
+    - button "Dismiss notification" [ref=e285] [cursor=pointer]: ×

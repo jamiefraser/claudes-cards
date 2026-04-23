@@ -1,0 +1,103 @@
+- generic [ref=e2]:
+  - generic [ref=e382]:
+    - generic [ref=e384]:
+      - generic [ref=e385]:
+        - generic [ref=e388]: Room ED3202 · Hand 1/1
+        - generic [ref=e389]:
+          - generic [ref=e390]: ◆
+          - generic [ref=e391]: Your turn
+        - generic [ref=e392]:
+          - generic [ref=e393]: ⚖
+          - generic [ref=e394]: Initial meld needs 50 pts
+      - generic [ref=e396]:
+        - button "End and delete this game" [ref=e397] [cursor=pointer]:
+          - generic [ref=e398]: ⏻
+        - button "Open settings" [ref=e399] [cursor=pointer]:
+          - generic [ref=e400]: ⚙
+      - button "Open rules" [ref=e401] [cursor=pointer]:
+        - generic [ref=e402]: Rules
+        - generic [ref=e403]: ❦
+      - generic [ref=e407]:
+        - generic "Bot 1 (Bot) seat" [ref=e410]:
+          - generic "Bot is playing for Bot 1 — they may return" [ref=e411]: BOT
+          - img [ref=e412]
+          - generic [ref=e425]: Bot 1(Bot)
+          - generic [ref=e426]: 16 cards
+          - img "16 cards face down" [ref=e517]:
+            - img [ref=e429]
+            - img [ref=e431]
+            - img [ref=e433]
+            - img [ref=e435]
+            - img [ref=e437]
+            - img [ref=e439]
+            - img [ref=e441]
+          - generic [ref=e442]:
+            - generic [ref=e443]: "0"
+            - generic [ref=e444]: pts
+        - generic [ref=e447]:
+          - button "Draw pile — 74 cards remaining" [ref=e518] [cursor=pointer]:
+            - generic [ref=e449]: "74"
+          - button "Discard pile" [ref=e451] [cursor=pointer]
+      - generic [ref=e452]:
+        - toolbar "Game actions" [ref=e453]:
+          - button "Draw from deck" [ref=e454] [cursor=pointer]: Draw Deck
+          - button "Take top card" [ref=e455] [cursor=pointer]: Take Top
+        - list "Your hand" [ref=e457]:
+          - listitem [ref=e458]:
+            - button "Card 1 of 15" [ref=e459] [cursor=pointer]:
+              - img "9 of spades" [ref=e460]
+          - listitem [ref=e461]:
+            - button "Card 2 of 15" [ref=e462] [cursor=pointer]:
+              - img "K of diamonds" [ref=e463]
+          - listitem [ref=e464]:
+            - button "Card 3 of 15" [ref=e465] [cursor=pointer]:
+              - img "6 of clubs" [ref=e466]
+          - listitem [ref=e467]:
+            - button "Card 4 of 15" [ref=e468] [cursor=pointer]:
+              - img "A of diamonds" [ref=e469]
+          - listitem [ref=e470]:
+            - button "Card 5 of 15" [ref=e471] [cursor=pointer]:
+              - img "K of spades" [ref=e472]
+          - listitem [ref=e473]:
+            - button "Card 6 of 15" [ref=e474] [cursor=pointer]:
+              - img "Q of hearts" [ref=e475]
+          - listitem [ref=e476]:
+            - button "Card 7 of 15" [ref=e477] [cursor=pointer]:
+              - img "7 of clubs" [ref=e478]
+          - listitem [ref=e479]:
+            - button "Card 8 of 15" [ref=e480] [cursor=pointer]:
+              - img "8 of diamonds" [ref=e481]
+          - listitem [ref=e482]:
+            - button "Card 9 of 15" [ref=e483] [cursor=pointer]:
+              - img "4 of clubs" [ref=e484]
+          - listitem [ref=e485]:
+            - button "Card 10 of 15" [ref=e486] [cursor=pointer]:
+              - img "7 of diamonds" [ref=e487]
+          - listitem [ref=e488]:
+            - button "Card 11 of 15" [ref=e489] [cursor=pointer]:
+              - img "8 of spades" [ref=e490]
+          - listitem [ref=e491]:
+            - button "Card 12 of 15" [ref=e492] [cursor=pointer]:
+              - img "6 of clubs" [ref=e493]
+          - listitem [ref=e494]:
+            - button "Card 13 of 15" [ref=e495] [cursor=pointer]:
+              - img "10 of spades" [ref=e496]
+          - listitem [ref=e497]:
+            - button "Card 14 of 15" [ref=e498] [cursor=pointer]:
+              - img "J of hearts" [ref=e499]
+          - listitem [ref=e500]:
+            - button "Card 15 of 15" [ref=e501] [cursor=pointer]:
+              - img "10 of clubs" [ref=e502]
+        - generic [ref=e503]:
+          - generic [ref=e504]:
+            - generic [ref=e505]: TestPlayer1
+            - generic [ref=e506]: ·
+            - generic [ref=e507]: "0"
+          - button "Sort hand by rank" [ref=e508] [cursor=pointer]: Rank
+          - button "Sort hand by suit" [ref=e509] [cursor=pointer]: Suit
+    - complementary "Chat" [ref=e510]:
+      - paragraph [ref=e512]: No messages yet.
+      - generic [ref=e513]:
+        - textbox "Type a message…" [ref=e514]
+        - button "Send" [disabled] [ref=e515]
+  - status [ref=e516]

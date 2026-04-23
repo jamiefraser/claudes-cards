@@ -1,0 +1,31 @@
+- generic [ref=e1]:
+  - main [ref=e349]:
+    - generic [ref=e350]:
+      - button "← Back to lobby" [ref=e351] [cursor=pointer]
+      - heading "QA-1v1-Desktop" [level=1] [ref=e352]
+      - paragraph [ref=e353]: canasta — 1 of 2 seats filled
+      - region "Players in room" [ref=e354]:
+        - heading "Players" [level=2] [ref=e355]
+        - list [ref=e356]:
+          - listitem [ref=e357]:
+            - generic [ref=e359]: TestPlayer1
+            - generic [ref=e360]: HOST
+          - listitem [ref=e361]: Empty seat
+      - button "Start Game" [ref=e362] [cursor=pointer]
+  - dialog "Add bots to start the game" [ref=e367]:
+    - generic [active] [ref=e369]:
+      - generic [ref=e370]:
+        - heading "Add bots to start the game" [level=2] [ref=e371]
+        - button "Close dialog" [ref=e372] [cursor=pointer]: ×
+      - generic [ref=e373]:
+        - paragraph [ref=e374]:
+          - text: Your room has 1 human of 2 seats. You must add at least
+          - strong [ref=e375]: "1"
+          - text: bot to start.
+        - generic [ref=e376]:
+          - generic [ref=e377]: How many bots?
+          - combobox "Number of bots" [ref=e378]:
+            - option "1 bot" [selected]
+        - generic [ref=e379]:
+          - button "Cancel" [ref=e380] [cursor=pointer]
+          - button "Start Game" [ref=e381] [cursor=pointer]

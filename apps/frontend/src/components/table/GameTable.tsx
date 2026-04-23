@@ -42,7 +42,6 @@ import { CribbageBoard } from './cribbage/CribbageBoard';
 import { CribbageCountingDisplay } from './CribbageCountingDisplay';
 import { CribbagePhaseToast } from './CribbagePhaseToast';
 import { sortByRank, sortBySuit, applyHandOrder } from '@/utils/handSort';
-import { formatScore } from '@/utils/formatScore';
 import { knockEligibility } from '@/utils/ginrummyDeadwood';
 import { loadRulesForGame } from '@/utils/gameRules';
 import { TableChat } from '../chat/TableChat';
@@ -53,6 +52,16 @@ import en from '@/i18n/en.json';
 import { getRoom, deleteRoom } from '@/api/rooms.api';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '../shared/Toast';
+import {
+  GameScreen,
+  OpponentRoster,
+  OpponentBadge,
+  OpponentMeldsPanel,
+  TableSurface,
+  StockDiscardArea,
+  PlayerControls,
+  getSeatPlacements,
+} from './layout';
 
 interface GameTableProps {
   roomId: string;
@@ -742,130 +751,491 @@ export function GameTable({ roomId }: GameTableProps) {
   const totalHands = (gameState.publicData['totalHands'] as number | undefined) ?? 1;
   const currentHand = (gameState.publicData['currentHand'] as number | undefined) ?? 1;
 
+  // Seat placements for rummy-family clock-face layout.
+  const seatPlacements = isRummyFamily
+    ? getSeatPlacements(gameState.players.length)
+    : [];
+
+  // Deck type derived once for reuse.
+  const deckType = gameState.gameId === 'phase10' ? 'phase10' as const : 'standard' as const;
+
+  // --- Shared chrome elements (used by both rummy and non-rummy layouts) ---
+
+  const floatingChromeLeft = (
+    <div className={isRummyFamily
+      ? 'absolute top-3 left-3 sm:left-6 z-raised flex flex-col items-start gap-2'
+      : 'lg:absolute lg:top-5 lg:left-6 relative px-3 sm:px-6 pt-3 z-raised flex flex-row lg:flex-col items-start gap-2 flex-wrap'
+    }>
+      <RoomInfoPill
+        roomCode={roomId.slice(-6).toUpperCase()}
+        currentHand={currentHand}
+        totalHands={totalHands}
+      />
+      {turnBannerText && (
+        <div
+          aria-live="polite"
+          className={[
+            'inline-flex items-center gap-2 self-start px-3 py-1 rounded-full',
+            'bg-paper-raised/85 backdrop-blur border border-hairline',
+            'font-display italic text-sm',
+            isMyTurn ? 'text-ochre animate-turn-pulse' : 'text-ink-soft',
+          ].join(' ')}
+        >
+          <span aria-hidden>{isMyTurn ? '◆' : '○'}</span>
+          <span>{turnBannerText}</span>
+        </div>
+      )}
+      {dealerId && (
+        <div className="inline-flex items-center gap-2 self-start px-3 py-1 rounded-full bg-paper-raised/75 border border-hairline/70 text-xs text-ochre">
+          <span aria-hidden>♦</span>
+          <span>
+            {dealerId === player?.id
+              ? en.table.dealerBannerSelf
+              : en.table.dealerBanner.replace('{name}', dealerName)}
+          </span>
+        </div>
+      )}
+      {gameState.gameId === 'canasta' && player && (() => {
+        const pd = gameState.publicData as Record<string, unknown>;
+        const variant = pd['variant'] as '2p' | '3p' | '4p' | undefined;
+        const meldKeys = (pd['meldKeys'] as string[] | undefined) ?? [];
+        const initialMeldDone =
+          (pd['initialMeldDone'] as Record<string, boolean> | undefined) ?? {};
+        const scoresPriorHand =
+          (pd['scoresPriorHand'] as Record<string, number> | undefined) ?? {};
+        let mySide: string | undefined;
+        if (variant === '4p') {
+          const idx = gameState.players.findIndex(p => p.playerId === player.id);
+          mySide = idx === 0 || idx === 2 ? 'A' : 'B';
+        } else {
+          mySide = player.id;
+        }
+        if (!mySide || !meldKeys.includes(mySide)) return null;
+        if (initialMeldDone[mySide]) {
+          return (
+            <div className="inline-flex items-center gap-2 self-start px-3 py-1 rounded-full bg-paper-raised/75 border border-hairline/70 text-xs text-sage">
+              <span aria-hidden>✓</span>
+              <span>{en.table.initialMeldCompleteLabel}</span>
+            </div>
+          );
+        }
+        const prior = scoresPriorHand[mySide] ?? 0;
+        const required = prior < 0 ? 15 : prior < 1500 ? 50 : prior < 3000 ? 90 : 120;
+        return (
+          <div className="inline-flex items-center gap-2 self-start px-3 py-1 rounded-full bg-paper-raised/75 border border-hairline/70 text-xs text-ochre">
+            <span aria-hidden>⚖</span>
+            <span>
+              {en.table.initialMeldNeedsLabel.replace('{n}', String(required))}
+            </span>
+          </div>
+        );
+      })()}
+    </div>
+  );
+
+  const floatingChromeRight = (() => {
+    const amHost = !!player && !!hostId && player.id === hostId;
+    const activeBotIds = new Set(activeBots.map((b) => b.playerId));
+    const otherHumans = gameState.players.filter((p) =>
+      p.playerId !== player?.id && !p.isBot && !activeBotIds.has(p.playerId),
+    );
+    const canEnd = amHost && otherHumans.length === 0;
+    return (
+      <div className="absolute top-3 right-3 sm:right-6 z-raised">
+        <SettingsPopover onEndGame={canEnd ? handleEndGameRequest : undefined} />
+      </div>
+    );
+  })();
+
+  const rulesDrawer = (() => {
+    const rules = loadRulesForGame(gameState.gameId);
+    return (
+      <RulesPanel
+        title={rules?.title ?? gameState.gameId}
+        subtitle={rules?.subtitle}
+        isOpen={rulesOpen}
+        onToggle={() => setRulesOpen(v => !v)}
+        sections={rules?.sections ?? []}
+        attribution={rules?.attribution}
+      />
+    );
+  })();
+
+  // --- Draw / discard pile elements (shared between both layouts) ---
+  const drawPileEl = (
+    <PileComponent
+      type="draw"
+      cardCount={drawPileCount}
+      deckType={deckType}
+      onClick={() => {
+        if (isMyTurn) {
+          const socket = getGameSocket();
+          socket.emit('game_action', {
+            roomId,
+            action: { type: 'draw', payload: { source: 'deck' } },
+          } satisfies GameActionPayload);
+        }
+      }}
+    />
+  );
+
+  const discardPileEl = (
+    <div className="relative">
+      <PileComponent
+        type="discard"
+        topCard={topDiscard}
+        isDropTarget={true}
+        deckType={deckType}
+        discardPileCount={discardPileCount}
+        isFrozen={discardFrozen}
+        onClick={() => {
+          if (!isMyTurn) return;
+          const socket = getGameSocket();
+          if (gameState.gameId === 'canasta') {
+            socket.emit('game_action', {
+              roomId,
+              action: {
+                type: 'take-discard',
+                payload: { useCardIds: [...selectedCardIds] },
+              },
+            } satisfies GameActionPayload);
+            return;
+          }
+          socket.emit('game_action', {
+            roomId,
+            action: { type: 'draw', payload: { source: 'discard' } },
+          } satisfies GameActionPayload);
+        }}
+      />
+      {/* Crazy Eights: show the declared suit when a wild
+          is active so the next player knows what to match. */}
+      {(gameState.gameId === 'crazyeights' ||
+        gameState.gameId === 'crazy-eights') &&
+        (() => {
+          const declared = gameState.publicData['declaredSuit'] as
+            | 'spades' | 'hearts' | 'diamonds' | 'clubs' | null
+            | undefined;
+          if (!declared) return null;
+          const glyph: Record<string, string> = {
+            spades: '♠', hearts: '♥', diamonds: '♦', clubs: '♣',
+          };
+          const red = declared === 'hearts' || declared === 'diamonds';
+          return (
+            <div
+              role="status"
+              aria-label={`Declared suit: ${declared}`}
+              className={[
+                'absolute -top-3 -right-3 z-10',
+                'w-9 h-9 rounded-full',
+                'flex items-center justify-center text-xl leading-none',
+                'bg-paper shadow-[0_4px_10px_-2px_rgb(var(--ink)_/_0.35)]',
+                'border border-hairline',
+                red ? 'text-burgundy' : 'text-ink',
+              ].join(' ')}
+            >
+              {glyph[declared]}
+            </div>
+          );
+        })()}
+    </div>
+  );
+
+  // --- Overlays (shared between both layouts) ---
+  const overlays = (
+    <>
+      {/* Game-over celebration */}
+      {gameState.phase === 'ended' &&
+        !(gameState.gameId === 'ginrummy' && ginrummyShowdownData?.active) &&
+        (() => {
+          const ranked = [...gameState.players].sort((a, b) => {
+            if (a.isOut && !b.isOut) return -1;
+            if (!a.isOut && b.isOut) return 1;
+            return (a.score ?? 0) - (b.score ?? 0);
+          });
+          return <WinCelebration ranked={ranked} selfPlayerId={player?.id} />;
+        })()}
+
+      {/* Phase 10 per-hand scoring overlay */}
+      {gameState.gameId === 'phase10' && gameState.phase === 'scoring' && (() => {
+        const pd = gameState.publicData as Record<string, unknown>;
+        const activeBotIds = new Set(activeBots.map((b) => b.playerId));
+        return (
+          <Phase10HandScore
+            roomId={roomId}
+            myPlayerId={player?.id}
+            players={gameState.players.map((p) => ({
+              playerId: p.playerId,
+              displayName: p.displayName,
+              score: p.score,
+              currentPhase: p.currentPhase,
+              phaseLaidDown: p.phaseLaidDown,
+              isBot: p.isBot || activeBotIds.has(p.playerId),
+            }))}
+            activeBotIds={activeBotIds}
+            handWinnerId={pd['handWinnerId'] as string | undefined}
+            handScores={(pd['handScores'] as Record<string, number>) ?? {}}
+            scoringAcks={(pd['scoringAcks'] as string[]) ?? []}
+          />
+        );
+      })()}
+
+      {/* Gin Rummy showdown overlay */}
+      {ginrummyShowdownData?.active && (
+        <div className="absolute left-1/2 -translate-x-1/2 top-24 w-full max-w-4xl px-4 z-20">
+          <GinRummyShowdown
+            knockerId={ginrummyShowdownData.knockerId}
+            isGin={ginrummyShowdownData.isGin}
+            knockerPts={ginrummyShowdownData.knockerPts}
+            oppPts={ginrummyShowdownData.oppPts}
+            isUndercut={ginrummyShowdownData.isUndercut}
+            players={ginrummyShowdownData.players}
+            myPlayerId={player?.id}
+            ackedIds={ginrummyShowdownData.acked}
+          />
+        </div>
+      )}
+    </>
+  );
+
+  // --- Bottom dock (action bar + hand + controls) ---
+  const bottomDock = myPlayer ? (
+    <div className={isRummyFamily
+      ? 'relative pt-3 pb-4 sm:pb-6 z-dock flex flex-col items-center gap-2 sm:gap-3 px-2 sm:px-4'
+      : 'lg:absolute lg:bottom-0 lg:left-0 lg:right-0 relative pt-3 pb-4 sm:pb-6 z-dock flex flex-col items-center gap-2 sm:gap-3 px-2 sm:px-4'
+    }>
+      {actionBarProps && <ActionBar {...actionBarProps} />}
+
+      {gameState.gameId === 'phase10' && (
+        <Phase10Objective
+          phase={myPlayer.currentPhase ?? 1}
+          laidDown={myPlayer.phaseLaidDown ?? false}
+        />
+      )}
+
+      <HandComponent
+        cards={applyHandOrder(myPlayer.hand, handOrderMap[roomId])}
+        selectedIds={selectedCardIds}
+        onSelect={handleCardSelect}
+        disabled={!handInteractive}
+        draggable={isMyTurn}
+        onReorder={(ids) => setHandOrder(roomId, ids)}
+      />
+
+      <PlayerControls
+        displayName={myPlayer.displayName}
+        score={myPlayer.score ?? 0}
+        isDealer={dealerId === myPlayer.playerId}
+        onSortByRank={() => setHandOrder(roomId, sortByRank(myPlayer.hand))}
+        onSortBySuit={() => setHandOrder(roomId, sortBySuit(myPlayer.hand))}
+      />
+
+      {meldsByPlayer(myPlayer.playerId).length > 0 && (
+        <MeldsArea
+          groups={meldsByPlayer(myPlayer.playerId)}
+          cardCatalogue={cardCatalogue}
+          label="Your melds"
+          dropTargetPlayerId={
+            gameState.gameId === 'phase10' && myPlayer.phaseLaidDown
+              ? myPlayer.playerId
+              : undefined
+          }
+        />
+      )}
+    </div>
+  ) : null;
+
+  // --- Modals (always rendered) ---
+  const modals = (
+    <>
+      <Phase10HitTargetModal
+        isOpen={hitModalOpen}
+        targets={phase10HitTargets}
+        onPick={handleHitPick}
+        onClose={() => setHitModalOpen(false)}
+      />
+      <ConfirmDialog
+        open={endConfirmOpen}
+        title={en.table.endGameConfirmTitle}
+        message={en.table.endGameConfirmBody}
+        confirmLabel={en.table.endGameConfirmAction}
+        cancelLabel={en.table.endGameConfirmCancel}
+        destructive
+        onConfirm={handleEndGameConfirm}
+        onCancel={() => setEndConfirmOpen(false)}
+      />
+    </>
+  );
+
+  // =====================================================================
+  // RUMMY-FAMILY LAYOUT — centered-column with clock-face seat placement
+  // =====================================================================
+  if (isRummyFamily) {
+    // Filter opponents into top-oriented vs side-oriented.
+    const topOpponents: Array<{ player: typeof otherPlayers[0]; seatIndex: number }> = [];
+    const leftOpponents: Array<{ player: typeof otherPlayers[0]; seatIndex: number }> = [];
+    const rightOpponents: Array<{ player: typeof otherPlayers[0]; seatIndex: number }> = [];
+
+    otherPlayers.forEach((p, i) => {
+      const placement = seatPlacements[i];
+      if (!placement) return;
+      const entry = { player: p, seatIndex: i };
+      if (placement.orientation === 'left') leftOpponents.push(entry);
+      else if (placement.orientation === 'right') rightOpponents.push(entry);
+      else topOpponents.push(entry);
+    });
+
+    const renderOpponentBadge = (p: typeof otherPlayers[0], orientation: 'top' | 'left' | 'right') => {
+      const isBot = activeBots.some(b => b.playerId === p.playerId) || p.isBot;
+      const isCurrentTurn = gameState.currentTurn === p.playerId;
+      return isBot ? (
+        <BotSeat
+          playerState={p}
+          originalDisplayName={p.displayName}
+          isCurrentTurn={isCurrentTurn}
+          deckType={deckType}
+          isDealer={dealerId === p.playerId}
+          compact
+        />
+      ) : (
+        <PlayerSeat
+          playerState={p}
+          isCurrentTurn={isCurrentTurn}
+          isSelf={false}
+          deckType={deckType}
+          isDealer={dealerId === p.playerId}
+          compact
+        />
+      );
+    };
+
+    const renderOpponentMelds = (p: typeof otherPlayers[0]) => {
+      const melds = meldsByPlayer(p.playerId);
+      if (melds.length === 0) return null;
+      return (
+        <MeldsArea
+          groups={melds}
+          cardCatalogue={cardCatalogue}
+          label={`${p.displayName}'s melds`}
+          scale="medium"
+          dropTargetPlayerId={
+            gameState.gameId === 'phase10' && myPlayer?.phaseLaidDown
+              ? p.playerId
+              : undefined
+          }
+        />
+      );
+    };
+
+    return (
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <GameScreen>
+          {botAnnouncerEl}
+          {floatingChromeLeft}
+          {floatingChromeRight}
+          {rulesDrawer}
+
+          {/* Top opponents — badges + melds above the felt */}
+          {topOpponents.length > 0 && (
+            <OpponentRoster>
+              {topOpponents.map(({ player: p }) => (
+                <div key={p.playerId} className="flex flex-col items-center gap-2 min-w-0">
+                  <OpponentBadge orientation="top" displayName={p.displayName}>
+                    {renderOpponentBadge(p, 'top')}
+                  </OpponentBadge>
+                  <OpponentMeldsPanel orientation="top">
+                    {renderOpponentMelds(p)}
+                  </OpponentMeldsPanel>
+                </div>
+              ))}
+            </OpponentRoster>
+          )}
+
+          {/* Main stage — left side opponents, felt, right side opponents */}
+          <TableSurface>
+            {/* Left-side opponents (3+p) */}
+            {leftOpponents.length > 0 && (
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full flex flex-col items-center gap-4 pr-4">
+                {leftOpponents.map(({ player: p }) => (
+                  <div key={p.playerId} className="flex flex-col items-center gap-2">
+                    <OpponentBadge orientation="left" displayName={p.displayName}>
+                      {renderOpponentBadge(p, 'left')}
+                    </OpponentBadge>
+                    <OpponentMeldsPanel orientation="left">
+                      {renderOpponentMelds(p)}
+                    </OpponentMeldsPanel>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Felt surface with piles */}
+            <div
+              className="relative w-full max-w-[880px]"
+              style={{ aspectRatio: `${FELT_W} / ${FELT_H}` }}
+            >
+              {/* Top meld tuck — meld panels overlap into the felt's top edge
+                  by 48px (desktop). overflow:visible on TableSurface prevents
+                  clipping. */}
+              {topOpponents.length > 0 && topOpponents.some(({ player: p }) => meldsByPlayer(p.playerId).length > 0) && (
+                <div
+                  className="absolute left-0 right-0 z-10 flex flex-row flex-wrap gap-3 justify-center pointer-events-auto"
+                  style={{ top: '-48px' }}
+                >
+                  {/* Melds already rendered in OpponentRoster above; this
+                      tuck is handled by the roster's bottom margin and the
+                      felt's relative positioning. */}
+                </div>
+              )}
+              <TableFelt width={FELT_W} height={FELT_H}>
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 py-6">
+                  <StockDiscardArea>
+                    {drawPileEl}
+                    {discardPileEl}
+                  </StockDiscardArea>
+                </div>
+              </TableFelt>
+            </div>
+
+            {/* Right-side opponents (4+p) */}
+            {rightOpponents.length > 0 && (
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-full flex flex-col items-center gap-4 pl-4">
+                {rightOpponents.map(({ player: p }) => (
+                  <div key={p.playerId} className="flex flex-col items-center gap-2">
+                    <OpponentBadge orientation="right" displayName={p.displayName}>
+                      {renderOpponentBadge(p, 'right')}
+                    </OpponentBadge>
+                    <OpponentMeldsPanel orientation="right">
+                      {renderOpponentMelds(p)}
+                    </OpponentMeldsPanel>
+                  </div>
+                ))}
+              </div>
+            )}
+          </TableSurface>
+
+          {overlays}
+          {bottomDock}
+          <TableChat roomId={roomId} />
+          {modals}
+        </GameScreen>
+      </DndContext>
+    );
+  }
+
+  // =====================================================================
+  // NON-RUMMY LAYOUT — original layout for cribbage, hearts, etc.
+  // =====================================================================
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <div className="relative flex flex-col lg:flex-row min-h-screen bg-paper font-sans text-ink">
         {botAnnouncerEl}
 
         <div className="relative flex-1 min-w-0">
-          {/* Floating chrome — top-left: room info + turn banner.
-              On `lg` (1440+) absolutely pinned over the felt. Below `lg`
-              relative at the top of the flow so it doesn't overlap the
-              opponent rail. */}
-          <div className="lg:absolute lg:top-5 lg:left-6 relative px-3 sm:px-6 pt-3 z-raised flex flex-row lg:flex-col items-start gap-2 flex-wrap">
-            <RoomInfoPill
-              roomCode={roomId.slice(-6).toUpperCase()}
-              currentHand={currentHand}
-              totalHands={totalHands}
-            />
-            {turnBannerText && (
-              <div
-                aria-live="polite"
-                className={[
-                  'inline-flex items-center gap-2 self-start px-3 py-1 rounded-full',
-                  'bg-paper-raised/85 backdrop-blur border border-hairline',
-                  'font-display italic text-sm',
-                  isMyTurn ? 'text-ochre animate-turn-pulse' : 'text-ink-soft',
-                ].join(' ')}
-              >
-                <span aria-hidden>{isMyTurn ? '◆' : '○'}</span>
-                <span>{turnBannerText}</span>
-              </div>
-            )}
-            {dealerId && (
-              <div className="inline-flex items-center gap-2 self-start px-3 py-1 rounded-full bg-paper-raised/75 border border-hairline/70 text-xs text-ochre">
-                <span aria-hidden>♦</span>
-                <span>
-                  {dealerId === player?.id
-                    ? en.table.dealerBannerSelf
-                    : en.table.dealerBanner.replace('{name}', dealerName)}
-                </span>
-              </div>
-            )}
-            {gameState.gameId === 'canasta' && player && (() => {
-              // Initial-meld minimum is driven by the side's *pre-hand* score:
-              //   < 0    → 15
-              //   < 1500 → 50
-              //   < 3000 → 90
-              //   ≥ 3000 → 120
-              // Already-melded sides see a "✓ melded" chip instead.
-              const pd = gameState.publicData as Record<string, unknown>;
-              const variant = pd['variant'] as '2p' | '3p' | '4p' | undefined;
-              const meldKeys = (pd['meldKeys'] as string[] | undefined) ?? [];
-              const initialMeldDone =
-                (pd['initialMeldDone'] as Record<string, boolean> | undefined) ?? {};
-              const scoresPriorHand =
-                (pd['scoresPriorHand'] as Record<string, number> | undefined) ?? {};
-              let mySide: string | undefined;
-              if (variant === '4p') {
-                const idx = gameState.players.findIndex(p => p.playerId === player.id);
-                mySide = idx === 0 || idx === 2 ? 'A' : 'B';
-              } else {
-                mySide = player.id;
-              }
-              if (!mySide || !meldKeys.includes(mySide)) return null;
-              if (initialMeldDone[mySide]) {
-                return (
-                  <div className="inline-flex items-center gap-2 self-start px-3 py-1 rounded-full bg-paper-raised/75 border border-hairline/70 text-xs text-sage">
-                    <span aria-hidden>✓</span>
-                    <span>{en.table.initialMeldCompleteLabel}</span>
-                  </div>
-                );
-              }
-              const prior = scoresPriorHand[mySide] ?? 0;
-              const required = prior < 0 ? 15 : prior < 1500 ? 50 : prior < 3000 ? 90 : 120;
-              return (
-                <div className="inline-flex items-center gap-2 self-start px-3 py-1 rounded-full bg-paper-raised/75 border border-hairline/70 text-xs text-ochre">
-                  <span aria-hidden>⚖</span>
-                  <span>
-                    {en.table.initialMeldNeedsLabel.replace('{n}', String(required))}
-                  </span>
-                </div>
-              );
-            })()}
-          </div>
+          {floatingChromeLeft}
+          {floatingChromeRight}
+          {rulesDrawer}
 
-          {/* Floating chrome — top-right: settings + leave */}
-          {(() => {
-            // Host can end the game when they're the only human in the room
-            // (every other seat is either a bot or marked isBot). This avoids
-            // a host nuking an active game other humans are still playing.
-            const amHost = !!player && !!hostId && player.id === hostId;
-            const activeBotIds = new Set(activeBots.map((b) => b.playerId));
-            const otherHumans = gameState.players.filter((p) =>
-              p.playerId !== player?.id && !p.isBot && !activeBotIds.has(p.playerId),
-            );
-            const canEnd = amHost && otherHumans.length === 0;
-            return (
-              <div className="lg:absolute lg:top-5 lg:right-6 absolute top-3 right-3 z-raised">
-                <SettingsPopover onEndGame={canEnd ? handleEndGameRequest : undefined} />
-              </div>
-            );
-          })()}
-
-          {/* Rules drawer — per-game rules sourced from i18n (localizable). */}
-          {(() => {
-            const rules = loadRulesForGame(gameState.gameId);
-            return (
-              <RulesPanel
-                title={rules?.title ?? gameState.gameId}
-                subtitle={rules?.subtitle}
-                isOpen={rulesOpen}
-                onToggle={() => setRulesOpen(v => !v)}
-                sections={rules?.sections ?? []}
-                attribution={rules?.attribution}
-              />
-            );
-          })()}
-
-          {/*
-            Mobile opponent rail.
-            Radial seating only works at `lg` (1440px+) — below that the
-            seats would overflow the felt. The rail sits in its OWN band
-            above the felt (no absolute positioning on top of the green),
-            horizontally-scrollable to reach each opponent, hairline-ruled
-            at the bottom so the seating area reads as a distinct zone.
-          */}
+          {/* Mobile opponent rail (non-rummy games) */}
           <div
             className="lg:hidden relative z-raised pt-2 pb-3 px-3 sm:px-5 overflow-hidden border-b border-hairline/50"
             aria-label={en.table.otherPlayersLabel}
@@ -889,7 +1259,7 @@ export function GameTable({ roomId }: GameTableProps) {
                           playerState={p}
                           originalDisplayName={p.displayName}
                           isCurrentTurn={isCurrentTurn}
-                          deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
+                          deckType={deckType}
                           isDealer={dealerId === p.playerId}
                           compact
                         />
@@ -898,7 +1268,7 @@ export function GameTable({ roomId }: GameTableProps) {
                           playerState={p}
                           isCurrentTurn={isCurrentTurn}
                           isSelf={false}
-                          deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
+                          deckType={deckType}
                           isDealer={dealerId === p.playerId}
                           compact
                         />
@@ -922,31 +1292,15 @@ export function GameTable({ roomId }: GameTableProps) {
             </div>
           </div>
 
-          {/* Main stage — felt + radial opponent seats.
-              On `lg` (1440+) the felt takes the classic padded centre and
-              the radial seats surround it. Below `lg` the felt occupies a
-              relative block between the opponent rail (above) and the
-              dock (below); no absolute positioning so there's no overlap. */}
+          {/* Main stage — felt + opponent seats (non-rummy) */}
           <div className="lg:absolute lg:inset-0 flex items-center justify-center lg:pt-24 lg:pb-80 py-4 sm:py-6 px-3 sm:px-6 pointer-events-none">
             <div
               className="relative pointer-events-auto w-full max-w-[880px]"
-              style={{
-                // Fluid at mobile/tablet, pinned to 880×520 at lg+.
-                // aspect-ratio keeps the felt shape identical across sizes.
-                aspectRatio: `${FELT_W} / ${FELT_H}`,
-              }}
+              style={{ aspectRatio: `${FELT_W} / ${FELT_H}` }}
             >
               <TableFelt width={FELT_W} height={FELT_H}>
                 <div className="absolute inset-0 flex flex-col items-stretch gap-3 px-8 py-6 overflow-hidden">
-                  {/* Top band: opponent pills + melds.
-                      Rendered INSIDE the felt's flex-col so flex layout
-                      physically separates the zones — no matter how many
-                      opponents or how long a meld gets, the middle band
-                      below is guaranteed free for the draw/discard piles.
-                      Capped at 42% of the felt height with overflow-hidden
-                      so pathological cases (many canastas, tiny viewport)
-                      stay contained. flex-wrap handles 3-4p variants by
-                      flowing opponents to a second row when needed. */}
+                  {/* Top band: opponent pills + melds (non-rummy: inside felt) */}
                   <div
                     className="hidden lg:flex w-full flex-row flex-wrap gap-5 items-start justify-center overflow-hidden shrink-0"
                     style={{ maxHeight: '42%' }}
@@ -969,18 +1323,18 @@ export function GameTable({ roomId }: GameTableProps) {
                                 playerState={p}
                                 originalDisplayName={p.displayName}
                                 isCurrentTurn={isCurrentTurn}
-                                deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
+                                deckType={deckType}
                                 isDealer={dealerId === p.playerId}
-                                compact={isRummyFamily}
+                                compact={false}
                               />
                             ) : (
                               <PlayerSeat
                                 playerState={p}
                                 isCurrentTurn={isCurrentTurn}
                                 isSelf={false}
-                                deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
+                                deckType={deckType}
                                 isDealer={dealerId === p.playerId}
-                                compact={isRummyFamily}
+                                compact={false}
                               />
                             )}
                             {melds.length > 0 && (
@@ -1000,301 +1354,71 @@ export function GameTable({ roomId }: GameTableProps) {
                         );
                       })}
                   </div>
-                  {/* Middle band: piles + game-specific content.
-                      flex-grow takes whatever vertical space remains after
-                      the top meld band, and justify-center keeps the draw/
-                      discard pile vertically centred within that region. */}
+                  {/* Middle band: piles + game-specific content (non-rummy) */}
                   <div className="flex-grow w-full flex flex-col items-center justify-center gap-3 min-h-0">
-                  <div className="flex flex-row flex-wrap gap-6 items-center justify-center">
-                    <PileComponent
-                      type="draw"
-                      cardCount={drawPileCount}
-                      deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
-                      onClick={() => {
-                        if (isMyTurn) {
-                          const socket = getGameSocket();
-                          socket.emit('game_action', {
-                            roomId,
-                            action: { type: 'draw', payload: { source: 'deck' } },
-                          } satisfies GameActionPayload);
-                        }
-                      }}
-                    />
-                    <div className="relative">
-                      <PileComponent
-                        type="discard"
-                        topCard={topDiscard}
-                        isDropTarget={true}
-                        deckType={gameState.gameId === 'phase10' ? 'phase10' : 'standard'}
-                        discardPileCount={discardPileCount}
-                        isFrozen={discardFrozen}
-                        onClick={() => {
-                          if (!isMyTurn) return;
-                          const socket = getGameSocket();
-                          // Canasta pickup is a distinct action from a stock
-                          // draw: the engine needs to know which hand cards
-                          // the player plans to meld with the top card. We
-                          // forward whatever is currently selected as
-                          // useCardIds; if the selection is empty the engine
-                          // will return NO_MATCHING_CARD, surfaced as a toast.
-                          if (gameState.gameId === 'canasta') {
-                            socket.emit('game_action', {
-                              roomId,
-                              action: {
-                                type: 'take-discard',
-                                payload: { useCardIds: [...selectedCardIds] },
-                              },
-                            } satisfies GameActionPayload);
-                            return;
-                          }
-                          socket.emit('game_action', {
-                            roomId,
-                            action: { type: 'draw', payload: { source: 'discard' } },
-                          } satisfies GameActionPayload);
-                        }}
-                      />
-                      {/* Crazy Eights: show the declared suit when a wild
-                          is active so the next player knows what to match. */}
-                      {(gameState.gameId === 'crazyeights' ||
-                        gameState.gameId === 'crazy-eights') &&
-                        (() => {
-                          const declared = gameState.publicData['declaredSuit'] as
-                            | 'spades' | 'hearts' | 'diamonds' | 'clubs' | null
-                            | undefined;
-                          if (!declared) return null;
-                          const glyph: Record<string, string> = {
-                            spades: '♠', hearts: '♥', diamonds: '♦', clubs: '♣',
-                          };
-                          const red = declared === 'hearts' || declared === 'diamonds';
-                          return (
-                            <div
-                              role="status"
-                              aria-label={`Declared suit: ${declared}`}
-                              className={[
-                                'absolute -top-3 -right-3 z-10',
-                                'w-9 h-9 rounded-full',
-                                'flex items-center justify-center text-xl leading-none',
-                                'bg-paper shadow-[0_4px_10px_-2px_rgb(var(--ink)_/_0.35)]',
-                                'border border-hairline',
-                                red ? 'text-burgundy' : 'text-ink',
-                              ].join(' ')}
-                            >
-                              {glyph[declared]}
-                            </div>
-                          );
-                        })()}
-                    </div>
-                  </div>
+                    <StockDiscardArea>
+                      {drawPileEl}
+                      {discardPileEl}
+                    </StockDiscardArea>
 
-                  {isCribbage &&
-                    gameState.publicData['gamePhase'] === 'pegging' && (
-                      <CribbagePegArea
-                        pegCount={(gameState.publicData['pegCount'] as number) ?? 0}
-                        pegCards={(gameState.publicData['pegCards'] as Card[]) ?? []}
-                        cutCard={(gameState.publicData['cutCard'] as Card | null) ?? null}
+                    {isCribbage &&
+                      gameState.publicData['gamePhase'] === 'pegging' && (
+                        <CribbagePegArea
+                          pegCount={(gameState.publicData['pegCount'] as number) ?? 0}
+                          pegCards={(gameState.publicData['pegCards'] as Card[]) ?? []}
+                          cutCard={(gameState.publicData['cutCard'] as Card | null) ?? null}
+                        />
+                      )}
+
+                    {isCribbage && gameState.cribbageBoardState && (
+                      <div className="w-full max-w-2xl">
+                        <CribbageBoard
+                          boardState={gameState.cribbageBoardState}
+                          playerNames={playerNames}
+                        />
+                      </div>
+                    )}
+
+                    {isCribbage && (
+                      <CribbagePhaseToast
+                        phase={gameState.publicData['gamePhase'] as string | undefined}
                       />
                     )}
 
-                  {isCribbage && gameState.cribbageBoardState && (
-                    <div className="w-full max-w-2xl">
-                      <CribbageBoard
-                        boardState={gameState.cribbageBoardState}
-                        playerNames={playerNames}
-                      />
-                    </div>
-                  )}
-
-                  {isCribbage && (
-                    <CribbagePhaseToast
-                      phase={gameState.publicData['gamePhase'] as string | undefined}
-                    />
-                  )}
-
-                  {isCribbage && gameState.publicData['gamePhase'] === 'counting' && (
-                    <div className="w-full max-w-3xl">
-                      <CribbageCountingDisplay
-                        step={(gameState.publicData['countingStep'] as 'hand' | 'crib') ?? 'hand'}
-                        cutCard={(gameState.publicData['cutCard'] as Card | null) ?? null}
-                        currentCountPlayerId={
-                          gameState.publicData['currentCountPlayerId'] as string | undefined
-                        }
-                        scoringHands={
-                          (gameState.publicData['scoringHands'] as Record<string, Card[]>) ?? {}
-                        }
-                        handScores={
-                          (gameState.publicData['handScores'] as Record<string, number>) ?? {}
-                        }
-                        crib={(gameState.publicData['crib'] as Card[]) ?? []}
-                        cribScore={(gameState.publicData['cribScore'] as number) ?? 0}
-                        playerNames={playerNames}
-                        dealerIndex={(gameState.publicData['dealerIndex'] as number) ?? 0}
-                        playerIds={gameState.players.map(p => p.playerId)}
-                      />
-                    </div>
-                  )}
+                    {isCribbage && gameState.publicData['gamePhase'] === 'counting' && (
+                      <div className="w-full max-w-3xl">
+                        <CribbageCountingDisplay
+                          step={(gameState.publicData['countingStep'] as 'hand' | 'crib') ?? 'hand'}
+                          cutCard={(gameState.publicData['cutCard'] as Card | null) ?? null}
+                          currentCountPlayerId={
+                            gameState.publicData['currentCountPlayerId'] as string | undefined
+                          }
+                          scoringHands={
+                            (gameState.publicData['scoringHands'] as Record<string, Card[]>) ?? {}
+                          }
+                          handScores={
+                            (gameState.publicData['handScores'] as Record<string, number>) ?? {}
+                          }
+                          crib={(gameState.publicData['crib'] as Card[]) ?? []}
+                          cribScore={(gameState.publicData['cribScore'] as number) ?? 0}
+                          playerNames={playerNames}
+                          dealerIndex={(gameState.publicData['dealerIndex'] as number) ?? 0}
+                          playerIds={gameState.players.map(p => p.playerId)}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               </TableFelt>
-
-              {/* Opponent pills + melds now render inside the felt's
-                  flex-col top band (see "Top band" above). The radial
-                  layer was removed: with the flex layout enforcing
-                  vertical separation between opponents / piles / board
-                  content, the absolute ellipse positioning no longer
-                  adds anything, and kept producing overlap with the
-                  piles whenever the meld strip got tall. */}
             </div>
           </div>
 
-          {/* Game-over celebration — festive overlay shown when the engine
-              transitions the hand to phase === 'ended'. Gin Rummy owns its
-              own showdown flow (below), so suppress this for ginrummy. */}
-          {gameState.phase === 'ended' &&
-            !(gameState.gameId === 'ginrummy' && ginrummyShowdownData?.active) &&
-            (() => {
-              const ranked = [...gameState.players].sort((a, b) => {
-                if (a.isOut && !b.isOut) return -1;
-                if (!a.isOut && b.isOut) return 1;
-                return (a.score ?? 0) - (b.score ?? 0);
-              });
-              return <WinCelebration ranked={ranked} selfPlayerId={player?.id} />;
-            })()}
-
-          {/* Phase 10 per-hand scoring overlay — distinct from the end-of-
-              game celebration. Shown between hands so players can see the
-              damage before committing to the next deal. Engine stays in
-              `phase === 'scoring'` until every seat acks; bots auto-ack. */}
-          {gameState.gameId === 'phase10' && gameState.phase === 'scoring' && (() => {
-            const pd = gameState.publicData as Record<string, unknown>;
-            const activeBotIds = new Set(activeBots.map((b) => b.playerId));
-            return (
-              <Phase10HandScore
-                roomId={roomId}
-                myPlayerId={player?.id}
-                players={gameState.players.map((p) => ({
-                  playerId: p.playerId,
-                  displayName: p.displayName,
-                  score: p.score,
-                  currentPhase: p.currentPhase,
-                  phaseLaidDown: p.phaseLaidDown,
-                  isBot: p.isBot || activeBotIds.has(p.playerId),
-                }))}
-                activeBotIds={activeBotIds}
-                handWinnerId={pd['handWinnerId'] as string | undefined}
-                handScores={(pd['handScores'] as Record<string, number>) ?? {}}
-                scoringAcks={(pd['scoringAcks'] as string[]) ?? []}
-              />
-            );
-          })()}
-
-          {ginrummyShowdownData?.active && (
-            <div className="absolute left-1/2 -translate-x-1/2 top-24 w-full max-w-4xl px-4 z-20">
-              <GinRummyShowdown
-                knockerId={ginrummyShowdownData.knockerId}
-                isGin={ginrummyShowdownData.isGin}
-                knockerPts={ginrummyShowdownData.knockerPts}
-                oppPts={ginrummyShowdownData.oppPts}
-                isUndercut={ginrummyShowdownData.isUndercut}
-                players={ginrummyShowdownData.players}
-                myPlayerId={player?.id}
-                ackedIds={ginrummyShowdownData.acked}
-              />
-            </div>
-          )}
-
-          {/* Bottom dock — action bar + hand + self identity.
-              On `lg` (1440+) absolutely pinned over the felt. Below `lg`
-              the dock is a relative block that stacks cleanly under the
-              felt, so no overflow, no overlap, no wasted space. */}
-          {myPlayer && (
-            <div className="lg:absolute lg:bottom-0 lg:left-0 lg:right-0 relative pt-3 pb-4 sm:pb-6 z-dock flex flex-col items-center gap-2 sm:gap-3 px-2 sm:px-4">
-              {actionBarProps && <ActionBar {...actionBarProps} />}
-
-              {gameState.gameId === 'phase10' && (
-                <Phase10Objective
-                  phase={myPlayer.currentPhase ?? 1}
-                  laidDown={myPlayer.phaseLaidDown ?? false}
-                />
-              )}
-
-              <HandComponent
-                cards={applyHandOrder(myPlayer.hand, handOrderMap[roomId])}
-                selectedIds={selectedCardIds}
-                onSelect={handleCardSelect}
-                disabled={!handInteractive}
-                draggable={isMyTurn}
-                onReorder={(ids) => setHandOrder(roomId, ids)}
-              />
-
-              <div className="flex flex-row items-center gap-2 sm:gap-3 flex-wrap justify-center max-w-full px-2 min-w-0">
-                <div className="inline-flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-1.5 rounded-full bg-paper-raised/80 border border-hairline/70 font-display text-sm min-w-0">
-                  <span className="text-ink truncate max-w-[10rem] min-w-0" translate="no">{myPlayer.displayName}</span>
-                  <span aria-hidden className="text-whisper">·</span>
-                  <span className="font-mono text-ochre text-xs tabular-nums" translate="no">
-                    {formatScore(myPlayer.score ?? 0)}
-                  </span>
-                  {dealerId === myPlayer.playerId && (
-                    <span
-                      title={en.table.dealerBadgeTooltip}
-                      className="w-5 h-5 rounded-full bg-ochre text-paper font-bold text-[0.7rem] flex items-center justify-center"
-                    >
-                      D
-                    </span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setHandOrder(roomId, sortByRank(myPlayer.hand))}
-                  className="min-h-[36px] text-xs font-medium tracking-wide text-ink-soft bg-paper-raised/60 hover:bg-paper-raised border border-hairline/60 hover:border-ochre rounded-full px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi"
-                  aria-label={en.table.sortHandByRank}
-                >
-                  {en.table.sortRankShort}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHandOrder(roomId, sortBySuit(myPlayer.hand))}
-                  className="min-h-[36px] text-xs font-medium tracking-wide text-ink-soft bg-paper-raised/60 hover:bg-paper-raised border border-hairline/60 hover:border-ochre rounded-full px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi"
-                  aria-label={en.table.sortHandBySuit}
-                >
-                  {en.table.sortSuitShort}
-                </button>
-              </div>
-
-              {meldsByPlayer(myPlayer.playerId).length > 0 && (
-                <MeldsArea
-                  groups={meldsByPlayer(myPlayer.playerId)}
-                  cardCatalogue={cardCatalogue}
-                  label="Your melds"
-                  dropTargetPlayerId={
-                    gameState.gameId === 'phase10' && myPlayer.phaseLaidDown
-                      ? myPlayer.playerId
-                      : undefined
-                  }
-                />
-              )}
-            </div>
-          )}
+          {overlays}
+          {bottomDock}
         </div>
 
         <TableChat roomId={roomId} />
-
-        <Phase10HitTargetModal
-          isOpen={hitModalOpen}
-          targets={phase10HitTargets}
-          onPick={handleHitPick}
-          onClose={() => setHitModalOpen(false)}
-        />
-
-        <ConfirmDialog
-          open={endConfirmOpen}
-          title={en.table.endGameConfirmTitle}
-          message={en.table.endGameConfirmBody}
-          confirmLabel={en.table.endGameConfirmAction}
-          cancelLabel={en.table.endGameConfirmCancel}
-          destructive
-          onConfirm={handleEndGameConfirm}
-          onCancel={() => setEndConfirmOpen(false)}
-        />
+        {modals}
       </div>
     </DndContext>
   );

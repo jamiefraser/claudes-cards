@@ -24,10 +24,12 @@ export interface OpponentMeldsPanelProps {
   children: React.ReactNode;
 }
 
+// Mirror OpponentBadge's rotation: bottom edge points toward the table
+// centre from each seat, so left = -90° CCW, right = 90° CW.
 const ROTATION: Record<SeatOrientation, string> = {
   top:   '',
-  left:  'rotate(90deg)',
-  right: 'rotate(-90deg)',
+  left:  'rotate(-90deg)',
+  right: 'rotate(90deg)',
 };
 
 // Pre-rotation width caps. For rotated orientations this becomes the

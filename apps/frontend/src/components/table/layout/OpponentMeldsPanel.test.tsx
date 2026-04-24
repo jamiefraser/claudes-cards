@@ -17,23 +17,23 @@ describe('<OpponentMeldsPanel />', () => {
     expect(panel).toHaveAttribute('data-orientation', 'top');
   });
 
-  it('applies 90deg rotation for left orientation', () => {
+  it('applies -90deg rotation for left orientation (cards face table centre)', () => {
     render(
       <OpponentMeldsPanel orientation="left">
         <div>Melds</div>
       </OpponentMeldsPanel>,
     );
     const panel = screen.getByTestId('opponent-melds-panel');
-    expect(panel.style.transform).toBe('rotate(90deg)');
+    expect(panel.style.transform).toBe('rotate(-90deg)');
   });
 
-  it('applies -90deg rotation for right orientation', () => {
+  it('applies 90deg rotation for right orientation (cards face table centre)', () => {
     render(
       <OpponentMeldsPanel orientation="right">
         <div>Melds</div>
       </OpponentMeldsPanel>,
     );
     const panel = screen.getByTestId('opponent-melds-panel');
-    expect(panel.style.transform).toBe('rotate(-90deg)');
+    expect(panel.style.transform).toBe('rotate(90deg)');
   });
 });

@@ -17,25 +17,25 @@ describe('<OpponentBadge />', () => {
     expect(badge).toHaveAttribute('data-orientation', 'top');
   });
 
-  it('applies 90deg rotation for left orientation', () => {
+  it('applies -90deg rotation for left orientation (cards face table centre)', () => {
     render(
       <OpponentBadge orientation="left" displayName="Bob">
         <span>Seat</span>
       </OpponentBadge>,
     );
     const badge = screen.getByTestId('opponent-badge');
-    expect(badge.style.transform).toBe('rotate(90deg)');
+    expect(badge.style.transform).toBe('rotate(-90deg)');
     expect(badge).toHaveAttribute('data-orientation', 'left');
   });
 
-  it('applies -90deg rotation for right orientation', () => {
+  it('applies 90deg rotation for right orientation (cards face table centre)', () => {
     render(
       <OpponentBadge orientation="right" displayName="Charlie">
         <span>Seat</span>
       </OpponentBadge>,
     );
     const badge = screen.getByTestId('opponent-badge');
-    expect(badge.style.transform).toBe('rotate(-90deg)');
+    expect(badge.style.transform).toBe('rotate(90deg)');
     expect(badge).toHaveAttribute('data-orientation', 'right');
   });
 

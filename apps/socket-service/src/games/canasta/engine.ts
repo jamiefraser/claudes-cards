@@ -93,6 +93,13 @@ export interface CanastaPublicData {
   discardTop: Card | null;
   /** Red 3 / wild discards permanently freeze the pile until it is taken. */
   discardFrozen: boolean;
+  /**
+   * The specific card that froze the pile (the first wild or red-3 on the
+   * pile). Clients render this jutting out of the stack at an angle so the
+   * frozen state is legible at a glance. Null when the pile is unfrozen or
+   * has been freshly taken.
+   */
+  discardFrozenBy: Card | null;
 
   /**
    * Teams / individuals:
@@ -559,6 +566,7 @@ export class CanastaEngine implements IGameEngine {
     // Turn up the opening card. If it's a red 3, place it to the first side
     // and freeze the pile (Hoyle's: red 3 turn-up is treated like a wild up-card).
     let discardFrozen = false;
+    let discardFrozenBy: Card | null = null;
     let top: Card | null = null;
     while (pile.length > 0) {
       const card = pile[pile.length - 1]!;
@@ -577,6 +585,7 @@ export class CanastaEngine implements IGameEngine {
       // Wild up-card freezes the pile; black-3 up-card blocks the pile for
       // everyone until it is replaced. Both are effectively a freeze.
       discardFrozen = true;
+      discardFrozenBy = top;
     }
 
     const players = playerIds.map((pid) => ({
@@ -599,6 +608,7 @@ export class CanastaEngine implements IGameEngine {
       discardPile: top ? [top] : [],
       discardTop: top,
       discardFrozen,
+      discardFrozenBy,
       meldKeys,
       melds: Object.fromEntries(meldKeys.map((k) => [k, []])),
       redThrees,
@@ -1085,6 +1095,7 @@ export class CanastaEngine implements IGameEngine {
         discardPile: [],
         discardTop: null,
         discardFrozen: false,
+        discardFrozenBy: null,
       },
     );
   }
@@ -1261,6 +1272,12 @@ export class CanastaEngine implements IGameEngine {
     const faceUp = { ...card, faceUp: true };
     const newDiscardPile = [...pd.discardPile, faceUp];
     const newDiscardFrozen = pd.discardFrozen || isWild(card);
+    // Track the first wild/red-3 that froze the pile so the client can
+    // render it jutting out at an angle. Preserve an existing value so
+    // later wilds on top of an already-frozen pile don't overwrite the
+    // "peek" card.
+    const newDiscardFrozenBy: Card | null = pd.discardFrozenBy
+      ?? (isWild(card) ? faceUp : null);
 
     // Going-out check: hand empty after discard + meets canasta requirement.
     const sideCanastas = (pd.melds[side] ?? []).filter((m) => m.isCanasta).length;
@@ -1274,7 +1291,7 @@ export class CanastaEngine implements IGameEngine {
       return this.endHand(
         state,
         state.players.map((p) => (p.playerId === playerId ? { ...p, hand: [], isOut: true } : p)),
-        { ...pd, discardPile: newDiscardPile, discardTop: faceUp, discardFrozen: newDiscardFrozen },
+        { ...pd, discardPile: newDiscardPile, discardTop: faceUp, discardFrozen: newDiscardFrozen, discardFrozenBy: newDiscardFrozenBy },
         playerId,
         concealed,
       );
@@ -1296,6 +1313,7 @@ export class CanastaEngine implements IGameEngine {
         discardPile: newDiscardPile,
         discardTop: faceUp,
         discardFrozen: newDiscardFrozen,
+        discardFrozenBy: newDiscardFrozenBy,
       } as unknown as Record<string, unknown>,
       updatedAt: new Date().toISOString(),
     };

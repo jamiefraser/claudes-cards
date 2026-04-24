@@ -424,6 +424,10 @@ export function GameTable({ roomId }: GameTableProps) {
   const discardPileCount = discardPileRaw?.length;
   // DEF-013: discard pile frozen state (Canasta).
   const discardFrozen = (gameState.publicData['discardFrozen'] as boolean | undefined) ?? false;
+  // Canasta engine surfaces the wild/red-3 card that froze the pile so the
+  // client can render it jutting out of the stack at 45°. Null for games
+  // that don't have a frozen-pile concept.
+  const discardFrozenBy = (gameState.publicData['discardFrozenBy'] as Card | null | undefined) ?? null;
 
   // Player names for cribbage board
   const playerNames = Object.fromEntries(
@@ -940,6 +944,7 @@ export function GameTable({ roomId }: GameTableProps) {
         deckType={deckType}
         discardPileCount={discardPileCount}
         isFrozen={discardFrozen}
+        frozenByCard={discardFrozenBy}
         onClick={() => {
           if (!isMyTurn) return;
           const socket = getGameSocket();

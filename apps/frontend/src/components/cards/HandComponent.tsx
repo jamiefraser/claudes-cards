@@ -83,7 +83,12 @@ function SortableCard({
     // Negative left margin creates the fan overlap, but never on the
     // first card. Scroll-snap keeps the active card aligned.
     marginLeft: index === 0 ? 0 : `-${overlapPx}px`,
-    zIndex: selected ? 30 : 10 + index,
+    // Keep the natural fan stacking even when selected — the raise is
+    // purely a translateY on CardComponent. Boosting z-index on select
+    // would make the raised card cover its neighbours' rank/suit corners
+    // in the overlap region, which we don't want. Dragging cards still
+    // get elevated via dnd-kit's internal styling.
+    zIndex: 10 + index,
     // Deal stagger: cards arrive one-at-a-time in batch order. The
     // `card-slide-in` keyframe uses `both` fill mode so the pre-start
     // opacity:0 state holds during the delay window — no pop-in.

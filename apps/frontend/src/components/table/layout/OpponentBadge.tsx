@@ -4,9 +4,12 @@
  *
  * Presentational only: no store reads, no socket calls.
  *
- * Rotation rule (desktop + tablet):
- *   - left  -> rotate(90deg)   (text reads bottom-to-top)
- *   - right -> rotate(-90deg)  (text reads top-to-bottom)
+ * Rotation rule (desktop + tablet) — the visual outcome is "cards face
+ * the table centre from the player's seat":
+ *   - left  -> rotate(-90deg)  (bottom edge points RIGHT, toward centre;
+ *                               text reads bottom-to-top)
+ *   - right -> rotate(90deg)   (bottom edge points LEFT, toward centre;
+ *                               text reads top-to-bottom)
  *   - top   -> no rotation
  *
  * The rotated container carries an aria-label so screen readers get
@@ -24,8 +27,8 @@ export interface OpponentBadgeProps {
 
 const ROTATION: Record<SeatOrientation, string> = {
   top:   '',
-  left:  'rotate(90deg)',
-  right: 'rotate(-90deg)',
+  left:  'rotate(-90deg)',
+  right: 'rotate(90deg)',
 };
 
 export function OpponentBadge({

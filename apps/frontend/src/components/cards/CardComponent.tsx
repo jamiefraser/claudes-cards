@@ -96,8 +96,12 @@ export function CardComponent({
         'rounded-md border cursor-pointer select-none',
         'transition-[transform,box-shadow,border-color] duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)]',
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-ochre-hi focus-visible:ring-offset-2 focus-visible:ring-offset-paper',
+        // Selected cards raise 20px via translateY only. We intentionally do
+        // NOT boost their z-index — raising via transform alone keeps
+        // neighbouring cards' rank/suit corners fully visible. The
+        // transition is defined above (180ms ease-out curve).
         selected
-          ? 'border-ochre -translate-y-[10px] shadow-lift origin-bottom'
+          ? 'border-ochre -translate-y-[20px] shadow-lift origin-bottom'
           : 'border-hairline/80 hover:-translate-y-[4px] hover:shadow-lift hover:border-ochre/60 hover:z-[31]',
         !faceUp ? 'bg-[#1f2530]' : 'bg-[#ffffff]',
       ].join(' ')}

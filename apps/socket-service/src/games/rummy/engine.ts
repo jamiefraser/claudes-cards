@@ -1,11 +1,16 @@
 /**
- * Rummy Game Engine
+ * Rummy — platform engine adapter.
  *
- * Standard 52-card deck, 2–6 players.
- * Deal: 10 cards (2p), 7 cards (3–4p), 6 cards (5–6p).
- * Turn: draw from deck or discard, optionally meld, discard.
- * Meld: 3+ same rank (set) or 3+ sequential same suit (run).
- * Win: empty hand after discarding.
+ * Thin wrapper over ./core.ts. Translates the platform's generic
+ * PlayerAction shape into the pure core's Action shape and projects
+ * a `publicData` contract the frontend expects. The existing frontend
+ * relies on:
+ *   - `turnPhase` ('draw' | 'discard')
+ *   - `drawPile`, `drawPileSize`, `discardPile`, `discardTop`
+ *   - `melds`: Array<{ playerId, cards }>
+ *
+ * Re-exports `isValidMeld` for backwards compatibility with tests that
+ * imported it directly from the engine module.
  */
 
 import type {
@@ -14,78 +19,113 @@ import type {
   GameState,
   PlayerAction,
   PlayerRanking,
-  Card,
+  Card as PlatformCard,
+  Rank as PlatformRank,
+  Suit as PlatformSuit,
 } from '@card-platform/shared-types';
-import { createStandardDeck } from '@card-platform/cards-engine';
 import { logger } from '../../utils/logger';
+import {
+  newGame as coreNewGame,
+  applyAction as coreApply,
+  legalActions as coreLegalActions,
+  DEFAULT_CONFIG,
+  isValidMeld as coreIsValidMeld,
+  isSet as coreIsSet,
+  isRun as coreIsRun,
+  type Card as CoreCard,
+  type GameState as CoreState,
+  type Suit as CoreSuit,
+  type Rank as CoreRank,
+  type RummyConfig,
+  type Meld as CoreMeld,
+} from './core';
+
+// ─── Re-exports (backwards compatibility) ──────────────────────────
+
+/**
+ * Historical callers (including existing tests) invoke `isValidMeld`
+ * with a flat array of platform cards. Wrap the pure-core check so it
+ * accepts the platform Card shape and converts internally.
+ */
+export function isValidMeld(cards: PlatformCard[]): boolean {
+  const coreCards = cards.map(platformCardToCore);
+  return coreIsValidMeld(coreCards);
+}
+export { coreIsSet as isSet, coreIsRun as isRun };
+
+// ─── Card translation ──────────────────────────────────────────────
+
+const SUIT_TO_PLATFORM: Record<CoreSuit, PlatformSuit> = {
+  S: 'spades', H: 'hearts', D: 'diamonds', C: 'clubs',
+};
+const PLATFORM_TO_SUIT: Record<PlatformSuit, CoreSuit> = {
+  spades: 'S', hearts: 'H', diamonds: 'D', clubs: 'C',
+};
+const RANK_TO_PLATFORM: Record<CoreRank, PlatformRank> = {
+  A: 'A', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7',
+  '8': '8', '9': '9', '10': '10', J: 'J', Q: 'Q', K: 'K',
+};
+const PLATFORM_TO_RANK: Partial<Record<PlatformRank, CoreRank>> = {
+  A: 'A', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7',
+  '8': '8', '9': '9', '10': '10', J: 'J', Q: 'Q', K: 'K',
+};
+const RANK_NUMERIC: Record<CoreRank, number> = {
+  A: 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
+  '8': 8, '9': 9, '10': 10, J: 11, Q: 12, K: 13,
+};
+
+function toPlatformCard(c: CoreCard, faceUp: boolean): PlatformCard {
+  if (c.isJoker) {
+    return {
+      id: c.id,
+      deckType: 'standard',
+      suit: 'spades',
+      rank: 'A',
+      value: 0,
+      faceUp,
+    };
+  }
+  return {
+    id: c.id,
+    deckType: 'standard',
+    suit: SUIT_TO_PLATFORM[c.suit!],
+    rank: RANK_TO_PLATFORM[c.rank],
+    value: RANK_NUMERIC[c.rank],
+    faceUp,
+  };
+}
+
+function platformCardToCore(c: PlatformCard): CoreCard {
+  const rank = PLATFORM_TO_RANK[c.rank as PlatformRank];
+  if (!rank) throw new Error(`Unknown rank ${c.rank}`);
+  return {
+    id: c.id,
+    rank,
+    suit: c.suit ? PLATFORM_TO_SUIT[c.suit as PlatformSuit] : null,
+  };
+}
+
+// ─── Public-data projection ────────────────────────────────────────
 
 interface RummyPublicData {
-  drawPile: Card[];
-  drawPileSize: number;
-  discardPile: Card[];
-  discardTop: Card | null;
+  core: CoreState;
   turnPhase: 'draw' | 'discard';
-  melds: Array<{ playerId: string; cards: Card[] }>;
+  drawPile: PlatformCard[];
+  drawPileSize: number;
+  discardPile: PlatformCard[];
+  discardTop: PlatformCard | null;
+  /** Per-player projection for the legacy UI: { playerId, cards }. */
+  melds: Array<{ playerId: string; cards: PlatformCard[]; kind: 'set' | 'run'; meldId: string }>;
+  currentPlayerId: string | null;
+  drewFromDiscardThisTurn: PlatformCard | null;
+  roundNumber: number;
+  scores: Record<string, number>;
 }
 
-function shuffle<T>(arr: T[]): void {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const tmp = arr[i]!;
-    arr[i] = arr[j]!;
-    arr[j] = tmp;
-  }
-}
-
-function dealCount(playerCount: number): number {
-  if (playerCount === 2) return 10;
-  if (playerCount <= 4) return 7;
-  return 6;
-}
-
-function rankValue(rank: string): number {
-  if (rank === 'A') return 1;
-  if (rank === 'J') return 11;
-  if (rank === 'Q') return 12;
-  if (rank === 'K') return 13;
-  return parseInt(rank, 10);
-}
-
-/** Check if a group of cards forms a valid meld (set or run). */
-export function isValidMeld(cards: Card[]): boolean {
-  if (cards.length < 3) return false;
-  // Try as set
-  if (isSet(cards)) return true;
-  // Try as run
-  if (isRun(cards)) return true;
-  return false;
-}
-
-function isSet(cards: Card[]): boolean {
-  const rank = cards[0]!.rank;
-  return cards.every(c => c.rank === rank);
-}
-
-function isRun(cards: Card[]): boolean {
-  const suit = cards[0]!.suit;
-  if (!cards.every(c => c.suit === suit)) return false;
-  const sorted = [...cards].sort((a, b) => rankValue(a.rank!) - rankValue(b.rank!));
-  for (let i = 1; i < sorted.length; i++) {
-    if (rankValue(sorted[i]!.rank!) !== rankValue(sorted[i - 1]!.rank!) + 1) return false;
-  }
-  return true;
-}
-
-function cardPoints(card: Card): number {
-  if (!card.rank) return 0;
-  if (card.rank === 'A') return 1;
-  if (['J', 'Q', 'K'].includes(card.rank)) return 10;
-  return Math.min(parseInt(card.rank, 10), 10);
-}
-
-function nextPlayer(players: GameState['players'], currentId: string): string {
-  const idx = players.findIndex(p => p.playerId === currentId);
-  return players[(idx + 1) % players.length]!.playerId;
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return h;
 }
 
 export class RummyEngine implements IGameEngine {
@@ -99,224 +139,195 @@ export class RummyEngine implements IGameEngine {
     if (playerIds.length < this.minPlayers || playerIds.length > this.maxPlayers) {
       throw new Error(`Rummy requires ${this.minPlayers}–${this.maxPlayers} players`);
     }
-
-    const deck = createStandardDeck();
-    const cards = [...deck.cards];
-    shuffle(cards);
-
-    const count = dealCount(playerIds.length);
-    const players = playerIds.map(playerId => ({
-      playerId,
-      displayName: playerId,
-      hand: cards.splice(0, count).map(c => ({ ...c, faceUp: false })),
-      score: 0,
-      isOut: false,
-      isBot: false,
-    }));
-
-    const discardCard = cards.splice(0, 1)[0]!;
-    const discardTop = { ...discardCard, faceUp: true };
-
-    const publicData: RummyPublicData = {
-      drawPile: cards,
-      drawPileSize: cards.length,
-      discardPile: [discardTop],
-      discardTop,
-      turnPhase: 'draw',
-      melds: [],
-    };
-
-    logger.debug('RummyEngine.startGame', { roomId, playerCount: playerIds.length });
-
-    return {
-      version: 1,
-      roomId,
-      gameId,
-      phase: 'playing',
-      players,
-      currentTurn: playerIds[0]!,
-      turnNumber: 1,
-      roundNumber: 1,
-      publicData: publicData as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
+    const seed = hashString(roomId);
+    const raw = ((config.options as Record<string, unknown> | undefined)?.['rummy'] as
+      | Partial<RummyConfig>
+      | undefined);
+    const coreCfg: Partial<RummyConfig> = { ...DEFAULT_CONFIG, ...(raw ?? {}) };
+    const core = coreNewGame(playerIds, coreCfg, seed);
+    logger.debug('RummyEngine.startGame', { roomId, seed, playerCount: playerIds.length });
+    return projectState({ roomId, gameId, core, prevVersion: 0 });
   }
 
   applyAction(state: GameState, playerId: string, action: PlayerAction): GameState {
-    if (state.currentTurn !== playerId) {
-      throw new Error(`Not ${playerId}'s turn`);
-    }
     const pd = state.publicData as unknown as RummyPublicData;
-
+    let core = pd.core;
     switch (action.type) {
-      case 'draw': return this.handleDraw(state, playerId, action, pd);
-      case 'meld': return this.handleMeld(state, playerId, action, pd);
-      case 'discard': return this.handleDiscard(state, playerId, action, pd);
-      default: throw new Error(`Unknown action: ${action.type}`);
+      case 'draw': {
+        const source = (action.payload as { source?: string } | undefined)?.source ?? 'deck';
+        if (source === 'discard') {
+          core = coreApply(core, { kind: 'drawDiscard', playerId });
+        } else {
+          core = coreApply(core, { kind: 'drawStock', playerId });
+        }
+        break;
+      }
+      case 'meld': {
+        const cardIds = action.cardIds ?? [];
+        if (cardIds.length < 3) throw new Error('meld requires ≥ 3 cardIds');
+        // Detect set vs run from the actual cards — the UI doesn't always
+        // supply a kind, and the core accepts either as long as it's legal.
+        const playerHand = core.players.find((p) => p.id === playerId)?.hand ?? [];
+        const cards = cardIds.map((id) => {
+          const c = playerHand.find((x) => x.id === id);
+          if (!c) throw new Error(`Card ${id} not in hand`);
+          return c;
+        });
+        const kind: 'set' | 'run' = coreIsSet(cards, core.config) ? 'set' : 'run';
+        core = coreApply(core, { kind: 'meld', playerId, cardIds, meldKind: kind });
+        break;
+      }
+      case 'layoff':
+      case 'lay-off': {
+        const p = action.payload as { cardId?: string; targetMeldId?: string } | undefined;
+        const cardId = p?.cardId ?? action.cardIds?.[0];
+        const targetMeldId = p?.targetMeldId;
+        if (!cardId || !targetMeldId) {
+          throw new Error('layoff requires cardId + targetMeldId');
+        }
+        core = coreApply(core, { kind: 'layOff', playerId, cardId, targetMeldId });
+        break;
+      }
+      case 'discard': {
+        const cardId = action.cardIds?.[0];
+        if (!cardId) throw new Error('discard requires exactly one cardId');
+        core = coreApply(core, { kind: 'discard', playerId, cardId });
+        break;
+      }
+      case 'ack-round': {
+        core = coreApply(core, { kind: 'ackRound', playerId });
+        break;
+      }
+      case 'pass':
+        // Bot fallback — no-op, return unchanged state.
+        return state;
+      default:
+        throw new Error(`Unknown action: ${action.type}`);
     }
+    return projectState({
+      roomId: state.roomId,
+      gameId: state.gameId,
+      core,
+      prevVersion: state.version,
+    });
   }
 
   getValidActions(state: GameState, playerId: string): PlayerAction[] {
-    if (state.currentTurn !== playerId) return [];
     const pd = state.publicData as unknown as RummyPublicData;
-    const player = state.players.find(p => p.playerId === playerId);
-    if (!player) return [];
-
-    if (pd.turnPhase === 'draw') {
-      const actions: PlayerAction[] = [{ type: 'draw', payload: { source: 'deck' } }];
-      if (pd.discardTop) {
-        actions.push({ type: 'draw', payload: { source: 'discard' } });
+    const core = pd.core;
+    const actions = coreLegalActions(core, playerId);
+    const out: PlayerAction[] = [];
+    for (const a of actions) {
+      if (a.kind === 'drawStock') {
+        out.push({ type: 'draw', payload: { source: 'deck' } });
+      } else if (a.kind === 'drawDiscard') {
+        out.push({ type: 'draw', payload: { source: 'discard' } });
+      } else if (a.kind === 'meld') {
+        out.push({ type: 'meld', cardIds: a.cardIds });
+      } else if (a.kind === 'layOff') {
+        out.push({
+          type: 'layoff',
+          payload: { cardId: a.cardId, targetMeldId: a.targetMeldId },
+          cardIds: [a.cardId],
+        });
+      } else if (a.kind === 'discard') {
+        out.push({ type: 'discard', cardIds: [a.cardId] });
+      } else if (a.kind === 'ackRound') {
+        out.push({ type: 'ack-round' });
       }
-      return actions;
     }
-
-    // discard phase
-    const actions: PlayerAction[] = player.hand.map(c => ({ type: 'discard', cardIds: [c.id] }));
-    return actions;
+    return out;
   }
 
   computeResult(state: GameState): PlayerRanking[] {
-    const sorted = [...state.players].sort((a, b) => a.score - b.score);
-    return sorted.map((p, idx) => ({
-      playerId: p.playerId,
-      displayName: p.displayName,
-      rank: idx + 1,
-      score: p.score,
-      isBot: p.isBot,
-    }));
+    const sorted = [...state.players].sort((a, b) => b.score - a.score);
+    let lastScore: number | null = null;
+    let lastRank = 0;
+    return sorted.map((p, idx) => {
+      const rank = p.score === lastScore ? lastRank : idx + 1;
+      lastScore = p.score;
+      lastRank = rank;
+      return {
+        playerId: p.playerId,
+        displayName: p.displayName,
+        rank,
+        score: p.score,
+        isBot: p.isBot,
+      };
+    });
   }
 
   isGameOver(state: GameState): boolean {
     return state.phase === 'ended';
   }
+}
 
-  private handleDraw(
-    state: GameState,
-    playerId: string,
-    action: PlayerAction,
-    pd: RummyPublicData,
-  ): GameState {
-    if (pd.turnPhase !== 'draw') throw new Error('Must discard first');
-    const source = (action.payload?.source as string) ?? 'deck';
-    let newDraw = [...pd.drawPile];
-    let newDiscard = [...pd.discardPile];
-    let drawn: Card;
+function projectState(args: {
+  roomId: string;
+  gameId: string;
+  core: CoreState;
+  prevVersion: number;
+}): GameState {
+  const { roomId, gameId, core } = args;
 
-    if (source === 'discard') {
-      if (newDiscard.length === 0) throw new Error('Discard pile empty');
-      drawn = newDiscard.pop()!;
-    } else {
-      if (newDraw.length === 0) {
-        if (newDiscard.length <= 1) throw new Error('No cards to draw');
-        const top = newDiscard.pop()!;
-        newDraw = newDiscard;
-        shuffle(newDraw);
-        newDiscard = [top];
-      }
-      drawn = newDraw.pop()!;
-    }
+  const turnPhase: 'draw' | 'discard' =
+    core.phase === 'awaitingDraw' ? 'draw' : 'discard';
 
-    const newDiscardTop = newDiscard.length > 0 ? newDiscard[newDiscard.length - 1]! : null;
+  const scores: Record<string, number> = {};
+  for (const p of core.players) scores[p.id] = p.scoreTotal;
 
-    return {
-      ...state,
-      version: state.version + 1,
-      players: state.players.map(p =>
-        p.playerId === playerId ? { ...p, hand: [...p.hand, { ...drawn, faceUp: false }] } : p
-      ),
-      publicData: {
-        ...pd,
-        drawPile: newDraw,
-        drawPileSize: newDraw.length,
-        discardPile: newDiscard,
-        discardTop: newDiscardTop,
-        turnPhase: 'discard',
-      } as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
-  }
+  const platformPlayers = core.players.map((p) => ({
+    playerId: p.id,
+    displayName: p.id,
+    hand: p.hand.map((c) => toPlatformCard(c, true)),
+    score: p.scoreTotal,
+    isOut: false,
+    isBot: false,
+  }));
 
-  private handleMeld(
-    state: GameState,
-    playerId: string,
-    action: PlayerAction,
-    pd: RummyPublicData,
-  ): GameState {
-    if (pd.turnPhase !== 'discard') throw new Error('Must draw first');
-    const cardIds = action.cardIds ?? [];
-    const player = state.players.find(p => p.playerId === playerId)!;
-    const meldCards = player.hand.filter(c => cardIds.includes(c.id));
-    if (meldCards.length !== cardIds.length) throw new Error('Cards not in hand');
-    if (!isValidMeld(meldCards)) throw new Error('Invalid meld');
+  const melds = core.melds.map((m: CoreMeld) => ({
+    playerId: m.ownerId,
+    cards: m.cards.map((c) => toPlatformCard(c, true)),
+    kind: m.kind,
+    meldId: m.id,
+  }));
 
-    const newHand = player.hand.filter(c => !cardIds.includes(c.id));
-    const newMelds = [...pd.melds, { playerId, cards: meldCards }];
+  const currentPlayerId =
+    core.phase === 'gameOver' || core.phase === 'roundOver'
+      ? null
+      : core.players[core.currentPlayerIndex]?.id ?? null;
 
-    return {
-      ...state,
-      version: state.version + 1,
-      players: state.players.map(p =>
-        p.playerId === playerId ? { ...p, hand: newHand } : p
-      ),
-      publicData: {
-        ...pd,
-        melds: newMelds,
-      } as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
-  }
+  const pd: RummyPublicData = {
+    core,
+    turnPhase,
+    // Stock contents are private — expose only the count. The `drawPile`
+    // field is kept for frontend compatibility but uses an empty array
+    // since the pre-existing implementation also did not leak stock ids.
+    drawPile: [],
+    drawPileSize: core.stock.length,
+    discardPile: core.discard.map((c) => toPlatformCard(c, true)),
+    discardTop: core.discard.length > 0
+      ? toPlatformCard(core.discard[core.discard.length - 1]!, true)
+      : null,
+    melds,
+    currentPlayerId,
+    drewFromDiscardThisTurn: core.drewFromDiscardThisTurn
+      ? toPlatformCard(core.drewFromDiscardThisTurn, true)
+      : null,
+    roundNumber: core.roundNumber,
+    scores,
+  };
 
-  private handleDiscard(
-    state: GameState,
-    playerId: string,
-    action: PlayerAction,
-    pd: RummyPublicData,
-  ): GameState {
-    if (pd.turnPhase !== 'discard') throw new Error('Must draw first');
-    const cardId = action.cardIds?.[0];
-    if (!cardId) throw new Error('No card specified');
-
-    const player = state.players.find(p => p.playerId === playerId)!;
-    const card = player.hand.find(c => c.id === cardId);
-    if (!card) throw new Error(`Card ${cardId} not in hand`);
-
-    const newHand = player.hand.filter(c => c.id !== cardId);
-    const faceUp = { ...card, faceUp: true };
-    const newDiscardPile = [...pd.discardPile, faceUp];
-
-    const wentOut = newHand.length === 0;
-
-    let newPlayers = state.players.map(p =>
-      p.playerId === playerId ? { ...p, hand: newHand, isOut: wentOut || p.isOut } : p
-    );
-
-    let newPhase = state.phase;
-    if (wentOut) {
-      // Score remaining players' hands
-      newPlayers = newPlayers.map(p => {
-        if (p.playerId === playerId) return p;
-        const pts = p.hand.reduce((sum, c) => sum + cardPoints(c), 0);
-        return { ...p, score: p.score + pts };
-      });
-      newPhase = 'ended';
-    }
-
-    const next = wentOut ? null : nextPlayer(state.players, playerId);
-
-    return {
-      ...state,
-      version: state.version + 1,
-      phase: newPhase,
-      players: newPlayers,
-      currentTurn: next,
-      turnNumber: state.turnNumber + 1,
-      publicData: {
-        ...pd,
-        discardPile: newDiscardPile,
-        discardTop: faceUp,
-        turnPhase: 'draw',
-      } as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
-  }
+  return {
+    version: args.prevVersion + 1,
+    roomId,
+    gameId,
+    phase: core.phase === 'gameOver' ? 'ended' : 'playing',
+    players: platformPlayers,
+    currentTurn: currentPlayerId,
+    turnNumber: core.turnNumber,
+    roundNumber: core.roundNumber,
+    publicData: pd as unknown as Record<string, unknown>,
+    updatedAt: new Date().toISOString(),
+  };
 }

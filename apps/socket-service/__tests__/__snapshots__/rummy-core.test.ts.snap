@@ -1,0 +1,38 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Rummy — snapshot 2p seed=7 deal is stable 1`] = `
+{
+  "discardTop": "4H",
+  "hands": [
+    [
+      "AS",
+      "3S",
+      "10D",
+      "QD",
+      "4C",
+      "3H",
+      "4D",
+      "5C",
+      "5S",
+      "4S",
+    ],
+    [
+      "8H",
+      "8S",
+      "JD",
+      "6D",
+      "JC",
+      "10C",
+      "QC",
+      "7C",
+      "AH",
+      "8D",
+    ],
+  ],
+  "stockTop3": [
+    "7D",
+    "6S",
+    "AC",
+  ],
+}
+`;

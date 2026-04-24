@@ -1,0 +1,37 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Crazy Eights — snapshots full game to target — winner crosses target score 1`] = `
+{
+  "roundNumber": 2,
+  "scores": [
+    {
+      "id": "a",
+      "total": 97,
+    },
+    {
+      "id": "b",
+      "total": 0,
+    },
+  ],
+  "winnerId": "b",
+}
+`;
+
+exports[`Crazy Eights — snapshots seed=101 2p round: history length + winner locked 1`] = `
+{
+  "blocked": false,
+  "deckCount": 1,
+  "historyLen": 29,
+  "turnNumber": 24,
+  "winnerId": "b",
+}
+`;
+
+exports[`Crazy Eights — snapshots seed=202 4p round: history length + winner locked 1`] = `
+{
+  "blocked": false,
+  "historyLen": 43,
+  "turnNumber": 29,
+  "winnerId": "b",
+}
+`;

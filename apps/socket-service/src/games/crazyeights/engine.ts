@@ -1,12 +1,13 @@
 /**
- * Crazy Eights Game Engine
+ * Crazy Eights — platform engine adapter.
  *
- * Standard 52-card deck, 2–7 players.
- * Deal 7 cards (2p) or 5 cards (3+p).
- * Turn: play a card matching top discard by rank or suit; 8s are wild (declare suit).
- * If can't play: draw until can play or deck exhausted.
- * Win: first to empty hand.
- * Scoring: face value of remaining cards (8 = 50, face = 10, A = 1).
+ * Thin wrapper around ./core.ts. The pure core holds the authoritative
+ * state inside publicData (under `core`). This adapter projects the
+ * core state back into the platform's PlayerState / GameState shape and
+ * bridges the frontend's combined "play + declare suit" action (a
+ * single `play` action with `payload.suit`) into the core's strict
+ * two-step sequence (`play` → `declareSuit`). The action log in
+ * publicData.core.history always shows both entries, per spec §11.
  */
 
 import type {
@@ -15,64 +16,93 @@ import type {
   GameState,
   PlayerAction,
   PlayerRanking,
-  Card,
+  Card as PlatformCard,
+  Rank as PlatformRank,
+  Suit as PlatformSuit,
 } from '@card-platform/shared-types';
-import { createStandardDeck } from '@card-platform/cards-engine';
 import { logger } from '../../utils/logger';
+import {
+  newGame as coreNewGame,
+  applyAction as coreApply,
+  legalActions as coreLegal,
+  startNextRound as coreStartNextRound,
+  DEFAULT_CONFIG,
+  DEFAULT_ACTION_CARDS,
+  type Card as CoreCard,
+  type GameState as CoreState,
+  type Suit as CoreSuit,
+  type Rank as CoreRank,
+  type CrazyEightsConfig,
+  type Action as CoreAction,
+  type ActionCardConfig,
+} from './core';
 
-interface CrazyEightsHouseRules {
-  multiSameRank?: boolean;
-  playAfter8?: boolean;
-  suitChain?: boolean;
+const CORE_TO_PLATFORM_SUIT: Record<CoreSuit, PlatformSuit> = {
+  S: 'spades', H: 'hearts', D: 'diamonds', C: 'clubs',
+};
+const PLATFORM_TO_CORE_SUIT: Record<PlatformSuit, CoreSuit> = {
+  spades: 'S', hearts: 'H', diamonds: 'D', clubs: 'C',
+};
+const CORE_TO_PLATFORM_RANK: Record<CoreRank, PlatformRank> = {
+  A: 'A', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7',
+  '8': '8', '9': '9', '10': '10', J: 'J', Q: 'Q', K: 'K',
+};
+const RANK_NUMERIC: Record<CoreRank, number> = {
+  A: 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
+  '8': 8, '9': 9, '10': 10, J: 11, Q: 12, K: 13,
+};
+
+function toPlatformCard(c: CoreCard, faceUp: boolean): PlatformCard {
+  return {
+    id: c.id,
+    deckType: 'standard',
+    suit: CORE_TO_PLATFORM_SUIT[c.suit],
+    rank: CORE_TO_PLATFORM_RANK[c.rank],
+    value: RANK_NUMERIC[c.rank],
+    faceUp,
+  };
 }
 
 interface CrazyEightsPublicData {
-  drawPile: Card[];
+  /** Authoritative core state — serialisable, deterministic. */
+  core: CoreState;
+  /** Legacy field used by the frontend suit-picker UI. */
+  declaredSuit: PlatformSuit | null;
+  /** Top of the discard pile, projected for rendering. */
+  discardTop: PlatformCard | null;
+  /** Full discard pile (platform cards). */
+  discardPile: PlatformCard[];
+  /** Remaining stock as a count — the UI only renders a card back. */
   drawPileSize: number;
-  discardPile: Card[];
-  discardTop: Card | null;
-  declaredSuit: string | null; // when 8 was played
-  /** Active house-rule toggles for this room. */
-  houseRules: CrazyEightsHouseRules;
-  /**
-   * When set, the same player must play one more card of `playAfter8Suit`
-   * before the turn passes. Only used with the playAfter8 house rule.
-   */
-  playAfter8Suit: string | null;
+  /** 2-draw-2 stack total that the next responder must absorb. */
+  pendingDrawPenalty: number;
+  /** Set when the round blocks (§9). */
+  blocked: boolean;
+  /** Round / game winners for end-of-round UI. */
+  roundWinnerId: string | null;
+  gameWinnerId: string | null;
 }
 
-function shuffle<T>(arr: T[]): void {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const tmp = arr[i]!;
-    arr[i] = arr[j]!;
-    arr[j] = tmp;
-  }
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return h;
 }
 
-function cardPoints(card: Card): number {
-  if (card.rank === '8') return 50;
-  if (!card.rank) return 0;
-  if (['J', 'Q', 'K'].includes(card.rank)) return 10;
-  if (card.rank === 'A') return 1;
-  return parseInt(card.rank, 10);
-}
-
-function canPlay(card: Card, discardTop: Card | null, declaredSuit: string | null): boolean {
-  if (card.rank === '8') return true;
-  if (!discardTop) return true;
-  const activeSuit = declaredSuit ?? discardTop.suit;
-  return card.suit === activeSuit || card.rank === discardTop.rank;
-}
-
-function nextPlayer(players: GameState['players'], currentId: string): string {
-  const idx = players.findIndex(p => p.playerId === currentId);
-  return players[(idx + 1) % players.length]!.playerId;
+function resolveConfig(input?: Partial<CrazyEightsConfig>): CrazyEightsConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    ...(input ?? {}),
+    actionCards: {
+      ...DEFAULT_ACTION_CARDS,
+      ...(input?.actionCards ?? {}),
+    },
+  };
 }
 
 export class CrazyEightsEngine implements IGameEngine {
   readonly gameId = 'crazyeights';
-  readonly supportsAsync = false;
+  readonly supportsAsync = true;
   readonly minPlayers = 2;
   readonly maxPlayers = 7;
 
@@ -82,98 +112,112 @@ export class CrazyEightsEngine implements IGameEngine {
       throw new Error('Crazy Eights requires 2–7 players');
     }
 
-    const deck = createStandardDeck();
-    const cards = [...deck.cards];
-    shuffle(cards);
+    const seed = hashString(roomId);
+    const rawConfig =
+      ((config.options as Record<string, unknown> | undefined)?.['crazyEights'] as
+        | Partial<CrazyEightsConfig>
+        | undefined) ?? undefined;
+    const coreConfig = resolveConfig(rawConfig);
+    const core = coreNewGame(playerIds, coreConfig, seed);
 
-    const dealCount = playerIds.length === 2 ? 7 : 5;
-    const players = playerIds.map(playerId => ({
-      playerId,
-      displayName: playerId,
-      hand: cards.splice(0, dealCount).map(c => ({ ...c, faceUp: false })),
-      score: 0,
-      isOut: false,
-      isBot: false,
-    }));
+    logger.debug('CrazyEightsEngine.startGame', {
+      roomId,
+      playerCount: playerIds.length,
+      deckCount: core.deckCount,
+    });
 
-    // Flip one card (non-8) to start discard pile
-    let discardCard: Card | undefined;
-    let idx = 0;
-    while (idx < cards.length) {
-      if (cards[idx]?.rank !== '8') {
-        discardCard = cards.splice(idx, 1)[0]!;
-        break;
-      }
-      idx++;
-    }
-    if (!discardCard) {
-      discardCard = cards.splice(0, 1)[0]!;
-    }
-    const discardTop = { ...discardCard, faceUp: true };
-
-    const rawHouseRules =
-      (config.options?.['houseRules'] as CrazyEightsHouseRules | undefined) ?? {};
-    const houseRules: CrazyEightsHouseRules = {
-      multiSameRank: !!rawHouseRules.multiSameRank,
-      playAfter8: !!rawHouseRules.playAfter8,
-      suitChain: !!rawHouseRules.suitChain,
-    };
-
-    const publicData: CrazyEightsPublicData = {
-      drawPile: cards,
-      drawPileSize: cards.length,
-      discardPile: [discardTop],
-      discardTop,
-      declaredSuit: null,
-      houseRules,
-      playAfter8Suit: null,
-    };
-
-    logger.debug('CrazyEightsEngine.startGame', { roomId, playerCount: playerIds.length });
-
-    return {
-      version: 1,
+    return projectState({
       roomId,
       gameId,
-      phase: 'playing',
-      players,
-      currentTurn: playerIds[0]!,
-      turnNumber: 1,
-      roundNumber: 1,
-      publicData: publicData as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
+      core,
+      turnNumber: 0,
+      roundNumber: core.roundNumber,
+      prevVersion: 0,
+    });
   }
 
   applyAction(state: GameState, playerId: string, action: PlayerAction): GameState {
-    if (state.currentTurn !== playerId) throw new Error(`Not ${playerId}'s turn`);
     const pd = state.publicData as unknown as CrazyEightsPublicData;
+    let core = pd.core;
 
     switch (action.type) {
-      case 'play': return this.handlePlay(state, playerId, action, pd);
-      case 'draw': return this.handleDraw(state, playerId, pd);
-      default: throw new Error(`Unknown action: ${action.type}`);
+      case 'play': {
+        const cardIds = action.cardIds ?? [];
+        if (cardIds.length !== 1) {
+          throw new Error('Crazy Eights accepts exactly one card per play');
+        }
+        const cardId = cardIds[0]!;
+        core = coreApply(core, { kind: 'play', playerId, cardId });
+        // If the played card was an 8 the core is now awaitingSuitChoice.
+        // The UI's suit picker sends `payload.suit` in the same action, so
+        // we fold the declareSuit into this single adapter call.
+        if (core.phase === 'awaitingSuitChoice') {
+          const rawSuit = (action.payload?.['suit'] as PlatformSuit | undefined);
+          if (!rawSuit) throw new Error('Must declare a suit when playing an 8');
+          const suit = PLATFORM_TO_CORE_SUIT[rawSuit];
+          core = coreApply(core, { kind: 'declareSuit', playerId, suit });
+        }
+        break;
+      }
+      case 'declareSuit': {
+        const rawSuit = (action.payload?.['suit'] as PlatformSuit | undefined);
+        if (!rawSuit) throw new Error('declareSuit requires payload.suit');
+        core = coreApply(core, { kind: 'declareSuit', playerId, suit: PLATFORM_TO_CORE_SUIT[rawSuit] });
+        break;
+      }
+      case 'draw': {
+        core = coreApply(core, { kind: 'draw', playerId });
+        break;
+      }
+      case 'pass': {
+        core = coreApply(core, { kind: 'pass', playerId });
+        break;
+      }
+      default:
+        throw new Error(`Unknown action: ${action.type}`);
     }
+
+    // Auto-advance to the next round if the current one ended and the
+    // game isn't over. A real production flow would gate this behind
+    // player acks, but for parity with the previous adapter's one-round
+    // model we terminate on round over.
+    const isRoundOver = core.phase === 'roundOver';
+    const isGameOver = core.phase === 'gameOver';
+
+    return projectState({
+      roomId: state.roomId,
+      gameId: state.gameId,
+      core,
+      turnNumber: core.turnNumber,
+      roundNumber: core.roundNumber,
+      prevVersion: state.version,
+      ended: isRoundOver || isGameOver,
+    });
   }
 
   getValidActions(state: GameState, playerId: string): PlayerAction[] {
-    if (state.currentTurn !== playerId) return [];
     const pd = state.publicData as unknown as CrazyEightsPublicData;
-    const player = state.players.find(p => p.playerId === playerId);
-    if (!player) return [];
-
-    const playable = player.hand.filter(c => canPlay(c, pd.discardTop, pd.declaredSuit));
-    if (playable.length > 0) {
-      return playable.map(c => ({ type: 'play', cardIds: [c.id] }));
-    }
-    if (pd.drawPile.length > 0) {
-      return [{ type: 'draw' }];
-    }
-    return [{ type: 'pass' }];
+    const legal = coreLegal(pd.core, playerId);
+    // Fold each core action into the platform's action shape.
+    return legal.map((a): PlayerAction => {
+      switch (a.kind) {
+        case 'play': return { type: 'play', cardIds: [a.cardId] };
+        case 'declareSuit': return { type: 'declareSuit', payload: { suit: CORE_TO_PLATFORM_SUIT[a.suit] } };
+        case 'draw': return { type: 'draw' };
+        case 'pass': return { type: 'pass' };
+        case 'reshuffle': return { type: 'reshuffle' };
+      }
+    });
   }
 
   computeResult(state: GameState): PlayerRanking[] {
-    const sorted = [...state.players].sort((a, b) => a.score - b.score);
+    // penaltyAccumulation default — lowest score wins.
+    // winnerTakesPoints — highest score wins; adapt by reading core config.
+    const pd = state.publicData as unknown as CrazyEightsPublicData;
+    const mode = pd.core.config.scoringMode;
+    const sorted = [...state.players].sort((a, b) =>
+      mode === 'winnerTakesPoints' ? b.score - a.score : a.score - b.score,
+    );
     return sorted.map((p, idx) => ({
       playerId: p.playerId,
       displayName: p.displayName,
@@ -187,163 +231,82 @@ export class CrazyEightsEngine implements IGameEngine {
     return state.phase === 'ended';
   }
 
-  private handlePlay(
-    state: GameState,
-    playerId: string,
-    action: PlayerAction,
-    pd: CrazyEightsPublicData,
-  ): GameState {
-    const cardIds = action.cardIds ?? [];
-    if (cardIds.length === 0) throw new Error('No card specified');
-
-    const houseRules = pd.houseRules ?? {};
-    const multiRankOn = !!houseRules.multiSameRank;
-    const suitChainOn = !!houseRules.suitChain;
-    const playAfter8On = !!houseRules.playAfter8;
-
-    // Multi-card plays are only permitted when an explicit rule allows them.
-    if (cardIds.length > 1 && !multiRankOn && !suitChainOn) {
-      throw new Error('Multi-card plays are not enabled for this room');
-    }
-
-    const player = state.players.find(p => p.playerId === playerId)!;
-    const cards: Card[] = cardIds.map((id) => {
-      const card = player.hand.find(c => c.id === id);
-      if (!card) throw new Error(`Card ${id} not in hand`);
-      return card;
+  /** Adapter-only helper: start the next round when the previous ended. */
+  advanceToNextRound(state: GameState): GameState {
+    const pd = state.publicData as unknown as CrazyEightsPublicData;
+    if (pd.core.phase !== 'roundOver') return state;
+    const nextCore = coreStartNextRound(pd.core);
+    return projectState({
+      roomId: state.roomId,
+      gameId: state.gameId,
+      core: nextCore,
+      turnNumber: nextCore.turnNumber,
+      roundNumber: nextCore.roundNumber,
+      prevVersion: state.version,
     });
-    const firstCard = cards[0]!;
-    const lastCard = cards[cards.length - 1]!;
-
-    // When the table is mid-"play after 8", the opening card of this play
-    // must match the suit declared by the previous 8 — the rule only grants
-    // one extra card, not a full chain.
-    if (pd.playAfter8Suit) {
-      if (firstCard.rank === '8') {
-        // allowed — playing another 8 restarts the wild chain
-      } else if (firstCard.suit !== pd.playAfter8Suit) {
-        throw new Error(
-          `Must play a ${pd.playAfter8Suit} card after the 8`,
-        );
-      }
-    } else if (!canPlay(firstCard, pd.discardTop, pd.declaredSuit)) {
-      throw new Error('Card cannot be played');
-    }
-
-    // Validate any additional cards against the enabled rule(s).
-    for (let i = 1; i < cards.length; i++) {
-      const prev = cards[i - 1]!;
-      const cur = cards[i]!;
-      const sameRank = cur.rank === prev.rank;
-      const sameSuit = cur.suit === prev.suit;
-      if (multiRankOn && sameRank) continue;
-      if (suitChainOn && (sameRank || sameSuit)) continue;
-      throw new Error(
-        multiRankOn
-          ? 'All cards in a stack must share the same rank'
-          : 'Each card must match the previous by rank or suit',
-      );
-    }
-
-    const cardIdSet = new Set(cardIds);
-    const newHand = player.hand.filter(c => !cardIdSet.has(c.id));
-    const facedUp = cards.map(c => ({ ...c, faceUp: true }));
-    const newDiscardPile = [...pd.discardPile, ...facedUp];
-    const newDiscardTop = facedUp[facedUp.length - 1]!;
-
-    // If the final card played is an 8, declare a suit. Otherwise any prior
-    // declared-suit lock from an earlier 8 clears because a real card landed
-    // on top.
-    const lastIsEight = lastCard.rank === '8';
-    const declaredSuit = lastIsEight
-      ? ((action.payload?.['suit'] as string) ?? lastCard.suit ?? 'hearts')
-      : null;
-
-    // playAfter8 bookkeeping: an 8 at the end of this play entitles the same
-    // player to one extra card of the declared suit on a follow-up action.
-    // Playing the follow-up card clears the lock.
-    const playAfter8Suit =
-      playAfter8On && lastIsEight
-        ? declaredSuit
-        : null;
-
-    const wentOut = newHand.length === 0;
-    const keepTurn = !wentOut && !!playAfter8Suit;
-
-    let newPlayers = state.players.map(p =>
-      p.playerId === playerId ? { ...p, hand: newHand, isOut: wentOut } : p
-    );
-
-    if (wentOut) {
-      // Score remaining players
-      newPlayers = newPlayers.map(p => {
-        if (p.playerId === playerId) return p;
-        const pts = p.hand.reduce((sum, c) => sum + cardPoints(c), 0);
-        return { ...p, score: p.score + pts };
-      });
-    }
-
-    return {
-      ...state,
-      version: state.version + 1,
-      phase: wentOut ? 'ended' : 'playing',
-      players: newPlayers,
-      currentTurn: wentOut
-        ? null
-        : keepTurn
-          ? playerId
-          : nextPlayer(state.players, playerId),
-      turnNumber: state.turnNumber + 1,
-      publicData: {
-        ...pd,
-        discardPile: newDiscardPile,
-        discardTop: newDiscardTop,
-        declaredSuit,
-        playAfter8Suit,
-      } as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
   }
+}
 
-  private handleDraw(state: GameState, playerId: string, pd: CrazyEightsPublicData): GameState {
-    let newDraw = [...pd.drawPile];
-    let newDiscard = [...pd.discardPile];
+// ─── State projection ───────────────────────────────────────────────
 
-    if (newDraw.length === 0) {
-      // Reshuffle discard pile
-      if (newDiscard.length <= 1) {
-        // No cards to draw — pass turn
-        return {
-          ...state,
-          version: state.version + 1,
-          currentTurn: nextPlayer(state.players, playerId),
-          updatedAt: new Date().toISOString(),
-        };
-      }
-      const top = newDiscard.pop()!;
-      newDraw = newDiscard;
-      shuffle(newDraw);
-      newDiscard = [top];
-    }
+function projectState(args: {
+  roomId: string;
+  gameId: string;
+  core: CoreState;
+  turnNumber: number;
+  roundNumber: number;
+  prevVersion: number;
+  ended?: boolean;
+}): GameState {
+  const { roomId, gameId, core } = args;
 
-    const drawn = newDraw.pop()!;
-    const newHand = [...state.players.find(p => p.playerId === playerId)!.hand, { ...drawn, faceUp: false }];
-    const discardTop = newDiscard[newDiscard.length - 1]!;
+  const discardPile = core.discard.map((c) => toPlatformCard(c, true));
+  const discardTop = discardPile[discardPile.length - 1] ?? null;
 
-    return {
-      ...state,
-      version: state.version + 1,
-      players: state.players.map(p =>
-        p.playerId === playerId ? { ...p, hand: newHand } : p
-      ),
-      publicData: {
-        ...pd,
-        drawPile: newDraw,
-        drawPileSize: newDraw.length,
-        discardPile: newDiscard,
-        discardTop,
-      } as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
-  }
+  const platformPlayers = core.players.map((p) => ({
+    playerId: p.id,
+    displayName: p.id,
+    hand: p.hand.map((c) => toPlatformCard(c, true)),
+    score: p.scoreTotal,
+    isOut: p.hand.length === 0 && core.phase === 'roundOver',
+    isBot: false,
+  }));
+
+  const activeSuitPlatform: PlatformSuit = CORE_TO_PLATFORM_SUIT[core.activeSuit];
+  // When the top card is an 8 (real wild), declaredSuit carries the
+  // currently active suit so the UI can render the overlay. Otherwise
+  // declaredSuit is null — activeSuit equals the top card's suit.
+  const top = discardTop;
+  const declaredSuit: PlatformSuit | null =
+    top?.rank === '8' ? activeSuitPlatform : null;
+
+  const publicData: CrazyEightsPublicData = {
+    core,
+    declaredSuit,
+    discardTop,
+    discardPile,
+    drawPileSize: core.stock.length,
+    pendingDrawPenalty: core.pendingDrawPenalty,
+    blocked: core.blocked,
+    roundWinnerId: core.roundWinnerId,
+    gameWinnerId: core.gameWinnerId,
+  };
+
+  const phaseEnded =
+    args.ended || core.phase === 'gameOver' || core.phase === 'roundOver';
+  const currentPlayerId =
+    phaseEnded ? null : platformPlayers[core.currentPlayerIndex]?.playerId ?? null;
+
+  return {
+    version: args.prevVersion + 1,
+    roomId,
+    gameId,
+    phase: phaseEnded ? 'ended' : 'playing',
+    players: platformPlayers,
+    currentTurn: currentPlayerId,
+    turnNumber: args.turnNumber,
+    roundNumber: args.roundNumber,
+    publicData: publicData as unknown as Record<string, unknown>,
+    updatedAt: new Date().toISOString(),
+  };
 }

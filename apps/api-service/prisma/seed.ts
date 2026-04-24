@@ -141,7 +141,7 @@ const GAME_CATALOG: GameEntry[] = [
     name: 'Crazy Eights',
     category: 'other',
     minPlayers: 2,
-    maxPlayers: 6,
+    maxPlayers: 7,
     supportsAsync: true,
   },
   {
@@ -149,7 +149,7 @@ const GAME_CATALOG: GameEntry[] = [
     name: 'War',
     category: 'other',
     minPlayers: 2,
-    maxPlayers: 2,
+    maxPlayers: 4,
     supportsAsync: false,
   },
   {

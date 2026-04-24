@@ -1,0 +1,21 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`War — snapshot of a fully played game 2p, seed=1 produces a stable final state 1`] = `
+{
+  "forcedByMaxTurns": false,
+  "phase": "gameOver",
+  "playerCount": 2,
+  "turnNumber": 190,
+  "winnerId": "p1",
+}
+`;
+
+exports[`War — snapshot of a fully played game 4p, seed=2024 produces a stable final state 1`] = `
+{
+  "forcedByMaxTurns": false,
+  "phase": "gameOver",
+  "playerCount": 4,
+  "turnNumber": 49,
+  "winnerId": "p3",
+}
+`;

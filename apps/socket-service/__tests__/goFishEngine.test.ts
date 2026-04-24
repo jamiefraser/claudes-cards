@@ -1,109 +1,111 @@
 /**
- * Go Fish Engine Tests
+ * Go Fish — platform adapter tests.
+ *
+ * Thin — the pure core is exhaustively covered in gofish-core.test.ts.
  */
 
 import { GoFishEngine } from '../src/games/gofish/engine';
 import type { GameConfig } from '@card-platform/shared-types';
 
-function makeConfig(playerCount = 2): GameConfig {
+function makeConfig(playerCount = 3, roomId = 'room-1'): GameConfig {
   return {
-    roomId: 'room-test',
+    roomId,
     gameId: 'gofish',
-    playerIds: Array.from({ length: playerCount }, (_, i) => `p${i + 1}`),
-    asyncMode: true,
-    turnTimerSeconds: 60,
+    playerIds: Array.from({ length: playerCount }, (_, i) => `p${i}`),
+    asyncMode: false,
+    turnTimerSeconds: null,
   };
 }
 
-describe('GoFishEngine', () => {
+describe('GoFishEngine — adapter', () => {
   let engine: GoFishEngine;
+  beforeEach(() => {
+    engine = new GoFishEngine();
+  });
 
-  beforeEach(() => { engine = new GoFishEngine(); });
-
-  it('has gameId = gofish', () => {
+  it('advertises gameId and 2–6 player range', () => {
     expect(engine.gameId).toBe('gofish');
+    expect(engine.minPlayers).toBe(2);
+    expect(engine.maxPlayers).toBe(6);
+    expect(engine.supportsAsync).toBe(true);
   });
 
-  it('deals 7 cards to each player for 2-player', () => {
-    const state = engine.startGame(makeConfig(2));
-    state.players.forEach(p => expect(p.hand).toHaveLength(7));
+  it('rejects configs outside 2–6 players', () => {
+    expect(() => engine.startGame({ ...makeConfig(2), playerIds: ['solo'] })).toThrow();
+    expect(() =>
+      engine.startGame({
+        ...makeConfig(2),
+        playerIds: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+      }),
+    ).toThrow();
   });
 
-  it('deals 5 cards to each player for 4-player', () => {
-    const state = engine.startGame(makeConfig(4));
-    state.players.forEach(p => expect(p.hand).toHaveLength(5));
-  });
-
-  it('starts in playing phase', () => {
-    expect(engine.startGame(makeConfig(2)).phase).toBe('playing');
-  });
-
-  it('isGameOver false at start', () => {
-    expect(engine.isGameOver(engine.startGame(makeConfig(2)))).toBe(false);
-  });
-
-  it('computeResult returns rankings', () => {
-    expect(engine.computeResult(engine.startGame(makeConfig(2)))).toHaveLength(2);
-  });
-
-  it('getValidActions returns ask action for current player', () => {
-    const state = engine.startGame(makeConfig(2));
-    const actions = engine.getValidActions(state, state.currentTurn!);
-    expect(actions.some(a => a.type === 'ask')).toBe(true);
-  });
-
-  it('rejects ask action from wrong player', () => {
-    const state = engine.startGame(makeConfig(2));
-    const other = state.players.find(p => p.playerId !== state.currentTurn)!;
-    expect(() => engine.applyAction(state, other.playerId, {
-      type: 'ask',
-      payload: { targetPlayerId: state.currentTurn!, rank: 'A' }
-    })).toThrow();
-  });
-
-  // -------------------------------------------------------------------------
-  // Hoyle's Go Fish (also called Authors).
-  // -------------------------------------------------------------------------
-
-  it("deal size: 7 for 2 players, 5 for 3\u20136 (Hoyle's)", () => {
-    const two = engine.startGame(makeConfig(2));
-    for (const p of two.players) {
-      // Books formed at deal reduce hand size by 4 per book \u2014 at 7 cards,
-      // at most 1 book is possible. So hand size is 7 or 3.
-      expect([7, 3]).toContain(p.hand.length);
-    }
-    const four = engine.startGame(makeConfig(4));
-    for (const p of four.players) {
-      expect([5, 1]).toContain(p.hand.length);
+  it('deals 7 cards to each of 2–4 players (per spec)', () => {
+    for (const count of [2, 3, 4]) {
+      const state = engine.startGame(makeConfig(count));
+      for (const p of state.players) {
+        // Some hands may have fewer if a book was auto-laid at deal,
+        // but the invariant is handCount + books*4 === dealSize.
+        const cardsAccountedFor = p.hand.length; // books are separate
+        const pd = state.publicData as Record<string, unknown>;
+        const books = (pd['books'] as Record<string, string[]>)[p.playerId] ?? [];
+        expect(cardsAccountedFor + books.length * 4).toBe(7);
+      }
     }
   });
 
-  it('completed book (4 of a rank) is set aside and scores 1 point', () => {
-    // Build a controlled 2-player state with p1 holding 3 Aces and p2 holding 1 Ace.
-    const cfg = makeConfig(2);
-    const start = engine.startGame(cfg);
-    const ace1 = { id: 'a1', deckType: 'standard' as const, rank: 'A' as const, suit: 'hearts' as const, value: 1, faceUp: false };
-    const ace2 = { id: 'a2', deckType: 'standard' as const, rank: 'A' as const, suit: 'spades' as const, value: 1, faceUp: false };
-    const ace3 = { id: 'a3', deckType: 'standard' as const, rank: 'A' as const, suit: 'clubs' as const, value: 1, faceUp: false };
-    const ace4 = { id: 'a4', deckType: 'standard' as const, rank: 'A' as const, suit: 'diamonds' as const, value: 1, faceUp: false };
-    const filler = (id: string) => ({ id, deckType: 'standard' as const, rank: '2' as const, suit: 'hearts' as const, value: 2, faceUp: false });
-    const state = {
-      ...start,
-      currentTurn: 'p1',
-      players: [
-        { ...start.players[0]!, hand: [ace1, ace2, ace3, filler('f1')] },
-        { ...start.players[1]!, hand: [ace4, filler('f2'), filler('f3'), filler('f4')] },
-      ],
-    };
+  it('deals 5 cards to each of 5–6 players', () => {
+    for (const count of [5, 6]) {
+      const state = engine.startGame(makeConfig(count));
+      for (const p of state.players) {
+        const pd = state.publicData as Record<string, unknown>;
+        const books = (pd['books'] as Record<string, string[]>)[p.playerId] ?? [];
+        expect(p.hand.length + books.length * 4).toBe(5);
+      }
+    }
+  });
 
-    const after = engine.applyAction(state, 'p1', {
-      type: 'ask',
-      payload: { targetPlayerId: 'p2', rank: 'A' },
-    });
+  it('starts in playing phase with a current turn assigned', () => {
+    const state = engine.startGame(makeConfig(3));
+    expect(state.phase).toBe('playing');
+    expect(state.currentTurn).toBeTruthy();
+  });
 
-    const p1After = after.players.find((p) => p.playerId === 'p1')!;
-    expect(p1After.score).toBe(1); // 1 book scored
-    // All four aces should be gone from p1's hand (book set aside).
-    expect(p1After.hand.filter((c) => c.rank === 'A').length).toBe(0);
+  it('same roomId produces the same deal', () => {
+    const a = engine.startGame(makeConfig(3, 'deterministic'));
+    const b = engine.startGame(makeConfig(3, 'deterministic'));
+    for (let i = 0; i < 3; i++) {
+      expect(a.players[i]!.hand.map((c) => c.id)).toEqual(
+        b.players[i]!.hand.map((c) => c.id),
+      );
+    }
+  });
+
+  it('publicData exposes books, stockCount, askLog', () => {
+    const state = engine.startGame(makeConfig(3));
+    const pd = state.publicData as Record<string, unknown>;
+    expect(pd['books']).toBeDefined();
+    expect(typeof pd['stockCount']).toBe('number');
+    expect(Array.isArray(pd['askLog'])).toBe(true);
+  });
+
+  it('getValidActions returns ask options for the current player only', () => {
+    const state = engine.startGame(makeConfig(3));
+    const currentId = state.currentTurn!;
+    const legal = engine.getValidActions(state, currentId);
+    expect(legal.length).toBeGreaterThan(0);
+    for (const a of legal) expect(a.type).toBe('ask');
+    // Non-current players get no actions.
+    const other = state.players.find((p) => p.playerId !== currentId)!.playerId;
+    expect(engine.getValidActions(state, other)).toEqual([]);
+  });
+
+  it('applyAction with ask payload advances state', () => {
+    const state = engine.startGame(makeConfig(3));
+    const legal = engine.getValidActions(state, state.currentTurn!);
+    expect(legal.length).toBeGreaterThan(0);
+    const first = legal[0]!;
+    const after = engine.applyAction(state, state.currentTurn!, first);
+    expect(after.version).toBeGreaterThan(state.version);
   });
 });

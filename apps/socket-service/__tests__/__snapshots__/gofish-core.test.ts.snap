@@ -1,0 +1,47 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Go Fish — snapshots full game (always-first-legal) — seed=42, 3 players 1`] = `
+{
+  "books": [
+    {
+      "count": 1,
+      "id": "a",
+    },
+    {
+      "count": 1,
+      "id": "b",
+    },
+    {
+      "count": 1,
+      "id": "c",
+    },
+  ],
+  "phase": "awaitingAsk",
+  "winners": [],
+}
+`;
+
+exports[`Go Fish — snapshots full game — seed=123, 4 players 1`] = `
+{
+  "booksByPlayer": [
+    {
+      "count": 0,
+      "id": "a",
+    },
+    {
+      "count": 0,
+      "id": "b",
+    },
+    {
+      "count": 0,
+      "id": "c",
+    },
+    {
+      "count": 2,
+      "id": "d",
+    },
+  ],
+  "phase": "awaitingAsk",
+  "winners": [],
+}
+`;

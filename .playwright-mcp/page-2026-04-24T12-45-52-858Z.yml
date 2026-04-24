@@ -1,0 +1,35 @@
+- generic [ref=e1]:
+  - main [ref=e313]:
+    - generic [ref=e314]:
+      - button "← Back to lobby" [ref=e315] [cursor=pointer]
+      - heading "canasta room" [level=1] [ref=e316]
+      - paragraph [ref=e317]: canasta — 1 of 4 seats filled
+      - region "Players in room" [ref=e318]:
+        - heading "Players" [level=2] [ref=e319]
+        - list [ref=e320]:
+          - listitem [ref=e321]:
+            - generic [ref=e323]: TestPlayer1
+            - generic [ref=e324]: HOST
+          - listitem [ref=e325]: Empty seat
+          - listitem [ref=e326]: Empty seat
+          - listitem [ref=e327]: Empty seat
+      - button "Start Game" [ref=e328] [cursor=pointer]
+  - dialog "Add bots to start the game" [ref=e333]:
+    - generic [active] [ref=e335]:
+      - generic [ref=e336]:
+        - heading "Add bots to start the game" [level=2] [ref=e337]
+        - button "Close dialog" [ref=e338] [cursor=pointer]: ×
+      - generic [ref=e339]:
+        - paragraph [ref=e340]:
+          - text: Your room has 1 human of 4 seats. You must add at least
+          - strong [ref=e341]: "1"
+          - text: bot to start.
+        - generic [ref=e342]:
+          - generic [ref=e343]: How many bots?
+          - combobox "Number of bots" [ref=e344]:
+            - option "1 bot" [selected]
+            - option "2 bots"
+            - option "3 bots"
+        - generic [ref=e345]:
+          - button "Cancel" [ref=e346] [cursor=pointer]
+          - button "Start Game" [ref=e347] [cursor=pointer]

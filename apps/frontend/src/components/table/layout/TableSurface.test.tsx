@@ -12,6 +12,10 @@ describe('<TableSurface />', () => {
     expect(surface).toBeInTheDocument();
     expect(surface).toHaveClass('relative');
     expect(surface).toHaveClass('grid');
+    // Side columns reserve enough space for a rotated badge+melds stack
+    // (~220px visible post-rotation). Regression guard for the 3+ player
+    // viewport-edge-clipping bug.
+    expect(surface.className).toMatch(/grid-cols-\[minmax\(220px,260px\)/);
     expect(screen.getByTestId('felt')).toBeInTheDocument();
   });
 

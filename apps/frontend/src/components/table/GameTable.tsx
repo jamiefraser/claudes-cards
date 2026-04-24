@@ -1265,11 +1265,14 @@ export function GameTable({ roomId }: GameTableProps) {
           {floatingChromeRight}
           {rulesDrawer}
 
-          {/* ---- MOBILE (<640px): opponents in a single horizontal strip
-              above the felt. No rotation, no grid — a horizontally-scrollable
-              row so every opponent remains reachable even with 5 or 6. ---- */}
+          {/* ---- MOBILE / TABLET (<1024px): opponents in a single horizontal
+              strip above the felt. No rotation, no grid — a horizontally-
+              scrollable row so every opponent remains reachable even with
+              5 or 6 players. The rotated side-opponent grid only fits
+              cleanly at lg+ once the felt + two 220px side cells + padding
+              are added up, so we keep the strip on tablet widths. ---- */}
           <div
-            className="sm:hidden relative z-raised pt-2 pb-3 px-3 overflow-hidden border-b border-hairline/50"
+            className="lg:hidden relative z-raised pt-2 pb-3 px-3 overflow-hidden border-b border-hairline/50"
             aria-label={en.table.otherPlayersLabel}
           >
             <div className="no-scrollbar flex flex-row gap-3 overflow-x-auto snap-x snap-mandatory items-start">
@@ -1301,12 +1304,12 @@ export function GameTable({ roomId }: GameTableProps) {
             </div>
           </div>
 
-          {/* ---- TABLET / DESKTOP (sm+): grid-based layout. Top row reserves
+          {/* ---- DESKTOP (≥1024px): grid-based layout. Top row reserves
               three equal cells for top opponents so their horizontal position
               stays stable across 2/3/4/5/6 player counts. The main stage
               reserves a left and a right cell for rotated side opponents
               even when empty, keeping the felt visually centred. ---- */}
-          <div className="hidden sm:block">
+          <div className="hidden lg:block">
             {topRosterPresent && (
               <OpponentRoster
                 leftSlot={renderSeatSlot(slots['top-left'], 'top')}

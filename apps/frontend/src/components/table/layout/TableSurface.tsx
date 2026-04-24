@@ -10,6 +10,12 @@
  * reserves viewport space for every seat regardless of whether the slot is
  * populated.  Empty slots still exist -- they just collapse visually.
  *
+ * Column widths: side columns are sized to contain a rotated OpponentBadge
+ * + OpponentMeldsPanel (~220px visible width after 90° rotation). The middle
+ * column is `auto` so the content-sized felt remains centred while the
+ * side slots always have room. Without this, a 3+ player layout pushed
+ * rotated opponents past the viewport edge.
+ *
  * Presentational only: no store reads, no socket calls.
  * `overflow: visible` stays so that any animation origin just outside the
  * felt (e.g. a meld lay-down) is not clipped.
@@ -30,13 +36,12 @@ export function TableSurface({ leftSlot, stage, rightSlot }: TableSurfaceProps) 
     <div
       className={[
         'relative w-full',
-        // 3-col grid: side columns reserve a minimum width for a rotated
-        // opponent (badge ~110px + melds). The middle column is `auto` so
-        // the felt sizes itself to its contents (stock + discard + padding).
+        // 3-col grid: side columns reserve a MINIMUM width equal to the
+        // post-rotation visible footprint of an OpponentBadge+MeldsPanel
+        // (220px), capped at 260px so the felt stays near the centre at
+        // wide viewports. Middle column is `auto` → sized to the felt.
         'grid items-center justify-center',
-        'grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]',
-        'sm:grid-cols-[minmax(140px,1fr)_auto_minmax(140px,1fr)]',
-        'lg:grid-cols-[minmax(170px,1fr)_auto_minmax(170px,1fr)]',
+        'grid-cols-[minmax(220px,260px)_auto_minmax(220px,260px)]',
         'gap-3 sm:gap-4 lg:gap-6',
         'px-3 sm:px-5 lg:px-8 py-2 sm:py-3',
       ].join(' ')}
@@ -44,7 +49,7 @@ export function TableSurface({ leftSlot, stage, rightSlot }: TableSurfaceProps) 
       style={{ overflow: 'visible' }}
     >
       <div
-        className="flex flex-col items-center justify-center gap-5"
+        className="flex flex-col items-center justify-center gap-4"
         data-slot="opp-left"
       >
         {leftSlot}
@@ -56,7 +61,7 @@ export function TableSurface({ leftSlot, stage, rightSlot }: TableSurfaceProps) 
         {stage}
       </div>
       <div
-        className="flex flex-col items-center justify-center gap-5"
+        className="flex flex-col items-center justify-center gap-4"
         data-slot="opp-right"
       >
         {rightSlot}

@@ -1,0 +1,19 @@
+- generic [ref=e2]:
+  - main [ref=e313]:
+    - generic [ref=e314]:
+      - button "← Back to lobby" [ref=e315] [cursor=pointer]
+      - heading "canasta room" [level=1] [ref=e316]
+      - paragraph [ref=e317]: canasta — 1 of 4 seats filled
+      - region "Players in room" [ref=e318]:
+        - heading "Players" [level=2] [ref=e319]
+        - list [ref=e320]:
+          - listitem [ref=e321]:
+            - generic [ref=e323]: TestPlayer1
+            - generic [ref=e324]: HOST
+          - listitem [ref=e325]: Empty seat
+          - listitem [ref=e326]: Empty seat
+          - listitem [ref=e327]: Empty seat
+      - button "Start Game" [ref=e328] [cursor=pointer]
+  - status [ref=e330]:
+    - generic [ref=e331]: Create
+    - button "Dismiss notification" [ref=e332] [cursor=pointer]: ×

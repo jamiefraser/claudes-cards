@@ -3,16 +3,19 @@
  * as the opponent's badge so the melds visually face the table centre.
  *
  *   - top   -> no rotation
- *   - left  -> rotate(90deg)   (reads bottom-to-top)
- *   - right -> rotate(-90deg)  (reads top-to-bottom)
+ *   - left  -> rotate(-90deg)  (reads bottom-to-top)
+ *   - right -> rotate(90deg)   (reads top-to-bottom)
  *
- * The panel is capped in its primary axis so an unusually-long meld set can
- * never push the felt or other seats off-screen. Past the cap, the panel
- * scrolls internally:
+ * Like OpponentBadge, the rotated variants use an OUTER wrapper sized
+ * to the POST-rotation visible footprint so grid cells measure correctly
+ * and the viewport doesn't clip side opponents in 3+ player games.
  *
- *   - top slot     -> horizontal scroll (`max-w` + `overflow-x-auto`)
- *   - left / right -> pre-rotation horizontal scroll, which reads as vertical
- *                     scroll on-screen after the 90deg rotation
+ * Overflow behaviour:
+ *   - Top slot: `max-w` caps the un-rotated width, overflow-x scrolls.
+ *   - Side slots: pre-rotation `maxHeight` caps the height, which after
+ *     rotation becomes the visible WIDTH. Content that exceeds the cap
+ *     scrolls along the pre-rotation horizontal axis — which visually
+ *     reads as vertical scroll after the 90° transform.
  *
  * Presentational only: no store reads, no socket calls.
  */
@@ -24,41 +27,66 @@ export interface OpponentMeldsPanelProps {
   children: React.ReactNode;
 }
 
-// Mirror OpponentBadge's rotation: bottom edge points toward the table
-// centre from each seat, so left = -90° CCW, right = 90° CW.
 const ROTATION: Record<SeatOrientation, string> = {
   top:   '',
   left:  'rotate(-90deg)',
   right: 'rotate(90deg)',
 };
 
-// Pre-rotation width caps. For rotated orientations this becomes the
-// viewport-height budget once the panel is transformed onto its side.
-const MAX_WIDTH: Record<SeatOrientation, number> = {
-  top:   360,
-  left:  260,
-  right: 260,
-};
+// Top: un-rotated cap on width. Overflow scrolls horizontally within.
+const TOP_MAX_WIDTH = 360;
+
+// Sides: outer reserves visible footprint = 220w × 260h. Inner is
+// un-rotated with maxWidth=260 and maxHeight=220; after rotation the
+// visual rect is (inner-height × inner-width) = (≤220 × ≤260), which
+// fits exactly inside the outer's reserved box.
+const SIDE_OUTER = { w: 220, h: 260 };
+const SIDE_INNER = { maxW: 260, maxH: 220 };
 
 export function OpponentMeldsPanel({
   orientation,
   children,
 }: OpponentMeldsPanelProps) {
+  if (orientation === 'top') {
+    return (
+      <div
+        className="flex flex-col items-center no-scrollbar"
+        style={{
+          maxWidth: TOP_MAX_WIDTH,
+          overflowX: 'auto',
+          overflowY: 'hidden',
+        }}
+        data-testid="opponent-melds-panel"
+        data-orientation="top"
+      >
+        {children}
+      </div>
+    );
+  }
+
   const rotation = ROTATION[orientation];
 
   return (
     <div
-      className="flex flex-col items-center no-scrollbar"
-      style={{
-        transform: rotation || undefined,
-        maxWidth: MAX_WIDTH[orientation],
-        overflowX: 'auto',
-        overflowY: 'hidden',
-      }}
+      className="flex items-center justify-center"
+      style={{ width: SIDE_OUTER.w, height: SIDE_OUTER.h }}
       data-testid="opponent-melds-panel"
       data-orientation={orientation}
     >
-      {children}
+      <div
+        className="flex flex-col items-center no-scrollbar shrink-0"
+        style={{
+          maxWidth: SIDE_INNER.maxW,
+          maxHeight: SIDE_INNER.maxH,
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          transform: rotation,
+          transformOrigin: 'center',
+        }}
+        data-testid="opponent-melds-panel-rotator"
+      >
+        {children}
+      </div>
     </div>
   );
 }

@@ -1,0 +1,22 @@
+- generic [active] [ref=e1]:
+  - img "Background Image" [ref=e3]
+  - generic [ref=e7]:
+    - img "Company Logo" [ref=e8]
+    - main [ref=e9]:
+      - heading "Sign in" [level=1] [ref=e11]
+      - form "Sign in with your email address" [ref=e12]:
+        - heading "Sign in with your email address" [level=2] [ref=e14]
+        - generic [ref=e15]:
+          - generic [ref=e16]:
+            - generic [ref=e17]: Email Address
+            - textbox "Email Address" [ref=e18]
+          - generic [ref=e19]:
+            - generic [ref=e21]: Password
+            - textbox "Password" [ref=e22]
+            - link "Forgot your password?" [ref=e24] [cursor=pointer]:
+              - /url: /cards.onmicrosoft.com/B2C_1_SUSI/api/CombinedSigninAndSignup/forgotPassword?csrf_token=cm5lZmxXd1JudE9zRFU5bzViYjNJZ3lIUTBLUWV3ZFIrZnBtb1Vnc3UzWVBPNUh4VjRNODhrdlZBOXUySlRRNTROU3VXSEI4N05DZWJpT0lGVGx5bXc9PTsyMDI2LTA0LTI0VDEyOjQwOjUwLjA2MjIwNjZaOzViSEhLd2F6WWpYa0tveDUybit3SHc9PTt7Ik9yY2hlc3RyYXRpb25TdGVwIjoxfQ==&tx=StateProperties=eyJUSUQiOiI0NThiNDEyZi0zYmVkLTRhMTItOGM1NS1jMmMzNWIzY2Q0MjkifQ&p=B2C_1_SUSI
+          - button "Sign in" [ref=e26] [cursor=pointer]
+        - paragraph [ref=e28]:
+          - text: Don't have an account?
+          - link "Sign up now" [ref=e29] [cursor=pointer]:
+            - /url: /cards.onmicrosoft.com/B2C_1_SUSI/api/CombinedSigninAndSignup/unified?local=signup&csrf_token=cm5lZmxXd1JudE9zRFU5bzViYjNJZ3lIUTBLUWV3ZFIrZnBtb1Vnc3UzWVBPNUh4VjRNODhrdlZBOXUySlRRNTROU3VXSEI4N05DZWJpT0lGVGx5bXc9PTsyMDI2LTA0LTI0VDEyOjQwOjUwLjA2MjIwNjZaOzViSEhLd2F6WWpYa0tveDUybit3SHc9PTt7Ik9yY2hlc3RyYXRpb25TdGVwIjoxfQ==&tx=StateProperties=eyJUSUQiOiI0NThiNDEyZi0zYmVkLTRhMTItOGM1NS1jMmMzNWIzY2Q0MjkifQ&p=B2C_1_SUSI

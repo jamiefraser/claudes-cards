@@ -1,15 +1,13 @@
 /**
- * Spit (Speed) Game Engine
+ * Spit (Speed) — platform engine adapter.
  *
- * Standard 52-card deck, 2 players.
- * Each player gets a 26-card stock pile.
- * Two central play piles; both players play simultaneously.
- * Cards are played on a central pile if they are +1 or −1 from top card.
- * "Spit!" signals new round with top-of-stock to each center pile.
- * Win: first to empty stock + tableau.
+ * Thin wrapper over ./core.ts. Translates frontend actions (`start`,
+ * `play`, `spit`, `slap`, `ack-round`) into the pure core's Action
+ * shape and projects a UI-friendly `publicData` contract.
  *
- * Simplified: turn-based play-or-draw; action types 'play' and 'spit'.
- * Real-time only.
+ * Spit is real-time: no turn ownership, both players act freely. The
+ * core resolves actions strictly in arrival order via a timestamp
+ * supplied by the adapter at each applyAction call.
  */
 
 import type {
@@ -18,42 +16,70 @@ import type {
   GameState,
   PlayerAction,
   PlayerRanking,
-  Card,
+  Card as PlatformCard,
+  Rank as PlatformRank,
+  Suit as PlatformSuit,
 } from '@card-platform/shared-types';
-import { createStandardDeck } from '@card-platform/cards-engine';
 import { logger } from '../../utils/logger';
+import {
+  newGame as coreNewGame,
+  applyAction as coreApply,
+  start as coreStart,
+  legalPlays as coreLegalPlays,
+  startNextRound as coreStartNextRound,
+  DEFAULT_CONFIG,
+  type Card as CoreCard,
+  type GameState as CoreState,
+  type Suit as CoreSuit,
+  type Rank as CoreRank,
+  type SpitConfig,
+  type CenterIndex,
+  type ColumnIndex,
+} from './core';
+
+const SUIT_TO_PLATFORM: Record<CoreSuit, PlatformSuit> = {
+  S: 'spades', H: 'hearts', D: 'diamonds', C: 'clubs',
+};
+const RANK_TO_PLATFORM: Record<CoreRank, PlatformRank> = {
+  A: 'A', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7',
+  '8': '8', '9': '9', '10': '10', J: 'J', Q: 'Q', K: 'K',
+};
+const RANK_NUMERIC: Record<CoreRank, number> = {
+  A: 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
+  '8': 8, '9': 9, '10': 10, J: 11, Q: 12, K: 13,
+};
+
+function toPlatformCard(c: CoreCard, faceUp: boolean): PlatformCard {
+  return {
+    id: c.id,
+    deckType: 'standard',
+    suit: SUIT_TO_PLATFORM[c.suit],
+    rank: RANK_TO_PLATFORM[c.rank],
+    value: RANK_NUMERIC[c.rank],
+    faceUp,
+  };
+}
 
 interface SpitPublicData {
-  stockPiles: Record<string, Card[]>; // playerId -> cards
-  centerPile1: Card[];
-  centerPile2: Card[];
-  centerTop1: Card | null;
-  centerTop2: Card | null;
+  core: CoreState;
+  phase: CoreState['phase'];
+  columnsByPlayer: Record<string, {
+    tops: Array<PlatformCard | null>;
+    depths: number[];
+  }>;
+  spitPileCountByPlayer: Record<string, number>;
+  centerTops: [PlatformCard | null, PlatformCard | null];
+  centerCounts: [number, number];
+  spitAvailable: boolean;
+  roundNumber: number;
+  roundWinnerId: string | null;
+  matchWinnerId: string | null;
 }
 
-function shuffle<T>(arr: T[]): void {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const tmp = arr[i]!;
-    arr[i] = arr[j]!;
-    arr[j] = tmp;
-  }
-}
-
-function rankVal(card: Card): number {
-  if (!card.rank) return 0;
-  const map: Record<string, number> = {
-    A: 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
-    '8': 8, '9': 9, '10': 10, J: 11, Q: 12, K: 13,
-  };
-  return map[card.rank] ?? 0;
-}
-
-function canPlayOn(card: Card, top: Card | null): boolean {
-  if (!top) return true;
-  const diff = Math.abs(rankVal(card) - rankVal(top));
-  // Wrap A-K
-  return diff === 1 || diff === 12;
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return h;
 }
 
 export class SpitEngine implements IGameEngine {
@@ -65,187 +91,171 @@ export class SpitEngine implements IGameEngine {
   startGame(config: GameConfig): GameState {
     const { roomId, gameId, playerIds } = config;
     if (playerIds.length !== 2) throw new Error('Spit requires exactly 2 players');
-
-    const deck = createStandardDeck();
-    const cards = [...deck.cards];
-    shuffle(cards);
-
-    const stockPiles: Record<string, Card[]> = {
-      [playerIds[0]!]: cards.splice(0, 26).map(c => ({ ...c, faceUp: false })),
-      [playerIds[1]!]: cards.splice(0, 26).map(c => ({ ...c, faceUp: false })),
-    };
-
-    const players = playerIds.map(playerId => ({
-      playerId,
-      displayName: playerId,
-      hand: stockPiles[playerId]!.splice(0, 5).map(c => ({ ...c, faceUp: true })),
-      score: 0,
-      isOut: false,
-      isBot: false,
-    }));
-
-    const publicData: SpitPublicData = {
-      stockPiles,
-      centerPile1: [],
-      centerPile2: [],
-      centerTop1: null,
-      centerTop2: null,
-    };
-
-    logger.debug('SpitEngine.startGame', { roomId });
-
-    return {
-      version: 1,
-      roomId,
-      gameId,
-      phase: 'playing',
-      players,
-      currentTurn: playerIds[0]!,
-      turnNumber: 1,
-      roundNumber: 1,
-      publicData: publicData as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
+    const seed = hashString(roomId);
+    const raw = ((config.options as Record<string, unknown> | undefined)?.['spit'] as
+      | Partial<SpitConfig>
+      | undefined);
+    const coreCfg: Partial<SpitConfig> = { ...DEFAULT_CONFIG, ...(raw ?? {}) };
+    let core = coreNewGame(playerIds, coreCfg, seed);
+    // Auto-start the first round so the UI doesn't have to submit a
+    // separate `start` action — spit piles flip and play begins.
+    core = coreStart(core);
+    logger.debug('SpitEngine.startGame', { roomId, seed });
+    return projectState({ roomId, gameId, core, prevVersion: 0 });
   }
 
   applyAction(state: GameState, playerId: string, action: PlayerAction): GameState {
-    if (state.currentTurn !== playerId) throw new Error(`Not ${playerId}'s turn`);
     const pd = state.publicData as unknown as SpitPublicData;
-
+    let core = pd.core;
+    const ts = Date.now();
     switch (action.type) {
-      case 'play': return this.handlePlay(state, playerId, action, pd);
-      case 'spit': return this.handleSpit(state, playerId, pd);
-      default: throw new Error(`Unknown action: ${action.type}`);
+      case 'play': {
+        const payload = action.payload as
+          | { columnIndex?: number; centerIndex?: number }
+          | undefined;
+        const columnIndex = payload?.columnIndex;
+        const centerIndex = payload?.centerIndex;
+        if (typeof columnIndex !== 'number' || typeof centerIndex !== 'number') {
+          throw new Error('play requires numeric columnIndex + centerIndex');
+        }
+        core = coreApply(core, {
+          kind: 'play', playerId,
+          columnIndex: columnIndex as ColumnIndex,
+          centerIndex: centerIndex as CenterIndex,
+        }, ts);
+        break;
+      }
+      case 'spit': {
+        core = coreApply(core, { kind: 'spit', playerId }, ts);
+        break;
+      }
+      case 'slap': {
+        const payload = action.payload as { centerIndex?: number } | undefined;
+        const centerIndex = payload?.centerIndex;
+        if (typeof centerIndex !== 'number') {
+          throw new Error('slap requires numeric centerIndex');
+        }
+        core = coreApply(core, {
+          kind: 'slap', playerId,
+          centerIndex: centerIndex as CenterIndex,
+        }, ts);
+        break;
+      }
+      case 'ack-round': {
+        if (core.phase !== 'roundOver') throw new Error('No round to ack');
+        core = coreStartNextRound(core);
+        break;
+      }
+      default:
+        throw new Error(`Unknown action: ${action.type}`);
     }
+    return projectState({
+      roomId: state.roomId,
+      gameId: state.gameId,
+      core,
+      prevVersion: state.version,
+    });
   }
 
   getValidActions(state: GameState, playerId: string): PlayerAction[] {
-    if (state.currentTurn !== playerId) return [];
     const pd = state.publicData as unknown as SpitPublicData;
-    const player = state.players.find(p => p.playerId === playerId);
-    if (!player) return [];
-
-    const actions: PlayerAction[] = [];
-    for (const card of player.hand) {
-      if (canPlayOn(card, pd.centerTop1)) actions.push({ type: 'play', cardIds: [card.id], payload: { pile: 1 } });
-      if (canPlayOn(card, pd.centerTop2)) actions.push({ type: 'play', cardIds: [card.id], payload: { pile: 2 } });
+    const core = pd.core;
+    const out: PlayerAction[] = [];
+    for (const a of coreLegalPlays(core, playerId)) {
+      if (a.kind === 'play') {
+        out.push({
+          type: 'play',
+          payload: { columnIndex: a.columnIndex, centerIndex: a.centerIndex },
+        });
+      }
     }
-    // Always allow spit if stock has cards
-    const stock = pd.stockPiles[playerId] ?? [];
-    if (stock.length > 0) actions.push({ type: 'spit' });
-    return actions;
+    if (core.spitAvailable) out.push({ type: 'spit' });
+    // Slap becomes legal once this player's stockpiles are all empty.
+    const player = core.players.find((p) => p.id === playerId);
+    if (player && player.columns.every((c) => c.length === 0) && core.phase === 'playing') {
+      out.push({ type: 'slap', payload: { centerIndex: 0 } });
+      out.push({ type: 'slap', payload: { centerIndex: 1 } });
+    }
+    return out;
   }
 
   computeResult(state: GameState): PlayerRanking[] {
     const pd = state.publicData as unknown as SpitPublicData;
-    const sorted = [...state.players]
-      .map(p => ({
-        ...p,
-        total: p.hand.length + (pd.stockPiles[p.playerId]?.length ?? 0),
-      }))
-      .sort((a, b) => a.total - b.total);
-
-    return sorted.map((p, idx) => ({
+    const winnerId = pd.core.matchWinnerId ?? pd.core.roundWinnerId;
+    return state.players.map((p) => ({
       playerId: p.playerId,
       displayName: p.displayName,
-      rank: idx + 1,
-      score: p.total,
+      rank: winnerId === null ? 1 : p.playerId === winnerId ? 1 : 2,
+      score: p.score,
       isBot: p.isBot,
-    }));
+    })).sort((a, b) => a.rank - b.rank);
   }
 
   isGameOver(state: GameState): boolean {
     return state.phase === 'ended';
   }
+}
 
-  private handlePlay(
-    state: GameState,
-    playerId: string,
-    action: PlayerAction,
-    pd: SpitPublicData,
-  ): GameState {
-    const cardId = action.cardIds?.[0];
-    const pile = (action.payload?.pile as number) ?? 1;
-    if (!cardId) throw new Error('No card specified');
+function projectState(args: {
+  roomId: string;
+  gameId: string;
+  core: CoreState;
+  prevVersion: number;
+}): GameState {
+  const { roomId, gameId, core } = args;
 
-    const player = state.players.find(p => p.playerId === playerId)!;
-    const card = player.hand.find(c => c.id === cardId);
-    if (!card) throw new Error(`Card ${cardId} not in hand`);
-
-    const topCard = pile === 1 ? pd.centerTop1 : pd.centerTop2;
-    if (!canPlayOn(card, topCard)) throw new Error('Cannot play card on that pile');
-
-    const playedCard = { ...card, faceUp: true };
-    const newHand = player.hand.filter(c => c.id !== cardId);
-
-    // Refill from stock if possible
-    const stock = [...(pd.stockPiles[playerId] ?? [])];
-    let finalHand = newHand;
-    if (newHand.length < 5 && stock.length > 0) {
-      finalHand = [...newHand, { ...stock.pop()!, faceUp: true }];
-    }
-
-    const newCenterPile1 = pile === 1 ? [...pd.centerPile1, playedCard] : pd.centerPile1;
-    const newCenterPile2 = pile === 2 ? [...pd.centerPile2, playedCard] : pd.centerPile2;
-
-    const newPlayers = state.players.map(p =>
-      p.playerId === playerId ? { ...p, hand: finalHand } : p
-    );
-
-    const newPd: SpitPublicData = {
-      ...pd,
-      stockPiles: { ...pd.stockPiles, [playerId]: stock },
-      centerPile1: newCenterPile1,
-      centerPile2: newCenterPile2,
-      centerTop1: pile === 1 ? playedCard : pd.centerTop1,
-      centerTop2: pile === 2 ? playedCard : pd.centerTop2,
+  const columnsByPlayer: SpitPublicData['columnsByPlayer'] = {};
+  const spitPileCountByPlayer: Record<string, number> = {};
+  for (const p of core.players) {
+    columnsByPlayer[p.id] = {
+      tops: p.columns.map((c) => {
+        const top = c[c.length - 1];
+        return top ? toPlatformCard(top, true) : null;
+      }),
+      depths: p.columns.map((c) => c.length),
     };
-
-    const gameOver = finalHand.length === 0 && stock.length === 0;
-
-    const nextTurn = state.players[(state.players.findIndex(p => p.playerId === playerId) + 1) % 2]!.playerId;
-
-    return {
-      ...state,
-      version: state.version + 1,
-      phase: gameOver ? 'ended' : 'playing',
-      players: newPlayers,
-      currentTurn: gameOver ? null : nextTurn,
-      turnNumber: state.turnNumber + 1,
-      publicData: newPd as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
+    spitPileCountByPlayer[p.id] = p.spitPile.length;
   }
 
-  private handleSpit(state: GameState, playerId: string, pd: SpitPublicData): GameState {
-    const stock = [...(pd.stockPiles[playerId] ?? [])];
-    if (stock.length === 0) throw new Error('No cards in stock to spit');
+  const platformPlayers = core.players.map((p) => ({
+    playerId: p.id,
+    displayName: p.id,
+    hand: [] as PlatformCard[], // Spit doesn't use a traditional hand — columns are the layout
+    score: p.columns.reduce((s, c) => s + c.length, 0),
+    isOut: p.outOfMatch,
+    isBot: false,
+  }));
 
-    const spitCard = { ...stock.pop()!, faceUp: true };
+  const pd: SpitPublicData = {
+    core,
+    phase: core.phase,
+    columnsByPlayer,
+    spitPileCountByPlayer,
+    centerTops: [
+      core.centerPiles[0][core.centerPiles[0].length - 1]
+        ? toPlatformCard(core.centerPiles[0][core.centerPiles[0].length - 1]!, true) : null,
+      core.centerPiles[1][core.centerPiles[1].length - 1]
+        ? toPlatformCard(core.centerPiles[1][core.centerPiles[1].length - 1]!, true) : null,
+    ],
+    centerCounts: [core.centerPiles[0].length, core.centerPiles[1].length],
+    spitAvailable: core.spitAvailable,
+    roundNumber: core.roundNumber,
+    roundWinnerId: core.roundWinnerId,
+    matchWinnerId: core.matchWinnerId,
+  };
 
-    // Add to smaller center pile
-    const pile1Size = pd.centerPile1.length;
-    const pile2Size = pd.centerPile2.length;
-
-    const newPd: SpitPublicData = pile1Size <= pile2Size
-      ? {
-        ...pd,
-        stockPiles: { ...pd.stockPiles, [playerId]: stock },
-        centerPile1: [...pd.centerPile1, spitCard],
-        centerTop1: spitCard,
-      }
-      : {
-        ...pd,
-        stockPiles: { ...pd.stockPiles, [playerId]: stock },
-        centerPile2: [...pd.centerPile2, spitCard],
-        centerTop2: spitCard,
-      };
-
-    return {
-      ...state,
-      version: state.version + 1,
-      publicData: newPd as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
-  }
+  return {
+    version: args.prevVersion + 1,
+    roomId,
+    gameId,
+    phase: core.phase === 'matchOver' ? 'ended' : 'playing',
+    players: platformPlayers,
+    // Spit is real-time: there is no "current turn". We surface null
+    // here — the UI ignores `currentTurn` and enables actions for both.
+    currentTurn: null,
+    turnNumber: core.actionLog.length + 1,
+    roundNumber: core.roundNumber,
+    publicData: pd as unknown as Record<string, unknown>,
+    updatedAt: new Date().toISOString(),
+  };
 }

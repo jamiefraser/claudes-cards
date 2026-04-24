@@ -1,0 +1,27 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Euchre — snapshots full hand where dealer orders up — outcome snapshot 1`] = `
+{
+  "ending": "make",
+  "makers": "NS",
+  "points": 1,
+}
+`;
+
+exports[`Euchre — snapshots full hand with alone call — outcome snapshot 1`] = `
+{
+  "alone": true,
+  "ending": "euchre",
+  "points": 2,
+}
+`;
+
+exports[`Euchre — snapshots full hand with trump = ♠ 1`] = `
+{
+  "ending": "euchre",
+  "makers": "EW",
+  "makersTricks": 1,
+  "points": 2,
+  "trumpSuit": "D",
+}
+`;

@@ -1,14 +1,18 @@
 /**
- * Euchre Game Engine
+ * Euchre — platform engine adapter.
  *
- * 4 players, 24-card deck (9–A in each suit).
- * Partnerships: (p0+p2) vs (p1+p3).
- * Deal 5 cards each; flip up-card for trump selection.
- * Order-up or pass. Maker calls trump.
- * Bowers: Jack of trump = Right Bower (highest); Jack of same-color suit = Left Bower.
- * Win tricks; maker must win 3+ of 5.
- * Score: 2 pts for all 5 (march); 1 pt for 3–4; going alone: 4 pts.
- * First team to 10 pts wins.
+ * Thin wrapper over ./core.ts. The core holds authoritative state and
+ * drives a strict phase machine (bidRound1 → bidRound2 → dealerDiscard
+ * → play → handOver → gameOver). This adapter translates the
+ * frontend's existing action types into core actions, auto-advances
+ * between hands, and projects a publicData shape that matches the
+ * UI's expectations.
+ *
+ * Frontend action mapping:
+ *   - `bid` with payload { decision: 'pass' | 'orderUp' | 'callTrump', suit?, alone? }
+ *   - `discard` with cardIds=[id]  — dealer's pick-up discard
+ *   - `play`   with cardIds=[id]
+ *   - `ack-hand` — advance to the next hand after handOver
  */
 
 import type {
@@ -17,87 +21,67 @@ import type {
   GameState,
   PlayerAction,
   PlayerRanking,
-  Card,
-  Suit,
+  Card as PlatformCard,
+  Rank as PlatformRank,
+  Suit as PlatformSuit,
 } from '@card-platform/shared-types';
-import { createStandardCard } from '@card-platform/cards-engine';
 import { logger } from '../../utils/logger';
+import {
+  newGame as coreNewGame,
+  applyAction as coreApply,
+  startNextHand as coreStartNextHand,
+  DEFAULT_CONFIG,
+  type Card as CoreCard,
+  type GameState as CoreState,
+  type Suit as CoreSuit,
+  type Rank as CoreRank,
+  type EuchreConfig,
+} from './core';
 
-type EuchrePhase = 'trump-select' | 'playing';
+const SUIT_TO_PLATFORM: Record<CoreSuit, PlatformSuit> = {
+  S: 'spades', H: 'hearts', D: 'diamonds', C: 'clubs',
+};
+const SUIT_TO_CORE: Record<PlatformSuit, CoreSuit> = {
+  spades: 'S', hearts: 'H', diamonds: 'D', clubs: 'C',
+};
+const RANK_TO_PLATFORM: Record<CoreRank, PlatformRank> = {
+  '9': '9', '10': '10', J: 'J', Q: 'Q', K: 'K', A: 'A',
+};
+const RANK_NUMERIC: Record<CoreRank, number> = {
+  '9': 9, '10': 10, J: 11, Q: 12, K: 13, A: 14,
+};
+
+function toPlatformCard(c: CoreCard, faceUp: boolean): PlatformCard {
+  return {
+    id: c.id,
+    deckType: 'standard',
+    suit: SUIT_TO_PLATFORM[c.suit],
+    rank: RANK_TO_PLATFORM[c.rank],
+    value: RANK_NUMERIC[c.rank],
+    faceUp,
+  };
+}
 
 interface EuchrePublicData {
-  gamePhase: EuchrePhase;
-  upCard: Card | null;
-  trumpSuit: Suit | null;
-  maker: string | null;
-  currentTrick: Array<{ playerId: string; card: Card }>;
-  ledSuit: string | null;
-  tricksTaken: Record<string, number>;
-  teamScores: Record<string, number>;
-  dealerIndex: number;
-  trumpRound: number; // 1 = order up, 2 = name trump
-  passCount: number;
+  /** Authoritative core state. */
+  core: CoreState;
+  turnUpCard: PlatformCard | null;
+  trumpSuit: PlatformSuit | null;
+  trumpCallerId: string | null;
+  trumpAlone: boolean;
+  currentTrickCards: Array<{ playerId: string; card: PlatformCard }>;
+  phase: string;
+  /** Cumulative partnership scores. */
+  scoreNS: number;
+  scoreEW: number;
+  handResult: CoreState['handResult'];
+  gameWinner: 'NS' | 'EW' | null;
 }
 
-const EUCHRE_RANKS = ['9', '10', 'J', 'Q', 'K', 'A'] as const;
-type EuchreRank = typeof EUCHRE_RANKS[number];
-const RANK_VALUES: Record<string, number> = { '9': 9, '10': 10, J: 11, Q: 12, K: 13, A: 14 };
-
-function shuffle<T>(arr: T[]): void {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const tmp = arr[i]!;
-    arr[i] = arr[j]!;
-    arr[j] = tmp;
-  }
-}
-
-function buildEuchreDeck(): Card[] {
-  const suits: Suit[] = ['hearts', 'diamonds', 'clubs', 'spades'];
-  const cards: Card[] = [];
-  for (const suit of suits) {
-    for (const rank of EUCHRE_RANKS) {
-      const val = RANK_VALUES[rank] ?? 0;
-      // EuchreRank is a subset of Rank, safe cast
-      cards.push(createStandardCard(suit, rank as import('@card-platform/shared-types').Rank, val));
-    }
-  }
-  return cards;
-}
-
-function sameColorSuit(suit: Suit): Suit {
-  if (suit === 'hearts') return 'diamonds';
-  if (suit === 'diamonds') return 'hearts';
-  if (suit === 'clubs') return 'spades';
-  return 'clubs';
-}
-
-function cardStrength(card: Card, trump: Suit, ledSuit: Suit | null): number {
-  // Right bower
-  if (card.rank === 'J' && card.suit === trump) return 100;
-  // Left bower
-  if (card.rank === 'J' && card.suit === sameColorSuit(trump)) return 99;
-  if (card.suit === trump) return 50 + (RANK_VALUES[card.rank ?? ''] ?? 0);
-  if (ledSuit && card.suit === ledSuit) return RANK_VALUES[card.rank ?? ''] ?? 0;
-  return 0;
-}
-
-function trickWinner(trick: Array<{ playerId: string; card: Card }>, trump: Suit, ledSuit: Suit): string {
-  return trick.reduce((best, t) => {
-    const s = cardStrength(t.card, trump, ledSuit);
-    const bs = cardStrength(best.card, trump, ledSuit);
-    return s > bs ? t : best;
-  }).playerId;
-}
-
-function teamOf(playerIds: string[], playerId: string): string {
-  const idx = playerIds.indexOf(playerId);
-  return idx % 2 === 0 ? 'teamA' : 'teamB';
-}
-
-function nextPlayer(players: GameState['players'], currentId: string): string {
-  const idx = players.findIndex(p => p.playerId === currentId);
-  return players[(idx + 1) % players.length]!.playerId;
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return h;
 }
 
 export class EuchreEngine implements IGameEngine {
@@ -108,322 +92,214 @@ export class EuchreEngine implements IGameEngine {
 
   startGame(config: GameConfig): GameState {
     const { roomId, gameId, playerIds } = config;
-    if (playerIds.length !== 4) throw new Error('Euchre requires exactly 4 players');
+    if (playerIds.length !== 4) {
+      throw new Error('Euchre requires exactly 4 players');
+    }
+    const seed = hashString(roomId);
+    const raw =
+      ((config.options as Record<string, unknown> | undefined)?.['euchre'] as
+        | Partial<EuchreConfig>
+        | undefined);
+    const coreConfig: EuchreConfig = { ...DEFAULT_CONFIG, ...(raw ?? {}) };
+    const core = coreNewGame(playerIds, coreConfig, seed);
 
-    const cards = buildEuchreDeck();
-    shuffle(cards);
-
-    const players = playerIds.map(playerId => ({
-      playerId,
-      displayName: playerId,
-      hand: cards.splice(0, 5).map(c => ({ ...c, faceUp: false })),
-      score: 0,
-      isOut: false,
-      isBot: false,
-    }));
-
-    // Up card (would normally be 4 cards in the kitty)
-    const upCard = cards[0] ? { ...cards[0], faceUp: true } : null;
-
-    const tricksTaken: Record<string, number> = {};
-    for (const id of playerIds) tricksTaken[id] = 0;
-
-    const publicData: EuchrePublicData = {
-      gamePhase: 'trump-select',
-      upCard,
-      trumpSuit: null,
-      maker: null,
-      currentTrick: [],
-      ledSuit: null,
-      tricksTaken,
-      teamScores: { teamA: 0, teamB: 0 },
-      dealerIndex: 0,
-      trumpRound: 1,
-      passCount: 0,
-    };
-
-    logger.debug('EuchreEngine.startGame', { roomId });
-
-    return {
-      version: 1,
+    logger.debug('EuchreEngine.startGame', { roomId, seed });
+    return projectState({
       roomId,
       gameId,
-      phase: 'playing',
-      players,
-      currentTurn: playerIds[1]!, // Player left of dealer leads first in trump selection
+      core,
       turnNumber: 1,
-      roundNumber: 1,
-      publicData: publicData as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
+      roundNumber: core.handNumber,
+      prevVersion: 0,
+    });
   }
 
   applyAction(state: GameState, playerId: string, action: PlayerAction): GameState {
-    if (state.currentTurn !== playerId) throw new Error(`Not ${playerId}'s turn`);
     const pd = state.publicData as unknown as EuchrePublicData;
+    let core = pd.core;
 
     switch (action.type) {
-      case 'order-up': return this.handleOrderUp(state, playerId, pd);
-      case 'pass-trump': return this.handlePassTrump(state, playerId, pd);
-      case 'call-trump': return this.handleCallTrump(state, playerId, action, pd);
-      case 'play': return this.handlePlay(state, playerId, action, pd);
-      default: throw new Error(`Unknown action: ${action.type}`);
+      case 'bid': {
+        const decision = (action.payload?.['decision'] as string | undefined) ?? 'pass';
+        if (decision === 'pass') {
+          core = coreApply(core, { kind: 'bidPass', playerId });
+        } else if (decision === 'orderUp') {
+          const alone = !!action.payload?.['alone'];
+          core = coreApply(core, { kind: 'orderUp', playerId, alone });
+        } else if (decision === 'callTrump') {
+          const suitPlatform = action.payload?.['suit'] as PlatformSuit | undefined;
+          if (!suitPlatform) throw new Error('callTrump requires payload.suit');
+          const alone = !!action.payload?.['alone'];
+          core = coreApply(core, {
+            kind: 'callTrump',
+            playerId,
+            suit: SUIT_TO_CORE[suitPlatform],
+            alone,
+          });
+        } else {
+          throw new Error(`Unknown bid decision: ${decision}`);
+        }
+        break;
+      }
+      case 'discard': {
+        const cardIds = action.cardIds ?? [];
+        if (cardIds.length !== 1) throw new Error('Euchre discard requires exactly one card');
+        core = coreApply(core, { kind: 'dealerDiscard', playerId, cardId: cardIds[0]! });
+        break;
+      }
+      case 'play': {
+        const cardIds = action.cardIds ?? [];
+        if (cardIds.length !== 1) throw new Error('Euchre play requires exactly one card');
+        core = coreApply(core, { kind: 'playCard', playerId, cardId: cardIds[0]! });
+        break;
+      }
+      case 'ack-hand': {
+        if (core.phase !== 'handOver') throw new Error('No hand to ack');
+        if (!core.gameWinner) core = coreStartNextHand(core);
+        break;
+      }
+      default:
+        throw new Error(`Unknown action: ${action.type}`);
     }
+
+    return projectState({
+      roomId: state.roomId,
+      gameId: state.gameId,
+      core,
+      turnNumber: state.turnNumber + 1,
+      roundNumber: core.handNumber,
+      prevVersion: state.version,
+    });
   }
 
   getValidActions(state: GameState, playerId: string): PlayerAction[] {
-    if (state.currentTurn !== playerId) return [];
     const pd = state.publicData as unknown as EuchrePublicData;
+    const core = pd.core;
+    if (core.phase === 'handOver') {
+      if (core.gameWinner) return [];
+      return [{ type: 'ack-hand' }];
+    }
+    if (core.phase === 'gameOver') return [];
 
-    if (pd.gamePhase === 'trump-select') {
-      if (pd.trumpRound === 1) {
-        return [{ type: 'order-up' }, { type: 'pass-trump' }];
+    const current = core.players[core.currentPlayerIndex]!;
+    if (playerId !== current.id) return [];
+
+    const out: PlayerAction[] = [];
+    switch (core.phase) {
+      case 'bidRound1':
+        out.push({ type: 'bid', payload: { decision: 'pass' } });
+        out.push({ type: 'bid', payload: { decision: 'orderUp', alone: false } });
+        out.push({ type: 'bid', payload: { decision: 'orderUp', alone: true } });
+        break;
+      case 'bidRound2': {
+        // Mirror the core's stick-the-dealer guard.
+        const passCount = core.history.filter((h) => h.kind === 'bidPass').length;
+        const isDealer = core.currentPlayerIndex === core.dealerIndex;
+        const mustCall =
+          isDealer && core.config.stickTheDealer && passCount >= 7;
+        if (!mustCall) out.push({ type: 'bid', payload: { decision: 'pass' } });
+        const rejectedSuit = core.turnUpCard?.suit;
+        for (const s of ['S', 'H', 'D', 'C'] as const) {
+          if (s === rejectedSuit) continue;
+          out.push({
+            type: 'bid',
+            payload: {
+              decision: 'callTrump',
+              suit: SUIT_TO_PLATFORM[s],
+              alone: false,
+            },
+          });
+        }
+        break;
       }
-      // Round 2: name a suit (not the turned-down suit)
-      return [
-        { type: 'call-trump', payload: { suit: 'hearts' } },
-        { type: 'call-trump', payload: { suit: 'diamonds' } },
-        { type: 'call-trump', payload: { suit: 'clubs' } },
-        { type: 'call-trump', payload: { suit: 'spades' } },
-        { type: 'pass-trump' },
-      ];
+      case 'dealerDiscard':
+        for (const c of current.hand) {
+          out.push({ type: 'discard', cardIds: [c.id] });
+        }
+        break;
+      case 'play':
+        for (const c of current.hand) {
+          out.push({ type: 'play', cardIds: [c.id] });
+        }
+        break;
     }
-
-    const player = state.players.find(p => p.playerId === playerId);
-    if (!player) return [];
-    if (pd.ledSuit) {
-      const trump = pd.trumpSuit!;
-      // Account for left bower being trump suit
-      const ledCards = player.hand.filter(c => {
-        if (c.rank === 'J' && c.suit === sameColorSuit(trump)) return pd.ledSuit === trump;
-        return c.suit === pd.ledSuit;
-      });
-      if (ledCards.length > 0) return ledCards.map(c => ({ type: 'play', cardIds: [c.id] }));
-    }
-    return player.hand.map(c => ({ type: 'play', cardIds: [c.id] }));
+    return out;
   }
 
   computeResult(state: GameState): PlayerRanking[] {
-    const sorted = [...state.players].sort((a, b) => b.score - a.score);
-    return sorted.map((p, idx) => ({
-      playerId: p.playerId,
-      displayName: p.displayName,
-      rank: idx + 1,
-      score: p.score,
-      isBot: p.isBot,
-    }));
+    // Sort by score descending; partnerships rank together.
+    const pd = state.publicData as unknown as EuchrePublicData;
+    const ns = pd.scoreNS;
+    const ew = pd.scoreEW;
+    return state.players
+      .map((p, idx) => ({
+        playerId: p.playerId,
+        displayName: p.displayName,
+        rank: 0,
+        score: idx % 2 === 0 ? ns : ew,
+        isBot: p.isBot,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .map((r, i) => ({ ...r, rank: i + 1 }));
   }
 
   isGameOver(state: GameState): boolean {
     return state.phase === 'ended';
   }
+}
 
-  private handleOrderUp(state: GameState, playerId: string, pd: EuchrePublicData): GameState {
-    const trump = pd.upCard?.suit ?? 'spades';
-    const tricksTaken: Record<string, number> = {};
-    for (const p of state.players) tricksTaken[p.playerId] = 0;
+function projectState(args: {
+  roomId: string;
+  gameId: string;
+  core: CoreState;
+  turnNumber: number;
+  roundNumber: number;
+  prevVersion: number;
+}): GameState {
+  const { roomId, gameId, core } = args;
 
-    // Dealer discards a card (auto: discard lowest)
-    const dealer = state.players[pd.dealerIndex]!;
-    const sorted = [...dealer.hand].sort((a, b) => (RANK_VALUES[a.rank ?? ''] ?? 0) - (RANK_VALUES[b.rank ?? ''] ?? 0));
-    const discard = sorted[0];
-    const dealerNewHand = discard ? dealer.hand.filter(c => c.id !== discard.id) : dealer.hand;
+  const platformPlayers = core.players.map((p) => ({
+    playerId: p.id,
+    displayName: p.id,
+    hand: p.hand.map((c) => toPlatformCard(c, true)),
+    score: p.partnership === 'NS' ? core.scores.NS : core.scores.EW,
+    isOut: p.sittingOut,
+    isBot: false,
+  }));
 
-    const firstLead = state.players[(pd.dealerIndex + 1) % 4]!.playerId;
+  const publicData: EuchrePublicData = {
+    core,
+    turnUpCard: core.turnUpCard ? toPlatformCard(core.turnUpCard, true) : null,
+    trumpSuit: core.trump ? SUIT_TO_PLATFORM[core.trump.suit] : null,
+    trumpCallerId: core.trump?.callerId ?? null,
+    trumpAlone: core.trump?.alone ?? false,
+    currentTrickCards:
+      core.currentTrick?.plays.map((p) => ({
+        playerId: p.playerId,
+        card: toPlatformCard(p.card, true),
+      })) ?? [],
+    phase: core.phase,
+    scoreNS: core.scores.NS,
+    scoreEW: core.scores.EW,
+    handResult: core.handResult,
+    gameWinner: core.gameWinner,
+  };
 
-    return {
-      ...state,
-      version: state.version + 1,
-      players: state.players.map(p =>
-        p.playerId === dealer.playerId ? { ...p, hand: dealerNewHand } : p
-      ),
-      currentTurn: firstLead,
-      publicData: {
-        ...pd,
-        gamePhase: 'playing',
-        trumpSuit: trump as Suit,
-        maker: playerId,
-        tricksTaken,
-        currentTrick: [],
-      } as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
-  }
+  const currentPlayerId =
+    core.phase === 'gameOver'
+      ? null
+      : platformPlayers[core.currentPlayerIndex]?.playerId ?? null;
 
-  private handlePassTrump(state: GameState, playerId: string, pd: EuchrePublicData): GameState {
-    const newPassCount = pd.passCount + 1;
-    // After 4 passes in round 1 → round 2; after 4 passes in round 2 → redeal (simplified: dealer calls)
-    let trumpRound = pd.trumpRound;
-    let passCount = newPassCount;
-
-    if (newPassCount >= 4) {
-      trumpRound = trumpRound === 1 ? 2 : 1;
-      passCount = 0;
-    }
-
-    const nextTurn = newPassCount >= 4 && trumpRound === 2
-      ? state.players[(pd.dealerIndex + 1) % 4]!.playerId
-      : nextPlayer(state.players, playerId);
-
-    return {
-      ...state,
-      version: state.version + 1,
-      currentTurn: nextTurn,
-      publicData: {
-        ...pd,
-        trumpRound,
-        passCount,
-      } as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
-  }
-
-  private handleCallTrump(
-    state: GameState,
-    playerId: string,
-    action: PlayerAction,
-    pd: EuchrePublicData,
-  ): GameState {
-    const suit = action.payload?.suit as Suit;
-    if (!suit) throw new Error('Must specify a suit');
-    // Hoyle's: in round 2 the suit of the turned-down up-card may not be
-    // called ("turn it down, pick up for a grand slam").
-    if (pd.trumpRound === 2 && pd.upCard && suit === pd.upCard.suit) {
-      throw new Error('Cannot name the turned-down suit as trump');
-    }
-    const tricksTaken: Record<string, number> = {};
-    for (const p of state.players) tricksTaken[p.playerId] = 0;
-
-    const firstLead = state.players[(pd.dealerIndex + 1) % 4]!.playerId;
-
-    return {
-      ...state,
-      version: state.version + 1,
-      currentTurn: firstLead,
-      publicData: {
-        ...pd,
-        gamePhase: 'playing',
-        trumpSuit: suit,
-        maker: playerId,
-        tricksTaken,
-        currentTrick: [],
-      } as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
-  }
-
-  private handlePlay(
-    state: GameState,
-    playerId: string,
-    action: PlayerAction,
-    pd: EuchrePublicData,
-  ): GameState {
-    if (pd.gamePhase !== 'playing') throw new Error('Not in playing phase');
-    const cardId = action.cardIds?.[0];
-    if (!cardId) throw new Error('No card specified');
-
-    const player = state.players.find(p => p.playerId === playerId)!;
-    const card = player.hand.find(c => c.id === cardId);
-    if (!card) throw new Error(`Card ${cardId} not in hand`);
-
-    const trump = pd.trumpSuit!;
-    // Effective suit of a card: left bower plays as trump.
-    const effSuit = (c: Card): Suit => {
-      if (c.rank === 'J' && c.suit === sameColorSuit(trump)) return trump;
-      return (c.suit ?? trump) as Suit;
-    };
-    // Enforce follow-suit per Hoyle's, treating the left bower as trump.
-    if (pd.currentTrick.length > 0 && pd.ledSuit && effSuit(card) !== pd.ledSuit) {
-      const canFollow = player.hand.some(
-        (c) => c.id !== card.id && effSuit(c) === pd.ledSuit,
-      );
-      if (canFollow) throw new Error(`Must follow ${pd.ledSuit}`);
-    }
-    const ledSuit = pd.currentTrick.length === 0 ? effSuit(card) : pd.ledSuit!;
-    const newTrick = [...pd.currentTrick, { playerId, card: { ...card, faceUp: true } }];
-    const newHand = player.hand.filter(c => c.id !== cardId);
-
-    let newPlayers = state.players.map(p =>
-      p.playerId === playerId ? { ...p, hand: newHand } : p
-    );
-
-    if (newTrick.length === 4) {
-      const winnerId = trickWinner(newTrick, trump, ledSuit as Suit);
-      const newTricksTaken = { ...pd.tricksTaken, [winnerId]: (pd.tricksTaken[winnerId] ?? 0) + 1 };
-
-      const handOver = newPlayers.every(p => p.hand.length === 0);
-      if (handOver) {
-        // Score the hand
-        const playerIds = state.players.map(p => p.playerId);
-        const makerTeam = pd.maker ? teamOf(playerIds, pd.maker) : 'teamA';
-        const otherTeam = makerTeam === 'teamA' ? 'teamB' : 'teamA';
-
-        const makerTricks = playerIds
-          .filter((_, i) => (i % 2 === 0 ? 'teamA' : 'teamB') === makerTeam)
-          .reduce((s, id) => s + (newTricksTaken[id] ?? 0), 0);
-
-        let makerPts = 0;
-        if (makerTricks === 5) makerPts = 2; // march
-        else if (makerTricks >= 3) makerPts = 1;
-        else makerPts = -2; // euchred (opponent gets 2)
-
-        const newTeamScores = { ...pd.teamScores };
-        if (makerPts > 0) {
-          newTeamScores[makerTeam] = (newTeamScores[makerTeam] ?? 0) + makerPts;
-        } else {
-          newTeamScores[otherTeam] = (newTeamScores[otherTeam] ?? 0) + 2;
-        }
-
-        newPlayers = newPlayers.map(p => {
-          const team = teamOf(playerIds, p.playerId);
-          return { ...p, score: newTeamScores[team] ?? 0 };
-        });
-
-        const winner = Object.entries(newTeamScores).find(([, s]) => s >= 10);
-
-        return {
-          ...state,
-          version: state.version + 1,
-          phase: winner ? 'ended' : 'playing',
-          players: newPlayers,
-          currentTurn: winner ? null : winnerId,
-          publicData: {
-            ...pd,
-            tricksTaken: newTricksTaken,
-            currentTrick: [],
-            ledSuit: null,
-            teamScores: newTeamScores,
-          } as unknown as Record<string, unknown>,
-          updatedAt: new Date().toISOString(),
-        };
-      }
-
-      return {
-        ...state,
-        version: state.version + 1,
-        players: newPlayers,
-        currentTurn: winnerId,
-        publicData: {
-          ...pd,
-          tricksTaken: newTricksTaken,
-          currentTrick: [],
-          ledSuit: null,
-        } as unknown as Record<string, unknown>,
-        updatedAt: new Date().toISOString(),
-      };
-    }
-
-    return {
-      ...state,
-      version: state.version + 1,
-      players: newPlayers,
-      currentTurn: nextPlayer(state.players, playerId),
-      publicData: {
-        ...pd,
-        currentTrick: newTrick,
-        ledSuit,
-      } as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
-  }
+  return {
+    version: args.prevVersion + 1,
+    roomId,
+    gameId,
+    phase: core.phase === 'gameOver' ? 'ended' : 'playing',
+    players: platformPlayers,
+    currentTurn: currentPlayerId,
+    turnNumber: args.turnNumber,
+    roundNumber: args.roundNumber,
+    publicData: publicData as unknown as Record<string, unknown>,
+    updatedAt: new Date().toISOString(),
+  };
 }

@@ -1,0 +1,34 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Hearts — snapshots deterministic deal snapshot (4p seed=555) 1`] = `
+{
+  "dealSize": 13,
+  "passDirection": "left",
+  "phase": "pass",
+  "totalCards": 52,
+}
+`;
+
+exports[`Hearts — snapshots full round (auto-play first legal) completes and scores 1`] = `
+{
+  "ended": "roundOver",
+  "scores": [
+    {
+      "id": "p0",
+      "score": 1,
+    },
+    {
+      "id": "p1",
+      "score": 5,
+    },
+    {
+      "id": "p2",
+      "score": 0,
+    },
+    {
+      "id": "p3",
+      "score": 20,
+    },
+  ],
+}
+`;

@@ -1,13 +1,16 @@
 /**
- * Idiot (Palace / Shithead) Game Engine
+ * Idiot — platform engine adapter.
  *
- * Standard 52-card deck, 2–6 players.
- * Each player: 3 face-down table cards, 3 face-up table cards, 3 hand cards.
- * Turn order: play equal-or-higher card to discard pile, or pick up pile.
- * Special: 2=reset (any), 10=burn pile, 7=must play lower or equal, Ace=high.
- * Win: first to empty all cards (hand, then face-up table, then face-down).
+ * Thin wrapper over ./core.ts. Maps the platform's generic
+ * `PlayerAction` shape into the pure core's `Action` shape and projects
+ * a UI-friendly `publicData` contract.
  *
- * Simplified: hand phase only for engine correctness.
+ * Supported action types (PlayerAction.type):
+ *   - `swap`    : payload { handCardId, faceUpCardId } — swap phase
+ *   - `ready`   : no payload — commit swap choices, begin play
+ *   - `play`    : cardIds[] — single-zone multi-rank stack (hand/face-up)
+ *   - `play-face-down` : cardIds[] (exactly one) — blind play
+ *   - `pickup`  : no payload — pick up the entire discard pile
  */
 
 import type {
@@ -16,50 +19,75 @@ import type {
   GameState,
   PlayerAction,
   PlayerRanking,
-  Card,
+  Card as PlatformCard,
+  Rank as PlatformRank,
+  Suit as PlatformSuit,
 } from '@card-platform/shared-types';
-import { createStandardDeck } from '@card-platform/cards-engine';
 import { logger } from '../../utils/logger';
+import {
+  newGame as coreNewGame,
+  applyAction as coreApply,
+  legalActions as coreLegalActions,
+  DEFAULT_CONFIG,
+  activeZoneOf,
+  type Card as CoreCard,
+  type GameState as CoreState,
+  type Suit as CoreSuit,
+  type Rank as CoreRank,
+  type IdiotConfig,
+  type PileRequirement,
+  type PlayerState as CorePlayerState,
+  type Zone,
+} from './core';
+
+const SUIT_TO_PLATFORM: Record<CoreSuit, PlatformSuit> = {
+  S: 'spades', H: 'hearts', D: 'diamonds', C: 'clubs',
+};
+const RANK_TO_PLATFORM: Record<CoreRank, PlatformRank> = {
+  '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7',
+  '8': '8', '9': '9', '10': '10', J: 'J', Q: 'Q', K: 'K', A: 'A',
+};
+const RANK_NUMERIC: Record<CoreRank, number> = {
+  '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
+  '8': 8, '9': 9, '10': 10, J: 11, Q: 12, K: 13, A: 14,
+};
+
+function toPlatformCard(c: CoreCard, faceUp: boolean): PlatformCard {
+  return {
+    id: c.id,
+    deckType: 'standard',
+    suit: SUIT_TO_PLATFORM[c.suit],
+    rank: RANK_TO_PLATFORM[c.rank],
+    value: RANK_NUMERIC[c.rank],
+    faceUp,
+  };
+}
 
 interface IdiotPublicData {
-  drawPile: Card[];
-  drawPileSize: number;
-  discardPile: Card[];
-  discardTop: Card | null;
-  tableDown: Record<string, Card[]>; // face-down table cards
-  tableUp: Record<string, Card[]>;   // face-up table cards
-  mustPlayLower: boolean;
+  /** Core state preserved verbatim so the UI can render any detail. */
+  core: CoreState;
+  /** UI-friendly projections — duplicated from core for convenience. */
+  phase: CoreState['phase'];
+  currentPlayerId: string | null;
+  discardTop: PlatformCard | null;
+  discardCount: number;
+  stockCount: number;
+  burnedCount: number;
+  pileRequirement: PileRequirement;
+  /** Per-player projections (all are public). */
+  faceUpByPlayer: Record<string, PlatformCard[]>;
+  faceDownCountByPlayer: Record<string, number>;
+  handCountByPlayer: Record<string, number>;
+  readyByPlayer: Record<string, boolean>;
+  activeZoneByPlayer: Record<string, Zone | null>;
+  finishedOrder: string[];
+  firstPlayLowestCardId: string | null;
 }
 
-function shuffle<T>(arr: T[]): void {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const tmp = arr[i]!;
-    arr[i] = arr[j]!;
-    arr[j] = tmp;
-  }
-}
-
-function rankVal(card: Card): number {
-  if (!card.rank) return 0;
-  const map: Record<string, number> = {
-    '2': 15, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, // 2 = reset (above all)
-    '8': 8, '9': 9, '10': 20, J: 11, Q: 12, K: 13, A: 14, // 10 = burn
-  };
-  return map[card.rank] ?? 0;
-}
-
-function canPlayOnDiscard(card: Card, top: Card | null, mustPlayLower: boolean): boolean {
-  if (!top || card.rank === '2' || card.rank === '10') return true;
-  const cardVal = rankVal(card);
-  const topVal = top.rank === '7' ? 7 : rankVal(top);
-  if (mustPlayLower || top.rank === '7') return cardVal <= topVal;
-  return cardVal >= topVal;
-}
-
-function nextPlayer(players: GameState['players'], currentId: string): string {
-  const idx = players.findIndex(p => p.playerId === currentId);
-  return players[(idx + 1) % players.length]!.playerId;
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return h;
 }
 
 export class IdiotEngine implements IGameEngine {
@@ -73,191 +101,193 @@ export class IdiotEngine implements IGameEngine {
     if (playerIds.length < 2 || playerIds.length > 6) {
       throw new Error('Idiot requires 2–6 players');
     }
+    const seed = hashString(roomId);
+    const raw = ((config.options as Record<string, unknown> | undefined)?.['idiot'] as
+      | Partial<IdiotConfig>
+      | undefined);
+    const coreCfg: Partial<IdiotConfig> = { ...DEFAULT_CONFIG, ...(raw ?? {}) };
+    const core = coreNewGame(playerIds, coreCfg, seed);
 
-    const deck = createStandardDeck();
-    const cards = [...deck.cards];
-    shuffle(cards);
-
-    const tableDown: Record<string, Card[]> = {};
-    const tableUp: Record<string, Card[]> = {};
-
-    const players = playerIds.map(playerId => {
-      const down = cards.splice(0, 3).map(c => ({ ...c, faceUp: false }));
-      const up = cards.splice(0, 3).map(c => ({ ...c, faceUp: true }));
-      const hand = cards.splice(0, 3).map(c => ({ ...c, faceUp: false }));
-      tableDown[playerId] = down;
-      tableUp[playerId] = up;
-      return {
-        playerId,
-        displayName: playerId,
-        hand,
-        score: 0,
-        isOut: false,
-        isBot: false,
-      };
-    });
-
-    const publicData: IdiotPublicData = {
-      drawPile: cards,
-      drawPileSize: cards.length,
-      discardPile: [],
-      discardTop: null,
-      tableDown,
-      tableUp,
-      mustPlayLower: false,
-    };
-
-    logger.debug('IdiotEngine.startGame', { roomId, playerCount: playerIds.length });
-
-    return {
-      version: 1,
-      roomId,
-      gameId,
-      phase: 'playing',
-      players,
-      currentTurn: playerIds[0]!,
-      turnNumber: 1,
-      roundNumber: 1,
-      publicData: publicData as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
+    logger.debug('IdiotEngine.startGame', { roomId, seed, playerCount: playerIds.length });
+    return projectState({ roomId, gameId, core, prevVersion: 0 });
   }
 
   applyAction(state: GameState, playerId: string, action: PlayerAction): GameState {
-    if (state.currentTurn !== playerId) throw new Error(`Not ${playerId}'s turn`);
     const pd = state.publicData as unknown as IdiotPublicData;
+    let core = pd.core;
 
     switch (action.type) {
-      case 'play': return this.handlePlay(state, playerId, action, pd);
-      case 'pickup': return this.handlePickup(state, playerId, pd);
-      default: throw new Error(`Unknown action: ${action.type}`);
+      case 'swap': {
+        const payload = (action as PlayerAction & {
+          payload?: { handCardId?: string; faceUpCardId?: string };
+        }).payload;
+        const handCardId = payload?.handCardId;
+        const faceUpCardId = payload?.faceUpCardId;
+        if (!handCardId || !faceUpCardId) {
+          throw new Error('swap requires handCardId + faceUpCardId payload');
+        }
+        core = coreApply(core, { kind: 'swap', playerId, handCardId, faceUpCardId });
+        break;
+      }
+      case 'ready': {
+        core = coreApply(core, { kind: 'ready', playerId });
+        break;
+      }
+      case 'play': {
+        const cardIds = action.cardIds ?? [];
+        if (cardIds.length === 0) throw new Error('play requires ≥ 1 cardId');
+        const current = core.players[core.currentPlayerIndex]!;
+        if (current.id !== playerId) throw new Error(`Not ${playerId}'s turn`);
+        const zone = activeZoneOf(core, current);
+        if (zone === 'hand') {
+          core = coreApply(core, { kind: 'playFromHand', playerId, cardIds });
+        } else if (zone === 'faceUp') {
+          core = coreApply(core, { kind: 'playFromFaceUp', playerId, cardIds });
+        } else {
+          throw new Error('Cannot `play` from face-down zone — use `play-face-down`');
+        }
+        break;
+      }
+      case 'play-face-down': {
+        const cardId = action.cardIds?.[0];
+        if (!cardId) throw new Error('play-face-down requires exactly one cardId');
+        core = coreApply(core, { kind: 'playFromFaceDown', playerId, cardId });
+        break;
+      }
+      case 'pickup': {
+        core = coreApply(core, { kind: 'pickUpPile', playerId });
+        break;
+      }
+      default:
+        throw new Error(`Unknown action: ${action.type}`);
     }
+
+    return projectState({
+      roomId: state.roomId,
+      gameId: state.gameId,
+      core,
+      prevVersion: state.version,
+    });
   }
 
   getValidActions(state: GameState, playerId: string): PlayerAction[] {
-    if (state.currentTurn !== playerId) return [];
     const pd = state.publicData as unknown as IdiotPublicData;
-    const player = state.players.find(p => p.playerId === playerId);
-    if (!player) return [];
-
-    const playable = player.hand.filter(c =>
-      canPlayOnDiscard(c, pd.discardTop, pd.mustPlayLower)
-    );
-
-    if (playable.length > 0) {
-      return [
-        ...playable.map(c => ({ type: 'play', cardIds: [c.id] })),
-        { type: 'pickup' },
-      ];
+    const core = pd.core;
+    const actions = coreLegalActions(core, playerId);
+    // Translate core Action → platform PlayerAction. Bot strategies and
+    // the UI consume this shape; we keep the set minimal but faithful.
+    const out: PlayerAction[] = [];
+    for (const a of actions) {
+      if (a.kind === 'swap') {
+        out.push({
+          type: 'swap',
+          payload: { handCardId: a.handCardId, faceUpCardId: a.faceUpCardId },
+        } as PlayerAction);
+      } else if (a.kind === 'ready') {
+        out.push({ type: 'ready' });
+      } else if (a.kind === 'playFromHand' || a.kind === 'playFromFaceUp') {
+        out.push({ type: 'play', cardIds: a.cardIds });
+      } else if (a.kind === 'playFromFaceDown') {
+        out.push({ type: 'play-face-down', cardIds: [a.cardId] });
+      } else if (a.kind === 'pickUpPile') {
+        out.push({ type: 'pickup' });
+      }
     }
-    return [{ type: 'pickup' }];
+    return out;
   }
 
   computeResult(state: GameState): PlayerRanking[] {
-    // Winner = first to finish; rank by isOut time or hand size
-    const sorted = [...state.players].sort((a, b) => {
-      if (a.isOut && !b.isOut) return -1;
-      if (!a.isOut && b.isOut) return 1;
-      return a.hand.length - b.hand.length;
-    });
-    return sorted.map((p, idx) => ({
+    const pd = state.publicData as unknown as IdiotPublicData;
+    const { finishedOrder } = pd.core;
+    // Rank finished players in placement order. Any remaining un-finished
+    // player is the Idiot, ranked last with the highest numeric rank.
+    const placements: Record<string, number> = {};
+    finishedOrder.forEach((id, idx) => { placements[id] = idx + 1; });
+    const unfinished = pd.core.players
+      .filter((p) => p.finishedPlace === null)
+      .map((p) => p.id);
+    const lastRank = pd.core.players.length;
+    unfinished.forEach((id) => { placements[id] = lastRank; });
+
+    return state.players.map((p) => ({
       playerId: p.playerId,
       displayName: p.displayName,
-      rank: idx + 1,
+      rank: placements[p.playerId] ?? lastRank,
       score: p.score,
       isBot: p.isBot,
-    }));
+    })).sort((a, b) => a.rank - b.rank);
   }
 
   isGameOver(state: GameState): boolean {
     return state.phase === 'ended';
   }
+}
 
-  private handlePlay(
-    state: GameState,
-    playerId: string,
-    action: PlayerAction,
-    pd: IdiotPublicData,
-  ): GameState {
-    const cardId = action.cardIds?.[0];
-    if (!cardId) throw new Error('No card specified');
+function projectState(args: {
+  roomId: string;
+  gameId: string;
+  core: CoreState;
+  prevVersion: number;
+}): GameState {
+  const { roomId, gameId, core } = args;
 
-    const player = state.players.find(p => p.playerId === playerId)!;
-    const card = player.hand.find(c => c.id === cardId);
-    if (!card) throw new Error(`Card ${cardId} not in hand`);
-
-    if (!canPlayOnDiscard(card, pd.discardTop, pd.mustPlayLower)) {
-      throw new Error('Cannot play that card');
-    }
-
-    const faceUp = { ...card, faceUp: true };
-    let newDiscard = [...pd.discardPile, faceUp];
-    let newHand = player.hand.filter(c => c.id !== cardId);
-    let drawPile = [...pd.drawPile];
-
-    // Refill hand from draw pile to 3+ if possible
-    while (newHand.length < 3 && drawPile.length > 0) {
-      newHand.push({ ...drawPile.pop()!, faceUp: false });
-    }
-
-    // Special cards
-    let isBurn = card.rank === '10';
-    let isReset = card.rank === '2';
-    let mustPlayLower = card.rank === '7';
-
-    if (isBurn) {
-      newDiscard = []; // burn the pile
-    }
-
-    const wentOut = newHand.length === 0
-      && (pd.tableUp[playerId]?.length ?? 0) === 0
-      && (pd.tableDown[playerId]?.length ?? 0) === 0;
-
-    let newPlayers = state.players.map(p =>
-      p.playerId === playerId ? { ...p, hand: newHand, isOut: wentOut } : p
-    );
-
-    const allOut = newPlayers.filter(p => !p.isOut).length <= 1;
-
-    return {
-      ...state,
-      version: state.version + 1,
-      phase: allOut ? 'ended' : 'playing',
-      players: newPlayers,
-      currentTurn: allOut ? null : (isBurn ? playerId : nextPlayer(state.players, playerId)),
-      turnNumber: state.turnNumber + 1,
-      publicData: {
-        ...pd,
-        drawPile,
-        drawPileSize: drawPile.length,
-        discardPile: newDiscard,
-        discardTop: isBurn ? null : faceUp,
-        mustPlayLower: isReset ? false : mustPlayLower,
-      } as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
+  const faceUpByPlayer: Record<string, PlatformCard[]> = {};
+  const faceDownCountByPlayer: Record<string, number> = {};
+  const handCountByPlayer: Record<string, number> = {};
+  const readyByPlayer: Record<string, boolean> = {};
+  const activeZoneByPlayer: Record<string, Zone | null> = {};
+  for (const p of core.players) {
+    faceUpByPlayer[p.id] = p.faceUp.map((c) => toPlatformCard(c, true));
+    faceDownCountByPlayer[p.id] = p.faceDown.length;
+    handCountByPlayer[p.id] = p.hand.length;
+    readyByPlayer[p.id] = p.ready;
+    activeZoneByPlayer[p.id] = activeZoneOf(core, p);
   }
 
-  private handlePickup(state: GameState, playerId: string, pd: IdiotPublicData): GameState {
-    const player = state.players.find(p => p.playerId === playerId)!;
-    const pickedUp = [...pd.discardPile];
-    const newHand = [...player.hand, ...pickedUp.map(c => ({ ...c, faceUp: false }))];
+  const platformPlayers = core.players.map((p) => ({
+    playerId: p.id,
+    displayName: p.id,
+    hand: p.hand.map((c) => toPlatformCard(c, true)),
+    score: p.finishedPlace ?? 0,
+    isOut: p.finishedPlace !== null,
+    isBot: false,
+  }));
 
-    return {
-      ...state,
-      version: state.version + 1,
-      players: state.players.map(p =>
-        p.playerId === playerId ? { ...p, hand: newHand } : p
-      ),
-      currentTurn: nextPlayer(state.players, playerId),
-      turnNumber: state.turnNumber + 1,
-      publicData: {
-        ...pd,
-        discardPile: [],
-        discardTop: null,
-        mustPlayLower: false,
-      } as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
-  }
+  const currentPlayerId =
+    core.phase === 'gameOver'
+      ? null
+      : core.players[core.currentPlayerIndex]?.id ?? null;
+
+  const publicData: IdiotPublicData = {
+    core,
+    phase: core.phase,
+    currentPlayerId,
+    discardTop: core.discard.length > 0
+      ? toPlatformCard(core.discard[core.discard.length - 1]!, true)
+      : null,
+    discardCount: core.discard.length,
+    stockCount: core.stock.length,
+    burnedCount: core.burned.length,
+    pileRequirement: core.pileRequirement,
+    faceUpByPlayer,
+    faceDownCountByPlayer,
+    handCountByPlayer,
+    readyByPlayer,
+    activeZoneByPlayer,
+    finishedOrder: core.finishedOrder,
+    firstPlayLowestCardId: core.firstPlayLowestCardId,
+  };
+
+  return {
+    version: args.prevVersion + 1,
+    roomId,
+    gameId,
+    phase: core.phase === 'gameOver' ? 'ended' : 'playing',
+    players: platformPlayers,
+    currentTurn: currentPlayerId,
+    turnNumber: core.turnNumber,
+    roundNumber: core.roundNumber,
+    publicData: publicData as unknown as Record<string, unknown>,
+    updatedAt: new Date().toISOString(),
+  };
 }

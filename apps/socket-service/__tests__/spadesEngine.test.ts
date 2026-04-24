@@ -24,8 +24,8 @@ describe('SpadesEngine', () => {
     expect(engine.gameId).toBe('spades');
   });
 
-  it('requires exactly 4 players', () => {
-    expect(engine.minPlayers).toBe(4);
+  it('supports 2–4 players (4p = partnerships; 2p/3p = individual)', () => {
+    expect(engine.minPlayers).toBe(2);
     expect(engine.maxPlayers).toBe(4);
   });
 
@@ -103,45 +103,7 @@ describe("SpadesEngine — Hoyle's rule suite", () => {
     ).toThrow(/spades have not been broken/i);
   });
 
-  it('nil bid with 0 tricks scores +100; non-zero tricks scores -100', () => {
-    // We can't easily play out a full hand without heavy setup; instead
-    // call the private hand-resolution logic via the public handlePlay path.
-    // Build a state where all 4 hands are empty and one last trick resolves
-    // the hand, with p1's bid=0 and tricks already 0 / already 1.
-    const start = engine.startGame(cfg);
-    let state: GameState = {
-      ...start,
-      publicData: {
-        ...start.publicData,
-        gamePhase: 'playing',
-        bids: { p1: 0, p2: 3, p3: 3, p4: 3 },
-        tricksTaken: { p1: 0, p2: 5, p3: 4, p4: 4 },
-        currentTrick: [],
-        ledSuit: null,
-        spadesBroken: true,
-        teamScores: { teamA: 0, teamB: 0 },
-      },
-      players: start.players.map((p) => ({ ...p, hand: [] })),
-      currentTurn: 'p1',
-    };
-    // Give each player one last card for the final trick so the engine
-    // detects hand-over.
-    state.players[0]!.hand = [sp('s-a','A','spades')];
-    state.players[1]!.hand = [sp('s-2','2','spades')];
-    state.players[2]!.hand = [sp('s-3','3','spades')];
-    state.players[3]!.hand = [sp('s-4','4','spades')];
-    let s: GameState = state;
-    s = engine.applyAction(s, 'p1', { type: 'play', cardIds: ['s-a'] });
-    s = engine.applyAction(s, s.currentTurn!, { type: 'play', cardIds: ['s-2'] });
-    s = engine.applyAction(s, s.currentTurn!, { type: 'play', cardIds: ['s-3'] });
-    s = engine.applyAction(s, s.currentTurn!, { type: 'play', cardIds: ['s-4'] });
-
-    // Partnerships pair indices: teamA = {p1, p3}, teamB = {p2, p4}.
-    // p1 (bid 0) wins the final trick with A\u2660 \u2192 1 trick \u2192 nil BUST (-100).
-    // teamA contract: only p3's 3-bid counts; tricks p1+p3 = 1+4 = 5.
-    //   contract points: 3*10 + (5-3)=2 bags = 32. Plus nilAdjust -100 = -68.
-    const pd = s.publicData as Record<string, unknown>;
-    const teams = pd['teamScores'] as Record<string, number>;
-    expect(teams['teamA']).toBe(-68);
-  });
+  // Detailed nil / partnership / scoring tests live in spades-core.test.ts
+  // where we have direct access to the pure core and can synthesize
+  // end-of-round states without threading through the adapter.
 });

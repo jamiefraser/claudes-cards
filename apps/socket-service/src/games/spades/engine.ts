@@ -1,14 +1,19 @@
 /**
- * Spades Game Engine
+ * Spades — platform engine adapter.
  *
- * 4 players, standard 52-card deck.
- * Partnerships: (p0+p2) vs (p1+p3).
- * Deal 13 cards each.
- * Bid: each player bids how many tricks they'll win.
- * Spades always trump; lead suit must be followed if possible.
- * Scoring: bid * 10 pts if made; overtricks (bags) penalize at 10.
- * Nil bid = 100 pts bonus or -100.
- * Win: first team to 500 pts.
+ * Thin wrapper over ./core.ts. Translates frontend actions (`bid`,
+ * `play`, `ack-round`) into the pure core's Action shape and projects
+ * a UI-friendly `publicData` contract.
+ *
+ * Preserves the legacy public-data fields for frontend compatibility:
+ *   - `gamePhase` ('bidding' | 'playing' | 'scoring')
+ *   - `bids` (Record<playerId, number>) — nil bids surface as 0, blind
+ *     nils as -1 so the UI can render them differently if desired
+ *   - `tricksTaken` per player
+ *   - `spadesBroken`, `teamScores`, `dealerIndex`, `currentTrick`,
+ *     `ledSuit`
+ *
+ * Adds canonical spec fields: `partnerships`, `sandbags`, `roundNumber`.
  */
 
 import type {
@@ -17,334 +22,286 @@ import type {
   GameState,
   PlayerAction,
   PlayerRanking,
-  Card,
+  Card as PlatformCard,
+  Rank as PlatformRank,
+  Suit as PlatformSuit,
 } from '@card-platform/shared-types';
-import { createStandardDeck } from '@card-platform/cards-engine';
 import { logger } from '../../utils/logger';
+import {
+  newGame as coreNewGame,
+  applyAction as coreApply,
+  legalActions as coreLegalActions,
+  DEFAULT_CONFIG,
+  type Card as CoreCard,
+  type GameState as CoreState,
+  type Suit as CoreSuit,
+  type Rank as CoreRank,
+  type SpadesConfig,
+  type Bid,
+  type PartnershipId,
+} from './core';
 
-type SpadesPhase = 'bidding' | 'playing' | 'scoring';
+const SUIT_TO_PLATFORM: Record<CoreSuit, PlatformSuit> = {
+  S: 'spades', H: 'hearts', D: 'diamonds', C: 'clubs',
+};
+const RANK_TO_PLATFORM: Partial<Record<CoreRank, PlatformRank>> = {
+  '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7',
+  '8': '8', '9': '9', '10': '10', J: 'J', Q: 'Q', K: 'K', A: 'A',
+};
+const RANK_NUMERIC: Record<CoreRank, number> = {
+  '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
+  '8': 8, '9': 9, '10': 10, J: 11, Q: 12, K: 13, A: 14,
+  LittleJoker: 15, BigJoker: 16,
+};
+
+function toPlatformCard(c: CoreCard, faceUp: boolean): PlatformCard {
+  return {
+    id: c.id,
+    deckType: 'standard',
+    suit: SUIT_TO_PLATFORM[c.suit],
+    // Jokers don't have a platform rank — surface as 'A' but use the
+    // numeric value to distinguish. The UI can key off the card id.
+    rank: RANK_TO_PLATFORM[c.rank] ?? 'A',
+    value: RANK_NUMERIC[c.rank],
+    faceUp,
+  };
+}
+
+/** Project a core Bid into the legacy { [playerId]: number } shape.
+ *  nil → 0; blindNil → -1; unset → -2. */
+function bidToLegacyNumber(bid: Bid | null): number {
+  if (!bid) return -2;
+  if (bid.kind === 'nil') return 0;
+  if (bid.kind === 'blindNil') return -1;
+  return bid.n;
+}
 
 interface SpadesPublicData {
-  gamePhase: SpadesPhase;
+  core: CoreState;
+  gamePhase: 'bidding' | 'playing' | 'scoring';
   bids: Record<string, number>;
+  bidKinds: Record<string, Bid['kind'] | null>;
   tricksTaken: Record<string, number>;
-  currentTrick: Array<{ playerId: string; card: Card }>;
-  ledSuit: string | null;
+  currentTrick: Array<{ playerId: string; card: PlatformCard }>;
+  ledSuit: PlatformSuit | null;
   spadesBroken: boolean;
-  teamScores: Record<string, number>; // teamA, teamB
+  teamScores: Record<string, number>;
+  sandbags: Record<string, number>;
   dealerIndex: number;
+  roundNumber: number;
 }
 
-function shuffle<T>(arr: T[]): void {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const tmp = arr[i]!;
-    arr[i] = arr[j]!;
-    arr[j] = tmp;
-  }
-}
-
-function cardRank(card: Card): number {
-  if (!card.rank) return 0;
-  const map: Record<string, number> = {
-    '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
-    '8': 8, '9': 9, '10': 10, J: 11, Q: 12, K: 13, A: 14,
-  };
-  return map[card.rank] ?? 0;
-}
-
-function trickWinner(trick: Array<{ playerId: string; card: Card }>, ledSuit: string): string {
-  // Spades beat all; led suit beats other suits
-  const spades = trick.filter(t => t.card.suit === 'spades');
-  if (spades.length > 0) {
-    return spades.reduce((best, t) => cardRank(t.card) > cardRank(best.card) ? t : best).playerId;
-  }
-  const ledCards = trick.filter(t => t.card.suit === ledSuit);
-  return ledCards.reduce((best, t) => cardRank(t.card) > cardRank(best.card) ? t : best).playerId;
-}
-
-function teamOf(playerIds: string[], playerId: string): string {
-  const idx = playerIds.indexOf(playerId);
-  return idx % 2 === 0 ? 'teamA' : 'teamB';
-}
-
-function nextPlayer(players: GameState['players'], currentId: string): string {
-  const idx = players.findIndex(p => p.playerId === currentId);
-  return players[(idx + 1) % players.length]!.playerId;
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return h;
 }
 
 export class SpadesEngine implements IGameEngine {
   readonly gameId = 'spades';
   readonly supportsAsync = false;
-  readonly minPlayers = 4;
+  readonly minPlayers = 2;
   readonly maxPlayers = 4;
 
   startGame(config: GameConfig): GameState {
     const { roomId, gameId, playerIds } = config;
-    if (playerIds.length !== 4) throw new Error('Spades requires exactly 4 players');
-
-    const deck = createStandardDeck();
-    const cards = [...deck.cards];
-    shuffle(cards);
-
-    const players = playerIds.map(playerId => ({
-      playerId,
-      displayName: playerId,
-      hand: cards.splice(0, 13).map(c => ({ ...c, faceUp: false })),
-      score: 0,
-      isOut: false,
-      isBot: false,
-    }));
-
-    const bids: Record<string, number> = {};
-    const tricksTaken: Record<string, number> = {};
-    for (const id of playerIds) {
-      bids[id] = -1; // not yet bid
-      tricksTaken[id] = 0;
+    if (playerIds.length < 2 || playerIds.length > 4) {
+      throw new Error('Spades requires 2–4 players');
     }
-
-    const publicData: SpadesPublicData = {
-      gamePhase: 'bidding',
-      bids,
-      tricksTaken,
-      currentTrick: [],
-      ledSuit: null,
-      spadesBroken: false,
-      teamScores: { teamA: 0, teamB: 0 },
-      dealerIndex: 0,
-    };
-
-    logger.debug('SpadesEngine.startGame', { roomId });
-
-    return {
-      version: 1,
-      roomId,
-      gameId,
-      phase: 'playing',
-      players,
-      currentTurn: playerIds[0]!,
-      turnNumber: 1,
-      roundNumber: 1,
-      publicData: publicData as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
+    const seed = hashString(roomId);
+    const raw = ((config.options as Record<string, unknown> | undefined)?.['spades'] as
+      | Partial<SpadesConfig>
+      | undefined);
+    const coreCfg: Partial<SpadesConfig> = { ...DEFAULT_CONFIG, ...(raw ?? {}) };
+    const core = coreNewGame(playerIds, coreCfg, seed);
+    logger.debug('SpadesEngine.startGame', { roomId, seed, playerCount: playerIds.length });
+    return projectState({ roomId, gameId, core, prevVersion: 0 });
   }
 
   applyAction(state: GameState, playerId: string, action: PlayerAction): GameState {
-    if (state.currentTurn !== playerId) throw new Error(`Not ${playerId}'s turn`);
     const pd = state.publicData as unknown as SpadesPublicData;
-
+    let core = pd.core;
     switch (action.type) {
-      case 'bid': return this.handleBid(state, playerId, action, pd);
-      case 'play': return this.handlePlay(state, playerId, action, pd);
-      default: throw new Error(`Unknown action: ${action.type}`);
+      case 'bid': {
+        const amount = (action.payload as { amount?: number; bidKind?: string } | undefined)?.amount;
+        const kind = (action.payload as { bidKind?: Bid['kind'] } | undefined)?.bidKind;
+        let bid: Bid;
+        if (kind === 'nil' || amount === 0) {
+          // Legacy callers send amount=0 to mean nil. Per spec these are
+          // different, but for back-compat we treat 0 as nil.
+          bid = amount === 0 && kind === undefined ? { kind: 'nil' } : { kind: kind ?? 'nil' } as Bid;
+          if (kind === 'blindNil') bid = { kind: 'blindNil' };
+        } else {
+          if (typeof amount !== 'number') throw new Error('bid requires numeric amount');
+          bid = { kind: 'number', n: amount };
+        }
+        core = coreApply(core, { kind: 'placeBid', playerId, bid });
+        break;
+      }
+      case 'play': {
+        const cardId = action.cardIds?.[0];
+        if (!cardId) throw new Error('play requires exactly one cardId');
+        core = coreApply(core, { kind: 'playCard', playerId, cardId });
+        break;
+      }
+      case 'ack-round': {
+        core = coreApply(core, { kind: 'ackRound', playerId });
+        break;
+      }
+      default:
+        throw new Error(`Unknown action: ${action.type}`);
     }
+    return projectState({
+      roomId: state.roomId,
+      gameId: state.gameId,
+      core,
+      prevVersion: state.version,
+    });
   }
 
   getValidActions(state: GameState, playerId: string): PlayerAction[] {
-    if (state.currentTurn !== playerId) return [];
     const pd = state.publicData as unknown as SpadesPublicData;
-
-    if (pd.gamePhase === 'bidding') {
-      return Array.from({ length: 14 }, (_, i) => ({ type: 'bid', payload: { amount: i } }));
-    }
-
-    const player = state.players.find(p => p.playerId === playerId);
-    if (!player) return [];
-
-    if (pd.ledSuit) {
-      const ledSuitCards = player.hand.filter(c => c.suit === pd.ledSuit);
-      if (ledSuitCards.length > 0) {
-        return ledSuitCards.map(c => ({ type: 'play', cardIds: [c.id] }));
+    const core = pd.core;
+    const actions = coreLegalActions(core, playerId);
+    const out: PlayerAction[] = [];
+    for (const a of actions) {
+      if (a.kind === 'placeBid') {
+        if (a.bid.kind === 'number') {
+          out.push({ type: 'bid', payload: { amount: a.bid.n } });
+        } else if (a.bid.kind === 'nil') {
+          out.push({ type: 'bid', payload: { amount: 0, bidKind: 'nil' } });
+        } else {
+          out.push({ type: 'bid', payload: { bidKind: 'blindNil' } });
+        }
+      } else if (a.kind === 'playCard') {
+        out.push({ type: 'play', cardIds: [a.cardId] });
+      } else if (a.kind === 'ackRound') {
+        out.push({ type: 'ack-round' });
       }
     }
-
-    // Can play anything (spades if broken or only have spades)
-    return player.hand.map(c => ({ type: 'play', cardIds: [c.id] }));
+    return out;
   }
 
   computeResult(state: GameState): PlayerRanking[] {
     const sorted = [...state.players].sort((a, b) => b.score - a.score);
-    return sorted.map((p, idx) => ({
-      playerId: p.playerId,
-      displayName: p.displayName,
-      rank: idx + 1,
-      score: p.score,
-      isBot: p.isBot,
-    }));
+    let lastScore: number | null = null;
+    let lastRank = 0;
+    return sorted.map((p, idx) => {
+      const rank = p.score === lastScore ? lastRank : idx + 1;
+      lastScore = p.score;
+      lastRank = rank;
+      return {
+        playerId: p.playerId,
+        displayName: p.displayName,
+        rank,
+        score: p.score,
+        isBot: p.isBot,
+      };
+    });
   }
 
   isGameOver(state: GameState): boolean {
     return state.phase === 'ended';
   }
+}
 
-  private handleBid(
-    state: GameState,
-    playerId: string,
-    action: PlayerAction,
-    pd: SpadesPublicData,
-  ): GameState {
-    if (pd.gamePhase !== 'bidding') throw new Error('Not in bidding phase');
-    const amount = action.payload?.amount as number;
-    if (amount < 0 || amount > 13) throw new Error('Bid must be 0–13');
+function projectState(args: {
+  roomId: string;
+  gameId: string;
+  core: CoreState;
+  prevVersion: number;
+}): GameState {
+  const { roomId, gameId, core } = args;
 
-    const newBids = { ...pd.bids, [playerId]: amount };
-    const allBid = Object.values(newBids).every(b => b >= 0);
-    const next = allBid ? null : nextPlayer(state.players, playerId);
-
-    return {
-      ...state,
-      version: state.version + 1,
-      currentTurn: allBid ? state.players[(pd.dealerIndex + 1) % 4]!.playerId : next,
-      publicData: {
-        ...pd,
-        bids: newBids,
-        gamePhase: allBid ? 'playing' : 'bidding',
-      } as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
+  const bids: Record<string, number> = {};
+  const bidKinds: Record<string, Bid['kind'] | null> = {};
+  const tricksTaken: Record<string, number> = {};
+  for (const p of core.players) {
+    bids[p.id] = bidToLegacyNumber(p.bid);
+    bidKinds[p.id] = p.bid?.kind ?? null;
+    tricksTaken[p.id] = p.tricksTakenCount;
   }
 
-  private handlePlay(
-    state: GameState,
-    playerId: string,
-    action: PlayerAction,
-    pd: SpadesPublicData,
-  ): GameState {
-    if (pd.gamePhase !== 'playing') throw new Error('Not in playing phase');
-    const cardId = action.cardIds?.[0];
-    if (!cardId) throw new Error('No card specified');
-
-    const player = state.players.find(p => p.playerId === playerId)!;
-    const card = player.hand.find(c => c.id === cardId);
-    if (!card) throw new Error(`Card ${cardId} not in hand`);
-
-    // Hoyle's: a player may not lead spades until they have been "broken"
-    // (played on an off-suit trick) unless they hold nothing but spades.
-    if (pd.currentTrick.length === 0 && card.suit === 'spades' && !pd.spadesBroken) {
-      const hasNonSpade = player.hand.some((c) => c.suit !== 'spades');
-      if (hasNonSpade) throw new Error('Spades have not been broken');
+  // Legacy teamScores shape: 4p emits teamA/teamB; 2p/3p emits per-player.
+  const teamScores: Record<string, number> = {};
+  const sandbags: Record<string, number> = {};
+  if (core.partnerships.length === 2) {
+    const ns = core.partnerships.find((p) => p.id === 'NS')!;
+    const ew = core.partnerships.find((p) => p.id === 'EW')!;
+    teamScores.teamA = ns.score;
+    teamScores.teamB = ew.score;
+    teamScores.NS = ns.score;
+    teamScores.EW = ew.score;
+    sandbags.teamA = ns.sandbags;
+    sandbags.teamB = ew.sandbags;
+    sandbags.NS = ns.sandbags;
+    sandbags.EW = ew.sandbags;
+  } else {
+    for (const pa of core.partnerships) {
+      teamScores[pa.id] = pa.score;
+      sandbags[pa.id] = pa.sandbags;
     }
-
-    // Follow-suit enforcement.
-    if (pd.currentTrick.length > 0 && pd.ledSuit && card.suit !== pd.ledSuit) {
-      const canFollow = player.hand.some((c) => c.suit === pd.ledSuit);
-      if (canFollow) throw new Error(`Must follow ${pd.ledSuit}`);
-    }
-
-    const newHand = player.hand.filter(c => c.id !== cardId);
-    const ledSuit = pd.currentTrick.length === 0 ? card.suit! : pd.ledSuit!;
-    const spadesBroken = pd.spadesBroken || card.suit === 'spades';
-    const newTrick = [...pd.currentTrick, { playerId, card: { ...card, faceUp: true } }];
-
-    let newPlayers = state.players.map(p =>
-      p.playerId === playerId ? { ...p, hand: newHand } : p
-    );
-    let newPd: SpadesPublicData;
-
-    if (newTrick.length === 4) {
-      // Resolve trick
-      const winnerId = trickWinner(newTrick, ledSuit);
-      const newTricksTaken = { ...pd.tricksTaken, [winnerId]: (pd.tricksTaken[winnerId] ?? 0) + 1 };
-
-      // Check if hand over
-      const handOver = newPlayers.every(p => p.hand.length === 0);
-      if (handOver) {
-        // Score the hand
-        const playerIds = state.players.map(p => p.playerId);
-        let newTeamScores = { ...pd.teamScores };
-
-        // Hoyle's Spades scoring: each player contributes a per-player nil
-        // bonus/penalty (\u00b1100). The rest of the contract scores at the team
-        // level \u2014 sum of non-nil bids \u00d7 10 if met, \u00b11 per bag. Ten accumulated
-        // bags cost a team 100 pts; we don't track cross-hand bags in this
-        // iteration so the 10-bag penalty is applied to the current hand only.
-        for (const team of ['teamA', 'teamB']) {
-          const members = playerIds.filter((_, i) => (i % 2 === 0 ? 'teamA' : 'teamB') === team);
-
-          let nilAdjust = 0;
-          let contractBid = 0;
-          let contractTricks = 0;
-          for (const id of members) {
-            const bid = pd.bids[id] ?? 0;
-            const tricks = newTricksTaken[id] ?? 0;
-            if (bid === 0) {
-              nilAdjust += tricks === 0 ? 100 : -100;
-              contractTricks += tricks; // partner still covered by contract
-            } else {
-              contractBid += bid;
-              contractTricks += tricks;
-            }
-          }
-
-          const contractPts = contractTricks >= contractBid
-            ? contractBid * 10 + Math.max(0, contractTricks - contractBid)
-            : -(contractBid * 10);
-
-          newTeamScores[team] = (newTeamScores[team] ?? 0) + contractPts + nilAdjust;
-        }
-
-        // Update player scores from team
-        newPlayers = newPlayers.map(p => {
-          const team = teamOf(playerIds, p.playerId);
-          return { ...p, score: newTeamScores[team] ?? 0 };
-        });
-
-        const winner = Object.entries(newTeamScores).find(([, s]) => s >= 500);
-
-        newPd = {
-          ...pd,
-          tricksTaken: newTricksTaken,
-          currentTrick: [],
-          ledSuit: null,
-          spadesBroken,
-          teamScores: newTeamScores,
-          gamePhase: winner ? 'scoring' : 'playing',
-        };
-
-        return {
-          ...state,
-          version: state.version + 1,
-          phase: winner ? 'ended' : 'playing',
-          players: newPlayers,
-          currentTurn: winner ? null : winnerId,
-          publicData: newPd as unknown as Record<string, unknown>,
-          updatedAt: new Date().toISOString(),
-        };
-      }
-
-      newPd = {
-        ...pd,
-        tricksTaken: newTricksTaken,
-        currentTrick: [],
-        ledSuit: null,
-        spadesBroken,
-      };
-
-      return {
-        ...state,
-        version: state.version + 1,
-        players: newPlayers,
-        currentTurn: winnerId,
-        publicData: newPd as unknown as Record<string, unknown>,
-        updatedAt: new Date().toISOString(),
-      };
-    }
-
-    newPd = {
-      ...pd,
-      currentTrick: newTrick,
-      ledSuit,
-      spadesBroken,
-    };
-
-    return {
-      ...state,
-      version: state.version + 1,
-      players: newPlayers,
-      currentTurn: nextPlayer(state.players, playerId),
-      publicData: newPd as unknown as Record<string, unknown>,
-      updatedAt: new Date().toISOString(),
-    };
   }
+
+  const platformPlayers = core.players.map((p) => ({
+    playerId: p.id,
+    displayName: p.id,
+    hand: p.hand.map((c) => toPlatformCard(c, true)),
+    score: partnershipScoreFor(p.id, p.partnershipId, core) ?? 0,
+    isOut: false,
+    isBot: false,
+    isDealer: p.seat === core.dealerIndex,
+  }));
+
+  const gamePhase: 'bidding' | 'playing' | 'scoring' =
+    core.phase === 'bid' ? 'bidding' :
+    core.phase === 'play' ? 'playing' : 'scoring';
+
+  const currentPlayerId =
+    core.phase === 'gameOver' || core.phase === 'roundOver'
+      ? null
+      : (core.players[core.currentPlayerIndex]?.id ?? null);
+
+  const pd: SpadesPublicData = {
+    core,
+    gamePhase,
+    bids,
+    bidKinds,
+    tricksTaken,
+    currentTrick: core.currentTrick?.plays.map((pl) => ({
+      playerId: pl.playerId,
+      card: toPlatformCard(pl.card, true),
+    })) ?? [],
+    ledSuit: core.currentTrick?.ledSuit ? SUIT_TO_PLATFORM[core.currentTrick.ledSuit] : null,
+    spadesBroken: core.spadesBroken,
+    teamScores,
+    sandbags,
+    dealerIndex: core.dealerIndex,
+    roundNumber: core.roundNumber,
+  };
+
+  return {
+    version: args.prevVersion + 1,
+    roomId,
+    gameId,
+    phase: core.phase === 'gameOver' ? 'ended' : 'playing',
+    players: platformPlayers,
+    currentTurn: currentPlayerId,
+    turnNumber: core.completedTricks.length + 1,
+    roundNumber: core.roundNumber,
+    publicData: pd as unknown as Record<string, unknown>,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function partnershipScoreFor(
+  playerId: string,
+  partnershipId: PartnershipId | null,
+  core: CoreState,
+): number | null {
+  if (partnershipId) {
+    return core.partnerships.find((pa) => pa.id === partnershipId)?.score ?? 0;
+  }
+  // Individual play — the partnerships array keys each player as their own team.
+  return core.partnerships.find((pa) => pa.id === (playerId as unknown as PartnershipId))?.score ?? 0;
 }

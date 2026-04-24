@@ -90,7 +90,7 @@ const GAME_CATALOG: GameEntry[] = [
     id: 'spades',
     name: 'Spades',
     category: 'trick-taking',
-    minPlayers: 4,
+    minPlayers: 2,
     maxPlayers: 4,
     supportsAsync: false,
   },

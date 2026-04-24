@@ -1,0 +1,46 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Gin Rummy — snapshots full game to target → winner gets game bonus + box bonuses 1`] = `
+{
+  "roundNumber": 1,
+  "scores": [
+    {
+      "id": "a",
+      "rounds": 1,
+      "total": 294,
+    },
+    {
+      "id": "b",
+      "rounds": 0,
+      "total": 0,
+    },
+  ],
+  "winner": "a",
+}
+`;
+
+exports[`Gin Rummy — snapshots full round with a forced big gin 1`] = `
+{
+  "ending": "bigGin",
+  "points": 97,
+  "winner": "a",
+}
+`;
+
+exports[`Gin Rummy — snapshots full round with a forced gin 1`] = `
+{
+  "ending": "gin",
+  "points": 86,
+  "winner": "a",
+}
+`;
+
+exports[`Gin Rummy — snapshots full round with a forced knock 1`] = `
+{
+  "ending": "undercut",
+  "knockerDw": 5,
+  "opponentDw": 3,
+  "points": 27,
+  "winner": "b",
+}
+`;

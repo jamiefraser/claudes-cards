@@ -60,7 +60,7 @@ const GAME_CATALOG: GameEntry[] = [
     name: 'Gin Rummy',
     category: 'rummy',
     minPlayers: 2,
-    maxPlayers: 4,
+    maxPlayers: 2,
     supportsAsync: true,
   },
   {

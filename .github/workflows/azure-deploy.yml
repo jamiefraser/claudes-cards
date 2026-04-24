@@ -190,7 +190,7 @@ jobs:
             --file apps/frontend/Dockerfile \
             --build-arg VITE_API_URL="https://$API_FQDN/api/v1" \
             --build-arg VITE_SOCKET_URL="https://$SOCKET_FQDN" \
-            --build-arg VITE_AUTH_MODE=production \
+            --build-arg VITE_AUTH_MODE=dev \
             --build-arg VITE_B2C_CLIENT_ID="${{ vars.B2C_CLIENT_ID }}" \
             --build-arg VITE_B2C_AUTHORITY="${{ vars.B2C_AUTHORITY }}" \
             --build-arg VITE_B2C_KNOWN_AUTHORITIES="${{ vars.B2C_KNOWN_AUTHORITIES }}" \

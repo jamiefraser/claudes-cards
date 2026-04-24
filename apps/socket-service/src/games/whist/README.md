@@ -74,7 +74,7 @@ resolution is purely by the led suit.
   roundNumber: number;
   seed: number;
   config: WhistConfig;
-  roundAcks: Set<string>;
+  roundAcks: string[];                 // array, not Set — see CLAUDE.md rule 17
   dealerHasPickedUpTurnUp: boolean;
   rubberWinnerId: PartnershipId | null;
 }

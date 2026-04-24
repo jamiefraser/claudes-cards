@@ -106,7 +106,7 @@ wins; ties share the rank.
   completedTricksThisRound: Trick[];
   currentPlayerIndex: number;
   phase: 'bid' | 'play' | 'roundOver' | 'gameOver';
-  roundAcks: Set<string>;
+  roundAcks: string[];                 // array, not Set — see CLAUDE.md rule 17
   seed: number;
   config: OhHellConfig;
 }

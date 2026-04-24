@@ -99,7 +99,7 @@ Individual variants halve the nil bonuses (to 50 / 100).
   roundNumber: number;
   seed: number;
   config: SpadesConfig;
-  roundAcks: Set<string>;
+  roundAcks: string[];                 // array, not Set — see CLAUDE.md rule 17
 }
 ```
 

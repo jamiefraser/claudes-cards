@@ -165,7 +165,13 @@ export interface GameState {
   roundNumber: number;
   seed: number;
   config: SpadesConfig;
-  roundAcks: Set<string>;
+  /**
+   * Players who've acked the round-over scoring overlay. Stored as an
+   * array (not a Set) because GameState is JSON-round-tripped through
+   * Redis on every action; `JSON.stringify(new Set(...))` silently
+   * produces `{}`, dropping all elements.
+   */
+  roundAcks: string[];
 }
 
 // ─── Deck + deal ────────────────────────────────────────────────────
@@ -242,7 +248,7 @@ export function newGame(
     roundNumber: 1,
     seed,
     config: cfg,
-    roundAcks: new Set(),
+    roundAcks: [],
   });
 }
 
@@ -277,7 +283,7 @@ function dealRound(state: GameState): GameState {
     completedTricks: [],
     phase: 'bid',
     spadesBroken: false,
-    roundAcks: new Set(),
+    roundAcks: [],
   };
 }
 
@@ -439,7 +445,7 @@ function applyPlayCard(
       currentPlayerIndex: resolvedPlayers.findIndex((p) => p.id === winnerEntry.playerId),
       spadesBroken,
       phase: gameOver ? 'gameOver' : 'roundOver',
-      roundAcks: new Set(),
+      roundAcks: [],
     };
   }
   return {
@@ -603,7 +609,7 @@ function determineGameOver(scores: number[], cfg: SpadesConfig): boolean {
 export function legalActions(state: GameState, playerId: string): Action[] {
   if (state.phase === 'gameOver') return [];
   if (state.phase === 'roundOver') {
-    if (state.roundAcks.has(playerId)) return [];
+    if (state.roundAcks.includes(playerId)) return [];
     return [{ kind: 'ackRound', playerId }];
   }
   const current = state.players[state.currentPlayerIndex];
@@ -641,9 +647,10 @@ function applyAckRound(
   a: Extract<Action, { kind: 'ackRound' }>,
 ): GameState {
   if (state.phase !== 'roundOver') throw new Error('No round to ack');
-  const acks = new Set(state.roundAcks);
-  acks.add(a.playerId);
-  if (acks.size < state.players.length) return { ...state, roundAcks: acks };
+  const acks = state.roundAcks.includes(a.playerId)
+    ? state.roundAcks
+    : [...state.roundAcks, a.playerId];
+  if (acks.length < state.players.length) return { ...state, roundAcks: acks };
   return startNextRound(state);
 }
 

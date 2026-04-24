@@ -138,7 +138,13 @@ export interface GameState {
   roundNumber: number;
   seed: number;
   config: WhistConfig;
-  roundAcks: Set<string>;
+  /**
+   * Players who've acked the end-of-hand scoring overlay. Stored as an
+   * array (not a Set) because GameState is JSON-round-tripped through
+   * Redis on every action; `JSON.stringify(new Set(...))` silently
+   * produces `{}`, dropping all elements.
+   */
+  roundAcks: string[];
   /** True once the dealer has played their first card and taken the turn-up. */
   dealerHasPickedUpTurnUp: boolean;
   /** Winner of the last completed rubber, if any. */
@@ -201,7 +207,7 @@ export function newGame(
     roundNumber: 1,
     seed,
     config: cfg,
-    roundAcks: new Set(),
+    roundAcks: [],
     dealerHasPickedUpTurnUp: false,
     rubberWinnerId: null,
   });
@@ -232,7 +238,7 @@ function dealHand(state: GameState): GameState {
     completedTricks: [],
     currentPlayerIndex: (state.dealerIndex + 1) % 4,
     phase: 'play',
-    roundAcks: new Set(),
+    roundAcks: [],
     dealerHasPickedUpTurnUp: false,
     partnerships: state.partnerships.map((pa) => ({ ...pa, tricksThisHand: 0 })),
   };
@@ -411,9 +417,10 @@ function applyAckHand(
   a: Extract<Action, { kind: 'ackHand' }>,
 ): GameState {
   if (state.phase !== 'handOver') throw new Error('No hand to ack');
-  const acks = new Set(state.roundAcks);
-  acks.add(a.playerId);
-  if (acks.size < 4) return { ...state, roundAcks: acks };
+  const acks = state.roundAcks.includes(a.playerId)
+    ? state.roundAcks
+    : [...state.roundAcks, a.playerId];
+  if (acks.length < 4) return { ...state, roundAcks: acks };
   return startNextHand({ ...state, roundAcks: acks });
 }
 
@@ -431,7 +438,7 @@ export function startNextHand(state: GameState): GameState {
 export function legalActions(state: GameState, playerId: string): Action[] {
   if (state.phase === 'gameOver') return [];
   if (state.phase === 'handOver') {
-    if (state.roundAcks.has(playerId)) return [];
+    if (state.roundAcks.includes(playerId)) return [];
     return [{ kind: 'ackHand', playerId }];
   }
   const current = state.players[state.currentPlayerIndex];

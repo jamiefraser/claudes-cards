@@ -60,7 +60,7 @@ function setupState(
     turnNumber: 1,
     roundNumber: 1,
     dealerIndex: 0,
-    roundAcks: new Set(),
+    roundAcks: [],
     seed: 1,
     config: { ...DEFAULT_CONFIG, ...(opts.config ?? {}) },
     decks: 1,

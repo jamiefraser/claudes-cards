@@ -171,7 +171,14 @@ export interface GameState {
   turnNumber: number;
   roundNumber: number;
   dealerIndex: number;
-  roundAcks: Set<string>;
+  /**
+   * Players who've acked the round-over scoring overlay. Stored as an
+   * array (not a Set) because GameState is JSON-round-tripped through
+   * Redis on every action; `JSON.stringify(new Set(...))` silently
+   * produces `{}`, dropping all elements. Using a string array keeps
+   * the shape stable across serialization boundaries.
+   */
+  roundAcks: string[];
   seed: number;
   config: RummyConfig;
   /** Cards that were dealt + any out-of-play cards; used for card conservation. */
@@ -234,7 +241,7 @@ export function newGame(
     turnNumber: 1,
     roundNumber: 1,
     dealerIndex: 0,
-    roundAcks: new Set(),
+    roundAcks: [],
     seed,
     config: cfg,
     decks,
@@ -270,7 +277,7 @@ function dealRound(state: GameState): GameState {
     drewFromDiscardThisTurn: null,
     didMeldThisTurn: false,
     turnNumber: 1,
-    roundAcks: new Set(),
+    roundAcks: [],
     meldIdCounter: 0,
   };
 }
@@ -391,7 +398,7 @@ function reshuffleDiscardIntoStock(state: GameState): GameState {
 export function legalActions(state: GameState, playerId: string): Action[] {
   if (state.phase === 'gameOver') return [];
   if (state.phase === 'roundOver') {
-    if (state.roundAcks.has(playerId)) return [];
+    if (state.roundAcks.includes(playerId)) return [];
     return [{ kind: 'ackRound', playerId }];
   }
   const current = state.players[state.currentPlayerIndex];
@@ -767,7 +774,7 @@ function endRound(state: GameState, winnerId: string | null): GameState {
     ...state,
     players: updated,
     phase: gameOver ? 'gameOver' : 'roundOver',
-    roundAcks: new Set(),
+    roundAcks: [],
   };
 }
 
@@ -776,9 +783,10 @@ function applyAckRound(
   a: Extract<Action, { kind: 'ackRound' }>,
 ): GameState {
   if (state.phase !== 'roundOver') throw new Error('No round to ack');
-  const acks = new Set(state.roundAcks);
-  acks.add(a.playerId);
-  if (acks.size < state.players.length) return { ...state, roundAcks: acks };
+  const acks = state.roundAcks.includes(a.playerId)
+    ? state.roundAcks
+    : [...state.roundAcks, a.playerId];
+  if (acks.length < state.players.length) return { ...state, roundAcks: acks };
   return startNextRound({ ...state, roundAcks: acks });
 }
 

@@ -156,7 +156,13 @@ export interface GameState {
    * next round. Gracefully falls back to auto-advance if the adapter
    * doesn't surface ack actions.
    */
-  roundAcks: Set<string>;
+  /**
+   * Players who've acked the round-over scoring overlay. Stored as an
+   * array (not a Set) because GameState is JSON-round-tripped through
+   * Redis on every action; `JSON.stringify(new Set(...))` silently
+   * produces `{}`, dropping all elements.
+   */
+  roundAcks: string[];
   seed: number;
   config: OhHellConfig;
 }
@@ -242,7 +248,7 @@ export function newGame(
       completedTricksThisRound: [],
       currentPlayerIndex: 0,
       phase: 'bid',
-      roundAcks: new Set(),
+      roundAcks: [],
       seed,
       config: cfg,
     },
@@ -292,7 +298,7 @@ function dealRound(state: GameState, handSize: number): GameState {
     completedTricksThisRound: [],
     currentPlayerIndex: firstBidderIndex,
     phase: 'bid',
-    roundAcks: new Set(),
+    roundAcks: [],
   };
 }
 
@@ -495,9 +501,10 @@ function applyAckRound(
   a: Extract<Action, { kind: 'ackRound' }>,
 ): GameState {
   if (state.phase !== 'roundOver') throw new Error('No round to ack');
-  const acks = new Set(state.roundAcks);
-  acks.add(a.playerId);
-  if (acks.size < state.players.length) {
+  const acks = state.roundAcks.includes(a.playerId)
+    ? state.roundAcks
+    : [...state.roundAcks, a.playerId];
+  if (acks.length < state.players.length) {
     return { ...state, roundAcks: acks };
   }
   return startNextRound({ ...state, roundAcks: acks });
@@ -521,7 +528,7 @@ export function startNextRound(state: GameState): GameState {
 export function legalActions(state: GameState, playerId: string): Action[] {
   if (state.phase === 'gameOver') return [];
   if (state.phase === 'roundOver') {
-    if (state.roundAcks.has(playerId)) return [];
+    if (state.roundAcks.includes(playerId)) return [];
     return [{ kind: 'ackRound', playerId }];
   }
   const current = state.players[state.currentPlayerIndex];

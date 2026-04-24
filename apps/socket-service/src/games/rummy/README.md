@@ -115,7 +115,7 @@ Highest cumulative score wins; ties share the rank.
   didMeldThisTurn: boolean;
   roundNumber: number;
   dealerIndex: number;
-  roundAcks: Set<string>;
+  roundAcks: string[];          // array, not Set — see CLAUDE.md rule 17
   seed: number;
   config: RummyConfig;
   decks: 1 | 2;

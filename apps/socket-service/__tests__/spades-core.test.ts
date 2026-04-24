@@ -61,7 +61,7 @@ function setupState(
     roundNumber: 1,
     seed: 1,
     config: { ...DEFAULT_CONFIG, ...(opts.config ?? {}) },
-    roundAcks: new Set(),
+    roundAcks: [],
   };
 }
 

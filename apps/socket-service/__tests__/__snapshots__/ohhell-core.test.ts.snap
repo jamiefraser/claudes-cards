@@ -1,0 +1,24 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Oh Hell — determinism + snapshot snapshot 4p round-1 deal seed=7 1`] = `
+{
+  "dealerIndex": 0,
+  "handSize": 1,
+  "hands": [
+    [
+      "5H",
+    ],
+    [
+      "6D",
+    ],
+    [
+      "AC",
+    ],
+    [
+      "AS",
+    ],
+  ],
+  "trumpSuit": null,
+  "turnUp": "3D",
+}
+`;

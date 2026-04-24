@@ -123,7 +123,7 @@ const GAME_CATALOG: GameEntry[] = [
     name: 'Oh Hell!',
     category: 'trick-taking',
     minPlayers: 3,
-    maxPlayers: 6,
+    maxPlayers: 7,
     supportsAsync: false,
   },
 

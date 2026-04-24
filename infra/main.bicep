@@ -249,7 +249,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
           resources: { cpu: json('0.5'), memory: '1Gi' }
           env: [
             { name: 'NODE_ENV', value: 'production' }
-            { name: 'AUTH_MODE', value: 'production' }
+            { name: 'AUTH_MODE', value: 'dev' }
             { name: 'TEST_MODE', value: 'false' }
             { name: 'API_PORT', value: '3001' }
             { name: 'DATABASE_URL', secretRef: 'database-url' }
@@ -317,7 +317,7 @@ resource socketApp 'Microsoft.App/containerApps@2024-03-01' = {
           resources: { cpu: json('0.5'), memory: '1Gi' }
           env: [
             { name: 'NODE_ENV', value: 'production' }
-            { name: 'AUTH_MODE', value: 'production' }
+            { name: 'AUTH_MODE', value: 'dev' }
             { name: 'SOCKET_PORT', value: '3002' }
             { name: 'REDIS_URL', secretRef: 'redis-url' }
             { name: 'JWT_SECRET', secretRef: 'jwt-secret' }

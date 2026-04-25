@@ -159,7 +159,13 @@ export function ActionBar({
   );
 
   const isCribbage = gameId === 'cribbage';
-  const isGinRummy = gameId === 'ginrummy';
+  // Accept both forms: the engine registers itself as 'ginrummy' (one
+  // word) but the seeded `games.id` row in the DB is 'gin-rummy' (kebab),
+  // and `state.gameId` carries through whichever form room creation used.
+  // Without the kebab fallback the default ActionBar (Lay Down / Discard /
+  // Skip Turn) gets rendered for gin rummy, with no Knock/Gin button at
+  // all and a non-functional "Lay Down" emit.
+  const isGinRummy = gameId === 'ginrummy' || gameId === 'gin-rummy';
   // Accept both the engine's compact id and the hyphenated Room/seed form.
   const isCrazyEights = gameId === 'crazyeights' || gameId === 'crazy-eights';
   const isCanasta = gameId === 'canasta';
@@ -819,34 +825,43 @@ export function ActionBar({
   // when the hand's deadwood is low enough. The engine accepts a single
   // 'knock' action for all three; the label is purely cosmetic.
   if (isGinRummy) {
+    // One bar for both turn-phases. The Discard and Knock/Gin/Big-Gin
+    // buttons are always rendered (per UX request: visible-but-disabled
+    // until usable) so the player never has to guess which actions
+    // exist. The Lay Down / Skip Turn buttons from the default fallback
+    // bar must NOT appear here — `lay-down` is a Phase 10 action and
+    // produces "no command layDown" errors against the gin rummy
+    // engine.
     const phase = ginrummyKnock?.turnPhase ?? 'draw';
-    if (phase === 'draw') {
-      return (
-        <div className={barBase} role="toolbar" aria-label={en.table.gameActions}>
-          {/* Draw Deck / Take Top are handled by clicking the piles
-              directly (see GameTable draw/discard pile onClick). */}
-          <span
-            className={`text-parchment/70 text-sm font-display italic ${isMyTurn ? '' : 'opacity-60'}`}
-            aria-live="polite"
-          >
-            {isMyTurn ? en.table.drawHint : en.table.waitingForPlayers}
-          </span>
-        </div>
-      );
-    }
-    // discard phase
-    const canDiscard = isMyTurn && selectedCardIds.length === 1;
+    const isDrawPhase = phase === 'draw';
     const knock = ginrummyKnock;
+    const canDiscard = isMyTurn && !isDrawPhase && selectedCardIds.length === 1;
+    const canKnock = isMyTurn && !isDrawPhase && !!knock?.canKnock;
     const knockLabel = knock?.isBigGin
       ? 'Big Gin'
       : knock?.isGin
         ? 'Gin'
         : 'Knock';
-    const knockAria = knock?.isBigGin
-      ? 'Declare Big Gin and end the round'
-      : knock?.isGin
-        ? 'Declare Gin and end the round'
-        : `Knock with ${knock?.deadwood ?? 0} deadwood and end the round`;
+    // Tooltip text describes exactly why the button is disabled, so the
+    // player can self-diagnose without consulting the rules panel.
+    const knockAria = !isMyTurn
+      ? 'Wait for your turn to call knock or gin'
+      : isDrawPhase
+        ? 'Draw a card before calling knock or gin'
+        : !knock?.canKnock
+          ? `Cannot knock — deadwood ${knock?.deadwood ?? 0} (must be ≤ 10)`
+          : knock?.isBigGin
+            ? 'Declare Big Gin and end the round'
+            : knock?.isGin
+              ? 'Declare Gin and end the round'
+              : `Knock with ${knock?.deadwood ?? 0} deadwood and end the round`;
+    const discardAria = !isMyTurn
+      ? 'Wait for your turn to discard'
+      : isDrawPhase
+        ? 'Draw a card before discarding'
+        : selectedCardIds.length !== 1
+          ? 'Select exactly one card to discard'
+          : en.table.discardAria;
     return (
       <div className={barBase} role="toolbar" aria-label={en.table.gameActions}>
         <button
@@ -854,24 +869,43 @@ export function ActionBar({
           onClick={handleDiscard}
           disabled={!canDiscard}
           className={`${btnBase} ${canDiscard ? btnGhost : btnDisabled}`}
-          aria-label={en.table.discardAria}
+          aria-label={discardAria}
+          title={discardAria}
         >
           {en.table.discard}
         </button>
-        {knock?.canKnock && isMyTurn && (
-          <button
-            type="button"
-            onClick={handleKnock}
-            className={`${btnBase} ${btnPrimary}`}
-            aria-label={knockAria}
+        <button
+          type="button"
+          onClick={handleKnock}
+          disabled={!canKnock}
+          className={`${btnBase} ${canKnock ? btnPrimary : btnDisabled}`}
+          aria-label={knockAria}
+          title={knockAria}
+        >
+          {knockLabel}
+          {/* Deadwood badge only for plain Knock — Gin/Big Gin are
+              zero-deadwood by definition. While disabled (draw phase or
+              ineligible) we still show the running deadwood count so
+              the player can plan their discards. */}
+          {!knock?.isGin && !knock?.isBigGin && knock?.deadwood !== undefined && (
+            <span
+              className={`ml-2 text-xs font-display tabular-nums ${
+                canKnock ? 'text-night/70' : 'text-parchment/40'
+              }`}
+            >
+              {knock.deadwood}
+            </span>
+          )}
+        </button>
+        {/* Hint / waiting text: draw-phase tells the player to click
+            the piles; otherwise off-turn shows the waiting message. */}
+        {isDrawPhase && isMyTurn && (
+          <span
+            className="text-parchment/70 text-sm font-display italic ml-2"
+            aria-live="polite"
           >
-            {knockLabel}
-            {!knock.isGin && (
-              <span className="ml-2 text-night/70 text-xs font-display tabular-nums">
-                {knock.deadwood}
-              </span>
-            )}
-          </button>
+            {en.table.drawHint}
+          </span>
         )}
         {!isMyTurn && (
           <span className="text-parchment/50 text-sm ml-2 italic font-display">

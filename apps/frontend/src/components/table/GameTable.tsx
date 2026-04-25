@@ -660,7 +660,14 @@ export function GameTable({ roomId }: GameTableProps) {
     const counterName = isCribbage && currentCountPlayerId
       ? (playerNames[currentCountPlayerId] ?? currentCountPlayerId)
       : '';
-    const ginrummyKnock = gameState.gameId === 'ginrummy' && myPlayer
+    // Accept both 'ginrummy' (engine id) and 'gin-rummy' (DB id). The
+    // state's gameId carries through whichever form room creation used,
+    // and a kebab-only check makes the ActionBar fall back to the
+    // generic Lay Down / Discard / Skip Turn variant — none of whose
+    // actions the gin rummy engine accepts.
+    const isGinRummyGame =
+      gameState.gameId === 'ginrummy' || gameState.gameId === 'gin-rummy';
+    const ginrummyKnock = isGinRummyGame && myPlayer
       ? {
           ...knockEligibility(myPlayer.hand),
           turnPhase:
@@ -668,7 +675,7 @@ export function GameTable({ roomId }: GameTableProps) {
         }
       : undefined;
 
-    const sd = gameState.gameId === 'ginrummy'
+    const sd = isGinRummyGame
       ? (gameState.publicData['showdown'] as
           | { active: boolean; acked: string[]; players: Array<{ playerId: string; displayName: string; isBot: boolean }> }
           | undefined)
@@ -784,7 +791,7 @@ export function GameTable({ roomId }: GameTableProps) {
     };
   })() : null;
 
-  const ginrummyShowdownData = gameState.gameId === 'ginrummy'
+  const ginrummyShowdownData = (gameState.gameId === 'ginrummy' || gameState.gameId === 'gin-rummy')
     ? (gameState.publicData['showdown'] as
         | {
             active: boolean;
@@ -1021,7 +1028,8 @@ export function GameTable({ roomId }: GameTableProps) {
     <>
       {/* Game-over celebration */}
       {gameState.phase === 'ended' &&
-        !(gameState.gameId === 'ginrummy' && ginrummyShowdownData?.active) &&
+        !((gameState.gameId === 'ginrummy' || gameState.gameId === 'gin-rummy')
+          && ginrummyShowdownData?.active) &&
         (() => {
           const ranked = [...gameState.players].sort((a, b) => {
             if (a.isOut && !b.isOut) return -1;

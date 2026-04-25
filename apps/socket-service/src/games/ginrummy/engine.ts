@@ -240,8 +240,18 @@ export class GinRummyEngine implements IGameEngine {
     const handAfterDiscard = currentPlayer.hand.filter((c) => c.id !== discardCardId);
     const partition = computeOptimalMeldingPartition(handAfterDiscard);
 
+    // If the post-discard hand has zero deadwood the round is gin, not
+    // knock — the core's `applyKnock` strictly rejects zero-deadwood
+    // hands ("use `gin` instead of `knock`"). Auto-promote the action
+    // here so the UI / bot can keep emitting a single 'knock' action
+    // for both endings without tripping the validator. (Players were
+    // unable to call gin because the FE only emits 'knock'.)
+    const postDiscardDeadwood = partition.deadwood.length;
+    const effectiveEnding: 'knock' | 'gin' =
+      ending === 'gin' || postDiscardDeadwood === 0 ? 'gin' : 'knock';
+
     let nextCore: CoreState;
-    if (ending === 'gin') {
+    if (effectiveEnding === 'gin') {
       nextCore = coreApply(core, {
         kind: 'gin',
         playerId,

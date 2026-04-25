@@ -66,6 +66,17 @@ export class GinRummyBotStrategy implements IBotStrategy {
     if (!player || player.hand.length === 0) return { type: 'pass' };
 
     const deadwood = computeDeadwood(player.hand);
+    // Big gin: 11-card hand with every card in melds (deadwood=0). The
+    // engine treats it as a separate action because there's no discard.
+    if (deadwood === 0 && player.hand.length === 11) {
+      return { type: 'bigGin' };
+    }
+    // Regular knock / gin: post-discard deadwood ≤ 10. The engine
+    // adapter auto-routes a 'knock' with post-discard deadwood = 0 to
+    // the 'gin' core action, so we just emit 'knock' for both. Without
+    // this 'bigGin' branch above, the engine would also auto-route
+    // bigGin via 'knock' but discard a meld card unnecessarily — bigGin
+    // shortcuts that.
     if (deadwood <= 10) {
       return { type: 'knock' };
     }

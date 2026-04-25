@@ -520,7 +520,25 @@ export function ActionBar({
     });
   };
   const handleKnock = () => {
-    if (isMyTurn) emitAction('knock');
+    if (!isMyTurn) return;
+    // The engine treats knock / gin / bigGin as three distinct action
+    // types and the core rejects 'knock' with zero deadwood ("use `gin`
+    // instead"). The button is cosmetically labelled "Knock" / "Gin" /
+    // "Big Gin" based on `ginrummyKnock.isGin` / `isBigGin`, so we
+    // dispatch the matching action type here instead of always sending
+    // 'knock' (which would trip the validator and surface as an
+    // INVALID_ACTION toast — players were unable to call gin or
+    // big-gin).
+    const knock = ginrummyKnock;
+    if (knock?.isBigGin) {
+      emitAction('bigGin');
+      return;
+    }
+    if (knock?.isGin) {
+      emitAction('gin');
+      return;
+    }
+    emitAction('knock');
   };
   const handleAckShow = () => emitAction('ack-show');
 
